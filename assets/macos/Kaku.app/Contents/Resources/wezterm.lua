@@ -156,22 +156,16 @@ end)
 config.font = wezterm.font_with_fallback({
   'JetBrains Mono',
   { family = 'Apple Color Emoji', assume_emoji_presentation = true },
-  'Menlo',
-  'Monaco',
-  { family = 'PingFang SC', scale = 1.0 },
 })
 
 config.bold_brightens_ansi_colors = false
 config.font_size = 17.0
-config.line_height = 1.3
+config.line_height = 1.28
 config.harfbuzz_features = { 'calt=0', 'clig=0', 'liga=0' }
 config.use_cap_height_to_scale_fallback_fonts = false
 
 config.allow_square_glyphs_to_overflow_width = 'WhenFollowedBySpace'
 config.custom_block_glyphs = true
-
-config.freetype_load_target = 'Light'
-config.freetype_render_target = 'HorizontalLcd'
 
 -- ===== Cursor =====
 config.default_cursor_style = 'BlinkingBar'
@@ -188,7 +182,7 @@ config.selection_word_boundary = ' \t\n{}[]()"\'-'  -- Smart selection boundarie
 config.window_padding = {
   left = '40px',
   right = '40px',
-  top = '56px',
+  top = '70px',
   bottom = '30px',
 }
 
@@ -576,7 +570,7 @@ config.mouse_bindings = {
 
 -- ===== Performance =====
 config.enable_scroll_bar = false
-config.front_end = 'OpenGL'  -- OpenGL for better emoji support
+config.front_end = 'OpenGL'
 config.webgpu_power_preference = 'HighPerformance'
 config.animation_fps = 60
 config.max_fps = 60
