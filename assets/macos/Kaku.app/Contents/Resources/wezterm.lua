@@ -168,7 +168,7 @@ config.use_cap_height_to_scale_fallback_fonts = false
 config.allow_square_glyphs_to_overflow_width = 'WhenFollowedBySpace'
 config.custom_block_glyphs = true
 
-config.freetype_load_target = 'Light'
+config.freetype_load_target = 'Normal'
 config.freetype_render_target = 'HorizontalLcd'
 
 -- ===== Cursor =====
