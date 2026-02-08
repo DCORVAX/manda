@@ -37,20 +37,13 @@ When you launch Kaku for the first time, it will offer to automatically configur
 
 > Kaku respects your existing config. It backs up your `.zshrc` before making any changes.
 
-### Download & Install
+### Install
 
-Download the latest release for macOS:
+1. 👉 [**Download Kaku DMG**](https://github.com/tw93/Kaku/releases/latest)
+2. Open `Kaku.dmg` & Drag to Applications
+3. Right-click Open (to bypass security check)
 
-👉 [**Download Kaku DMG**](https://github.com/tw93/Kaku/releases/latest)
-
-**Installation:**
-
-1. Open the DMG file (if blocked, run `sudo xattr -d com.apple.quarantine ~/Downloads/Kaku.dmg`)
-2. Drag Kaku.app to Applications folder
-3. Right-click Kaku.app in Applications and select "Open"
-4. If still blocked: System Settings → Privacy & Security → Click "Open Anyway"
-
-**Quick fix:** `sudo xattr -d com.apple.quarantine /Applications/Kaku.app`
+**Quick fix if blocked:** `sudo xattr -d com.apple.quarantine /Applications/Kaku.app`
 
 ## Usage Guide
 
