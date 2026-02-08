@@ -19,7 +19,7 @@
 ## Features
 
 - **Zero Config**: Polished defaults with carefully selected fonts and themes.
-- **Built-in Shell Suite**: Comes with Starship, Zoxide, Syntax Highlighting, and Autosuggestions.
+- **Built-in Shell Suite**: Comes with Starship, z, Syntax Highlighting, and Autosuggestions.
 - **macOS Native**: Optimized for macOS with smooth animations.
 - **Fast & Lightweight**: GPU-accelerated rendering with a stripped-down, lightweight core.
 - **Lua Scripting**: Infinite customization power via Lua.
@@ -31,7 +31,7 @@
 When you launch Kaku for the first time, it will offer to automatically configure your shell environment:
 
 - **Starship Prompt**: Fast, customizable, and cross-shell.
-- **Zoxide**: A smarter cd command, inspired by z.
+- **z**: Smart directory jumper.
 - **Autosuggestions**: Type less, code faster.
 - **Syntax Highlighting**: Catch errors before you run them.
 

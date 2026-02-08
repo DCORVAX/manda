@@ -46,27 +46,13 @@ else
 	echo "zsh-syntax-highlighting already exists, skipping."
 fi
 
-echo "[Extra] Downloading Zoxide..."
-ZOXIDE_BIN="$VENDOR_DIR/zoxide"
-
-# Fetch latest version tag (e.g. v0.9.4)
-ZOXIDE_VERSION=$(curl -s https://api.github.com/repos/ajeetdsouza/zoxide/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-echo "Latest Zoxide version: $ZOXIDE_VERSION"
-# Remove 'v' prefix for filename construction
-ZOXIDE_VERSION_NO_V="${ZOXIDE_VERSION#v}"
-
-if [[ "$ARCH" == "arm64" ]]; then
-	ZOXIDE_URL="https://github.com/ajeetdsouza/zoxide/releases/download/$ZOXIDE_VERSION/zoxide-$ZOXIDE_VERSION_NO_V-aarch64-apple-darwin.tar.gz"
+echo "[Extra] Cloning zsh-z..."
+ZSH_Z_DIR="$VENDOR_DIR/zsh-z"
+if [[ ! -d "$ZSH_Z_DIR" ]]; then
+	git clone --depth 1 https://github.com/agkozak/zsh-z "$ZSH_Z_DIR"
+	rm -rf "$ZSH_Z_DIR/.git"
 else
-	ZOXIDE_URL="https://github.com/ajeetdsouza/zoxide/releases/download/$ZOXIDE_VERSION/zoxide-$ZOXIDE_VERSION_NO_V-x86_64-apple-darwin.tar.gz"
-fi
-
-if [[ ! -f "$ZOXIDE_BIN" ]]; then
-	echo "Fetching Zoxide from $ZOXIDE_URL..."
-	curl -L "$ZOXIDE_URL" | tar -xz -C "$VENDOR_DIR"
-	chmod +x "$ZOXIDE_BIN"
-else
-	echo "Zoxide already exists, skipping."
+	echo "zsh-z already exists, skipping."
 fi
 
 echo "Vendor dependencies downloaded to $VENDOR_DIR"

@@ -45,13 +45,10 @@ if [[ -f "$VENDOR_DIR/starship" ]]; then
 	chmod +x "$USER_CONFIG_DIR/bin/starship"
 fi
 
-# Copy Zoxide binary
-if [[ -f "$VENDOR_DIR/zoxide" ]]; then
-	cp "$VENDOR_DIR/zoxide" "$USER_CONFIG_DIR/bin/"
-	chmod +x "$USER_CONFIG_DIR/bin/zoxide"
-fi
+# Copy zsh-z
+cp -R "$VENDOR_DIR/zsh-z" "$USER_CONFIG_DIR/plugins/"
 
-# Copy Plugins
+# Copy Starship Config (if not exists)
 cp -R "$VENDOR_DIR/zsh-autosuggestions" "$USER_CONFIG_DIR/plugins/"
 cp -R "$VENDOR_DIR/zsh-syntax-highlighting" "$USER_CONFIG_DIR/plugins/"
 
@@ -101,13 +98,8 @@ if command -v starship &> /dev/null; then
     eval "\$(starship init zsh)"
 fi
 
-# Initialize Zoxide (Smarter cd)
-if command -v zoxide &> /dev/null; then
-    eval "\$(zoxide init zsh)"
-    alias cd="z"
-fi
-
 # Load Plugins
+source "\$KAKU_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh"
 source "\$KAKU_ZSH_DIR/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
 source "\$KAKU_ZSH_DIR/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
 
