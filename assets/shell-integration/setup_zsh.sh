@@ -89,9 +89,9 @@ export KAKU_ZSH_DIR="\$HOME/.config/kaku/zsh"
 # Add bundled binaries to PATH
 export PATH="\$KAKU_ZSH_DIR/bin:\$PATH"
 
-# Enable color output for ls
+# Enable color output for ls (OMZ style colors)
 export CLICOLOR=1
-export LSCOLORS=ExFxBxDxCxegedabagacad
+export LSCOLORS="Gxfxcxdxbxegedabagacad"
 
 # Initialize Starship (Cross-shell prompt)
 if command -v starship &> /dev/null; then
@@ -99,9 +99,22 @@ if command -v starship &> /dev/null; then
 fi
 
 # Load Plugins
-source "\$KAKU_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh"
-source "\$KAKU_ZSH_DIR/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
-source "\$KAKU_ZSH_DIR/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+# Ensure compinit is loaded for zsh-syntax-highlighting and completions
+autoload -Uz compinit && compinit
+
+if [[ -f "\$KAKU_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh" ]]; then
+    source "\$KAKU_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh"
+fi
+
+if [[ -f "\$KAKU_ZSH_DIR/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh" ]]; then
+    source "\$KAKU_ZSH_DIR/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
+fi
+
+# Configure Syntax Highlighting (Must be last)
+if [[ -f "\$KAKU_ZSH_DIR/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]]; then
+    export ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets pattern cursor)
+    source "\$KAKU_ZSH_DIR/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+fi
 
 EOF
 	echo "   -> Added configuration to .zshrc"
