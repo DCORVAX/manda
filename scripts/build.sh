@@ -79,24 +79,27 @@ touch "$APP_BUNDLE_OUT/Contents/Resources/terminal.icns"
 touch "$APP_BUNDLE_OUT/Contents/Info.plist"
 touch "$APP_BUNDLE_OUT"
 
-echo "[5/6] Creating DMG..."
-if command -v create-dmg &>/dev/null; then
-	DMG_NAME="$APP_NAME.dmg"
-	rm -f "$OUT_DIR/$DMG_NAME"
-	create-dmg "$APP_BUNDLE_OUT" "$OUT_DIR" --overwrite --dmg-title="$APP_NAME" 2>&1 | grep -v "^hdiutil:" || true
+echo "[6/6] Creating DMG..."
+DMG_NAME="$APP_NAME.dmg"
+DMG_PATH="$OUT_DIR/$DMG_NAME"
+STAGING_DIR="$OUT_DIR/dmg_staging"
 
-	CREATED_DMG=$(find "$OUT_DIR" -name "*.dmg" -type f -print0 | xargs -0 ls -t | head -1)
-	if [[ -n "$CREATED_DMG" ]]; then
-		if [[ "$(basename "$CREATED_DMG")" != "$DMG_NAME" ]]; then
-			mv "$CREATED_DMG" "$OUT_DIR/$DMG_NAME"
-		fi
-		echo "DMG created: $OUT_DIR/$DMG_NAME"
-	fi
-else
-	echo "Warning: create-dmg not found. Install with: brew install create-dmg"
-fi
+rm -rf "$DMG_PATH" "$STAGING_DIR"
+mkdir -p "$STAGING_DIR"
 
-echo "[6/6] Done: $APP_BUNDLE_OUT"
+cp -R "$APP_BUNDLE_OUT" "$STAGING_DIR/"
+ln -s /Applications "$STAGING_DIR/Applications"
+
+hdiutil create -volname "$APP_NAME" \
+	-srcfolder "$STAGING_DIR" \
+	-ov -format UDZO \
+	"$DMG_PATH"
+
+rm -rf "$STAGING_DIR"
+
+echo "DMG created: $DMG_PATH"
+
+echo "Done: $APP_BUNDLE_OUT"
 if [[ "$OPEN_APP" == "1" ]]; then
 	echo "Opening app..."
 	open "$APP_BUNDLE_OUT"
