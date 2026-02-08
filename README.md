@@ -27,25 +27,17 @@
 
 ## Quick Start
 
-> **Note**: Kaku is currently in **active development** and is primarily built for my personal workflow. It simplifies WezTerm's logic for better performance and cleaner architecture.
+Download the latest release for macOS:
 
-### Build from Source
+👉 [**Download Kaku DMG**](https://github.com/tw93/Kaku/releases/latest)
 
-Kaku is currently built from source. Ensure you have Rust and Cargo installed.
+**Installation:**
+1. Open the DMG file (if blocked, run `sudo xattr -d com.apple.quarantine ~/Downloads/Kaku.dmg`)
+2. Drag Kaku.app to Applications folder
+3. Right-click Kaku.app in Applications and select "Open"
+4. If still blocked: System Settings → Privacy & Security → Click "Open Anyway"
 
-```bash
-# 1. Clone the repository
-git clone https://github.com/tw93/Kaku.git
-cd Kaku
-
-# 2. Build the application
-./scripts/build.sh
-
-# 3. Run the app
-open dist/Kaku.app
-```
-
-> **Note**: The build script is optimized for macOS and will verify your environment before building.
+**Quick fix:** `sudo xattr -d com.apple.quarantine /Applications/Kaku.app`
 
 ## Configuration
 
@@ -64,16 +56,26 @@ To customize Kaku, simply create a `~/.kaku.lua` file. It will override the bund
 For developers contributing to Kaku:
 
 ```bash
+# Clone the repository
+git clone https://github.com/tw93/Kaku.git
+cd Kaku
+
 # Build and verify
 cargo check
 cargo test
+
+# Build application and DMG
+./scripts/build.sh
+# Outputs: dist/Kaku.app and dist/Kaku-{version}.dmg
 
 # Build and open immediately
 ./scripts/build.sh --open
 
 # Clean build artifacts
-rm -rf dist Kaku.app
+rm -rf dist target
 ```
+
+> **Note**: The build script is macOS-only and requires Rust/Cargo installed.
 
 ## License
 
