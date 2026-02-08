@@ -19,14 +19,14 @@
 
 ## Features
 
-- **Zero Config**: Polished defaults with carefully selected JetBrains Mono font, smooth animations, and a modern dark theme that looks great out of the box.
-- **Built-in Shell Suite**: Comes pre-loaded with a powerful Zsh environment including Starship prompt, z directory jumper, syntax highlighting, and autosuggestions.
-- **Fast & Lightweight**: Built on a stripped-down, GPU-accelerated core that launches instantly and handles heavy workloads with ease.
-- **Lua Scripting**: Retains the full power of WezTerm's Lua configuration engine, allowing for infinite customization and programmable control.
+- **Zero Config**: Polished defaults with JetBrains Mono font, smooth animations, and a modern dark theme.
+- **Built-in Shell Suite**: Comes pre-loaded with Starship prompt, z directory jumper, syntax highlighting, and autosuggestions.
+- **Fast & Lightweight**: Built on a stripped-down, GPU-accelerated core that launches instantly.
+- **Lua Scripting**: Retains the full power of WezTerm's Lua engine for infinite customization.
 
 ## Quick Start
 
-1. 👉 [**Download Kaku DMG**](https://github.com/tw93/Kaku/releases/latest) & Drag to Applications
+1. [**Download Kaku DMG**](https://github.com/tw93/Kaku/releases/latest) & Drag to Applications
 2. Open Kaku - Right-click Open if blocked
 3. Run `sudo xattr -d com.apple.quarantine /Applications/Kaku.app` if needed
 4. On first launch, Kaku will automatically set up your shell environment
