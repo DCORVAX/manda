@@ -20,7 +20,7 @@
 ## Features
 
 - **Zero Config**: Polished defaults with JetBrains Mono font, smooth animations, and a modern dark theme.
-- **Built-in Shell Suite**: Comes pre-loaded with Starship prompt, z directory jumper, syntax highlighting, and autosuggestions.
+- **Built-in Shell Suite**: Comes pre-loaded with Starship, z, syntax highlighting, and autosuggestions.
 - **Fast & Lightweight**: Built on a stripped-down, GPU-accelerated core that launches instantly.
 - **Lua Scripting**: Retains the full power of WezTerm's Lua engine for infinite customization.
 
