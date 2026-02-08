@@ -1,13 +1,13 @@
 [workspace]
 members = [
-  "bidi",
+  "crates/bidi",
   "deps/cairo",
-  "wezterm",
+  "kaku",
   "crates/wezterm-blob-leases",
   "crates/wezterm-cell",
-  "wezterm-escape-parser",
+  "crates/wezterm-escape-parser",
   "crates/wezterm-dynamic",
-  "wezterm-gui",
+  "kaku-gui",
   "crates/wezterm-open-url",
   "crates/wezterm-ssh",
   "crates/wezterm-surface",
@@ -235,7 +235,7 @@ wayland-client = "0.31"
 wayland-egl = "0.32"
 wayland-protocols = "0.32"
 wayland-protocols-plasma = { version="0.3.6", features=["client"] }
-wezterm-bidi = { version="0.2.3", path = "bidi", default-features=false}
+wezterm-bidi = { version="0.2.3", path = "crates/bidi", default-features=false}
 wezterm-blob-leases = { version="0.1.1", path = "crates/wezterm-blob-leases"}
 wezterm-cell = { path = "crates/wezterm-cell"}
 wezterm-char-props = { path = "crates/wezterm-char-props", default-features=false }
@@ -244,8 +244,8 @@ wezterm-color-types = { version="0.3", path = "crates/color-types", default-feat
 wezterm-config-derive = { version="0.1", path="config/derive" }
 wezterm-dynamic = { version = "0.2.1", path = "crates/wezterm-dynamic", default-features=false }
 wezterm-dynamic-derive = { version="0.1.1", path="crates/wezterm-dynamic/derive" }
-wezterm-escape-parser = { version="0.1.0", path="wezterm-escape-parser" }
-wezterm-font = { path = "wezterm-font" }
+wezterm-escape-parser = { version="0.1.0", path="crates/wezterm-escape-parser" }
+wezterm-font = { path = "crates/wezterm-font" }
 wezterm-gui-subcommands = { path = "crates/wezterm-gui-subcommands" }
 wezterm-input-types = { version="0.1", path = "crates/wezterm-input-types", default-features=false }
 wezterm-mux-server-impl = { path = "crates/wezterm-mux-server-impl" }
