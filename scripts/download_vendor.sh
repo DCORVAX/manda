@@ -7,23 +7,30 @@ set -euo pipefail
 VENDOR_DIR="$(cd "$(dirname "$0")/../assets/vendor" && pwd)"
 mkdir -p "$VENDOR_DIR"
 
-echo "[1/3] Downloading Starship..."
+echo "[1/3] Downloading Starship (Universal Binary)..."
 STARSHIP_BIN="$VENDOR_DIR/starship"
 
-# Determine architecture for universal binary or current machine
-# For now, we'll download the binary for the current architecture (likely Apple Silicon dev)
-# In a proper CI/CD, we'd use 'lipo' to create a universal binary
-ARCH=$(uname -m)
-if [[ "$ARCH" == "arm64" ]]; then
-	STARSHIP_URL="https://github.com/starship/starship/releases/latest/download/starship-aarch64-apple-darwin.tar.gz"
-else
-	STARSHIP_URL="https://github.com/starship/starship/releases/latest/download/starship-x86_64-apple-darwin.tar.gz"
-fi
+# Download both architectures
+URL_ARM64="https://github.com/starship/starship/releases/latest/download/starship-aarch64-apple-darwin.tar.gz"
+URL_X86_64="https://github.com/starship/starship/releases/latest/download/starship-x86_64-apple-darwin.tar.gz"
 
 if [[ ! -f "$STARSHIP_BIN" ]]; then
-	echo "Fetching Starship from $STARSHIP_URL..."
-	curl -L "$STARSHIP_URL" | tar -xz -C "$VENDOR_DIR"
+	echo "Creating Universal Binary for Starship..."
+	mkdir -p "$VENDOR_DIR/tmp_starship"
+
+	curl -L "$URL_ARM64" | tar -xz -C "$VENDOR_DIR/tmp_starship"
+	mv "$VENDOR_DIR/tmp_starship/starship" "$VENDOR_DIR/tmp_starship/starship_arm64"
+
+	curl -L "$URL_X86_64" | tar -xz -C "$VENDOR_DIR/tmp_starship"
+	mv "$VENDOR_DIR/tmp_starship/starship" "$VENDOR_DIR/tmp_starship/starship_x86_64"
+
+	# Create Universal Binary using lipo
+	lipo -create -output "$STARSHIP_BIN" \
+		"$VENDOR_DIR/tmp_starship/starship_arm64" \
+		"$VENDOR_DIR/tmp_starship/starship_x86_64"
+
 	chmod +x "$STARSHIP_BIN"
+	rm -rf "$VENDOR_DIR/tmp_starship"
 else
 	echo "Starship already exists, skipping."
 fi

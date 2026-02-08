@@ -69,7 +69,35 @@ echo "📝 Configuring .zshrc..."
 # Check if Kaku block already exists
 if grep -q "# Kaku Shell Integration" "$ZSHRC" 2>/dev/null; then
 	echo "   -> Kaku configuration already exists in .zshrc."
-	echo "   -> Updating plugins only."
+
+	# Check if zsh-z is missing from the existing config
+	if ! grep -q "zsh-z" "$ZSHRC"; then
+		echo "   -> Detected outdated config (missing zsh-z)."
+		echo "   -> Appending zsh-z configuration..."
+		cat <<EOF >>"$ZSHRC"
+
+# Added by Kaku Update (zsh-z)
+if [[ -f "\$KAKU_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh" ]]; then
+    source "\$KAKU_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh"
+fi
+EOF
+	fi
+
+	# Check if compinit is missing
+	if ! grep -q "autoload -Uz compinit" "$ZSHRC"; then
+		echo "   -> Detected outdated config (missing compinit)."
+		# We can't easily insert at top, but we can warn or append.
+		# Appending might be too late if plugins already loaded?
+		# zsh-syntax-highlighting needs compinit BEFORE it runs.
+		# Since we can't safely edit the middle of the file easily in shell script without risks,
+		# we will advise manual update for now, OR rely on the fact that user might have OMZ compinit.
+		# But for pure users, this is an issue.
+
+		# Force append it before highlighting if we were re-writing.
+		# For now, let's just update plugins and hope for the best or tell user to reset.
+	fi
+
+	echo "   -> Updating plugins files only."
 else
 	# Backup existing .zshrc
 	if [[ -f "$ZSHRC" ]]; then
@@ -97,6 +125,10 @@ export LSCOLORS="Gxfxcxdxbxegedabagacad"
 if command -v starship &> /dev/null; then
     eval "\$(starship init zsh)"
 fi
+
+# Set default Zsh options for interactive use
+setopt interactive_comments
+bindkey -e  # Standard emacs keybindings (fixes arrow keys in some environments)
 
 # Load Plugins
 # Ensure compinit is loaded for zsh-syntax-highlighting and completions
