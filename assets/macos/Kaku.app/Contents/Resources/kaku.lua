@@ -597,8 +597,8 @@ wezterm.on('gui-startup', function(cmd)
   -- Spawn a window running the first run script
   local tab, pane, window = wezterm.mux.spawn_window {
     args = { first_run_script },
-    width = 110,
-    height = 20,
+    width = 106,
+    height = 22,
   }
   -- No maximize here either
 end)
