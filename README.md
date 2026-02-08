@@ -26,6 +26,14 @@
 
 ## Quick Start
 
+### Install
+
+1. 👉 [**Download Kaku DMG**](https://github.com/tw93/Kaku/releases/latest)
+2. Open `Kaku.dmg` & Drag to Applications
+3. Right-click Open (to bypass security check)
+
+**Quick fix if blocked:** `sudo xattr -d com.apple.quarantine /Applications/Kaku.app`
+
 ### First Run Experience
 
 When you launch Kaku for the first time, it will offer to automatically configure your shell environment:
@@ -36,14 +44,6 @@ When you launch Kaku for the first time, it will offer to automatically configur
 - **Syntax Highlighting**: Catch errors before you run them.
 
 > Kaku respects your existing config. It backs up your `.zshrc` before making any changes.
-
-### Install
-
-1. 👉 [**Download Kaku DMG**](https://github.com/tw93/Kaku/releases/latest)
-2. Open `Kaku.dmg` & Drag to Applications
-3. Right-click Open (to bypass security check)
-
-**Quick fix if blocked:** `sudo xattr -d com.apple.quarantine /Applications/Kaku.app`
 
 ## Usage Guide
 
