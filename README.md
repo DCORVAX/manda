@@ -17,7 +17,7 @@
   <br/>
   Kaku is a deeply customized fork of <a href="https://github.com/wez/wezterm">WezTerm</a>, designed for an <b>out-of-the-box</b> experience.
   <br/>
-  <em>🚧 Work In Progress: Kaku is currently in active development. Features may change.</em>
+  <em>🚧 Work In Progress: Kaku is currently in active development for personal use. Not recommended for daily driver yet. Please use <a href="https://github.com/wez/wezterm">WezTerm</a> for stability.</em>
 </p>
 
 ## Features
