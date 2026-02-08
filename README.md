@@ -16,8 +16,6 @@
   <img src="assets/kaku.png" alt="Kaku Screenshot" width="800" />
   <br/>
   Kaku is a deeply customized fork of <a href="https://github.com/wez/wezterm">WezTerm</a>, designed for an <b>out-of-the-box</b> experience.
-  <br/>
-  <em>🚧 Work In Progress: Kaku is currently in active development for personal use. Not recommended for daily driver yet. Please use <a href="https://github.com/wez/wezterm">WezTerm</a> for stability.</em>
 </p>
 
 ## Features
@@ -30,27 +28,12 @@
 
 ## Quick Start
 
-### Install
-
 1. 👉 [**Download Kaku DMG**](https://github.com/tw93/Kaku/releases/latest) & Drag to Applications
 2. Open Kaku - Right-click Open if blocked
 3. Run `sudo xattr -d com.apple.quarantine /Applications/Kaku.app` if needed
-4. On first launch, Kaku will offer to set up your shell environment automatically
-
-### First Run Experience
-
-When you launch Kaku for the first time, it will offer to automatically configure your shell environment:
-
-- **Starship Prompt**: Fast, customizable, and cross-shell.
-- **z**: Smart directory jumper.
-- **Autosuggestions**: Type less, code faster.
-- **Syntax Highlighting**: Catch errors before you run them.
-
-Kaku respects your existing config. It backs up your `.zshrc` before making any changes.
+4. On first launch, Kaku will offer to set up your shell environment automatically (Starship, z, Autosuggestions, Highlighting)
 
 ## Usage Guide
-
-### Shortcuts
 
 Kaku comes with intuitive macOS-native shortcuts:
 
