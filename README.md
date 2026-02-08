@@ -17,6 +17,7 @@
   <br/>
   Kaku is a deeply customized fork of <a href="https://github.com/wez/wezterm">WezTerm</a>, designed for an <b>out-of-the-box</b> experience.
   <br/>
+  <em>🚧 Work In Progress: Kaku is currently in active development. Features may change.</em>
 </p>
 
 ## Features
@@ -66,14 +67,9 @@ Kaku comes with intuitive macOS-native shortcuts:
 | **Navigate Panes** | `Cmd + Opt + Arrows` |
 | **Clear Screen** | `Cmd + R` |
 | **Font Size** | `Cmd + +`, `Cmd + -`, `Cmd + 0` |
-
-### Smart Navigation (z)
-
-Kaku includes `z` (powered by **zoxide**), a smarter way to navigate directories. It remembers where you go, so you can jump there quickly.
-
-- **Jump to a directory**: `z foo` (jumps to `~/work/foo`)
-- **Interactive selection**: `zi foo` (select from list)
-- **Go back**: `z -`
+| **Smart Jump** | `z <dir>` |
+| **Smart Select** | `zi <dir>` |
+| **Go Back** | `z -` |
 
 ## Configuration
 
