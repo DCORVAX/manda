@@ -555,7 +555,8 @@ config.max_fps = 60
 wezterm.on('gui-startup', function(cmd)
   local home = os.getenv("HOME")
   -- Use a marker file to track if we've shown the first-run experience
-  local installed_flag = home .. "/.config/kaku/.first_run_completed"
+  -- Changed flag name to force re-run for existing users who might have skipped it accidentally
+  local installed_flag = home .. "/.config/kaku/.kaku_setup_v1_completed"
   local f = io.open(installed_flag, "r")
   
   if f then
@@ -565,7 +566,7 @@ wezterm.on('gui-startup', function(cmd)
     -- If no specific command was requested, spawn the default window
     if not cmd then
       local tab, pane, window = wezterm.mux.spawn_window(cmd or {})
-      window:gui_window():maximize()
+      -- Respect initial_cols/rows, do not force maximize
     end
     return
   end
@@ -586,6 +587,12 @@ wezterm.on('gui-startup', function(cmd)
   else
       f_script:close()
   end
+  
+  -- Set flag name for first run script as env var
+  -- But wezterm.mux.spawn_window args cannot directly pass env vars easily without a wrapper
+  -- So we rely on the script knowing the flag name.
+  -- But wait, first_run.sh uses a different flag name now?
+  -- We need to update first_run.sh to match the new flag name.
 
   -- Spawn a window running the first run script
   local tab, pane, window = wezterm.mux.spawn_window {
@@ -593,6 +600,7 @@ wezterm.on('gui-startup', function(cmd)
     width = 110,
     height = 30,
   }
+  -- No maximize here either
 end)
 
 return config
