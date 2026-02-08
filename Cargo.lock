@@ -2738,7 +2738,6 @@ dependencies = [
  "wezterm-gui-subcommands",
  "wezterm-mux-server-impl",
  "wezterm-open-url",
- "wezterm-ssh",
  "wezterm-term",
  "wezterm-toast-notification",
  "wgpu",

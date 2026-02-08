@@ -27,7 +27,7 @@ mod cli;
     version = wezterm_version()
 )]
 pub struct Opt {
-    /// Skip loading wezterm.lua
+    /// Skip loading kaku.lua
     #[arg(long, short = 'n')]
     skip_config: bool,
 
@@ -100,21 +100,6 @@ enum SubCommand {
     /// <https://github.com/clap-rs/clap/issues/1335>
     #[command(short_flag_alias = 'e', hide = true)]
     BlockingStart(StartCommand),
-
-    #[command(name = "ssh", about = "Establish an ssh session")]
-    Ssh(SshCommand),
-
-    #[command(name = "serial", about = "Open a serial port")]
-    Serial(SerialCommand),
-
-    #[command(name = "connect", about = "Connect to wezterm multiplexer")]
-    Connect(ConnectCommand),
-
-    #[command(name = "ls-fonts", about = "Display information about fonts")]
-    LsFonts(LsFontsCommand),
-
-    #[command(name = "show-keys", about = "Show key assignments")]
-    ShowKeys(ShowKeysCommand),
 
     #[command(name = "cli", about = "Interact with experimental mux server")]
     Cli(cli::CliCommand),
@@ -743,13 +728,7 @@ fn run() -> anyhow::Result<()> {
         .cloned()
         .unwrap_or_else(|| SubCommand::Start(StartCommand::default()))
     {
-        SubCommand::Start(_)
-        | SubCommand::BlockingStart(_)
-        | SubCommand::LsFonts(_)
-        | SubCommand::ShowKeys(_)
-        | SubCommand::Ssh(_)
-        | SubCommand::Serial(_)
-        | SubCommand::Connect(_) => delegate_to_gui(saver),
+        SubCommand::Start(_) | SubCommand::BlockingStart(_) => delegate_to_gui(saver),
         SubCommand::ImageCat(cmd) => cmd.run(),
         SubCommand::SetCwd(cmd) => cmd.run(),
         SubCommand::Cli(cli) => cli::run_cli(&opts, cli),
@@ -772,9 +751,9 @@ fn delegate_to_gui(saver: UmaskSaver) -> anyhow::Result<()> {
     drop(saver);
 
     let exe_name = if cfg!(windows) {
-        "wezterm-gui.exe"
+        "kaku-gui.exe"
     } else {
-        "wezterm-gui"
+        "kaku-gui"
     };
 
     let exe = std::env::current_exe()?
