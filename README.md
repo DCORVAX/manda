@@ -39,7 +39,7 @@ git clone https://github.com/tw93/Kaku.git
 cd Kaku
 
 # 2. Build the application
-./scripts/build-kaku-macos.sh
+./scripts/build.sh
 
 # 3. Run the app
 open dist/Kaku.app
@@ -69,7 +69,7 @@ cargo check
 cargo test
 
 # Build and open immediately
-./scripts/build-kaku-macos.sh --open
+./scripts/build.sh --open
 
 # Clean build artifacts
 rm -rf dist Kaku.app

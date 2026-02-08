@@ -155,6 +155,7 @@ end)
 -- ===== Font =====
 config.font = wezterm.font_with_fallback({
   'JetBrains Mono',
+  'PingFang SC',
   { family = 'Apple Color Emoji', assume_emoji_presentation = true },
 })
 
