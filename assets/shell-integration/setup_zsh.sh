@@ -45,6 +45,12 @@ if [[ -f "$VENDOR_DIR/starship" ]]; then
 	chmod +x "$USER_CONFIG_DIR/bin/starship"
 fi
 
+# Copy Zoxide binary
+if [[ -f "$VENDOR_DIR/zoxide" ]]; then
+	cp "$VENDOR_DIR/zoxide" "$USER_CONFIG_DIR/bin/"
+	chmod +x "$USER_CONFIG_DIR/bin/zoxide"
+fi
+
 # Copy Plugins
 cp -R "$VENDOR_DIR/zsh-autosuggestions" "$USER_CONFIG_DIR/plugins/"
 cp -R "$VENDOR_DIR/zsh-syntax-highlighting" "$USER_CONFIG_DIR/plugins/"
@@ -75,11 +81,13 @@ else
 	fi
 
 	# Append Kaku configuration
+	# We use single quotes for EOF to prevent expansion, but we want to expand SOME variables.
+	# So we use standard EOF and escape the $ signs we want to keep literal.
 	cat <<EOF >>"$ZSHRC"
 
 # Kaku Shell Integration
 # Added by Kaku.app Setup
-export KAKU_ZSH_DIR="$USER_CONFIG_DIR"
+export KAKU_ZSH_DIR="\$HOME/.config/kaku/zsh"
 
 # Add bundled binaries to PATH
 export PATH="\$KAKU_ZSH_DIR/bin:\$PATH"
@@ -87,6 +95,12 @@ export PATH="\$KAKU_ZSH_DIR/bin:\$PATH"
 # Initialize Starship (Cross-shell prompt)
 if command -v starship &> /dev/null; then
     eval "\$(starship init zsh)"
+fi
+
+# Initialize Zoxide (Smarter cd)
+if command -v zoxide &> /dev/null; then
+    eval "\$(zoxide init zsh)"
+    alias cd="z"
 fi
 
 # Load Plugins
