@@ -19,9 +19,9 @@
 
 ## Features
 
-- **Zero Config**: Polished defaults with JetBrains Mono, optimized macOS font rendering, and smooth animations.
+- **Zero Config**: Polished defaults with JetBrains Mono, optimized macOS font rendering, smooth animations.
 - **Built-in Shell Suite**: Comes pre-loaded with Starship, z, Delta, syntax highlighting, and autosuggestions.
-- **Fast & Lightweight**: 40% smaller binary, instant startup with lazy loading, and a stripped-down GPU-accelerated core.
+- **Fast & Lightweight**: 40% smaller binary, instant startup with lazy loading, stripped-down GPU-accelerated core.
 - **Lua Scripting**: Retains the full power of WezTerm's Lua engine for infinite customization.
 
 ## Quick Start
