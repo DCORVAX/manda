@@ -26,6 +26,9 @@ echo "[1/6] Building binaries ($PROFILE)..."
 if [[ "$PROFILE" == "release" ]]; then
 	cargo build --release -p kaku-gui -p kaku
 	BIN_DIR="$TARGET_DIR/release"
+elif [[ "$PROFILE" == "release-opt" ]]; then
+	cargo build --profile release-opt -p kaku-gui -p kaku
+	BIN_DIR="$TARGET_DIR/release-opt"
 else
 	cargo build -p kaku-gui -p kaku
 	BIN_DIR="$TARGET_DIR/debug"
