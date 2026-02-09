@@ -64,6 +64,20 @@ if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
 	INSTALL_THEME=true
 fi
 
+# Delta (Git Diff Beautifier) Prompt
+echo "--------------------------------------------------------"
+echo "Would you like to install Delta?"
+echo "Beautiful git diffs with syntax highlighting."
+echo "Perfect for code review and AI-assisted development."
+echo "--------------------------------------------------------"
+read -p "Install Delta? [Y/n] " -n 1 -r
+echo ""
+
+INSTALL_DELTA=false
+if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
+	INSTALL_DELTA=true
+fi
+
 # Process Shell Features
 if [[ "$INSTALL_SHELL" == "true" ]]; then
 	if [[ -f "$SETUP_SCRIPT" ]]; then
@@ -150,7 +164,19 @@ EOF
 	fi
 fi
 
-touch "$HOME/.config/kaku/.kaku_setup_v1_completed"
+# Process Delta Installation
+if [[ "$INSTALL_DELTA" == "true" ]]; then
+	DELTA_SCRIPT="$RESOURCES_DIR/install_delta.sh"
+	if [[ -f "$DELTA_SCRIPT" ]]; then
+		echo ""
+		bash "$DELTA_SCRIPT"
+	else
+		echo "Warning: install_delta.sh not found at $DELTA_SCRIPT"
+	fi
+fi
+
+# Save config version (v2)
+echo "2" > "$HOME/.config/kaku/.kaku_config_version"
 
 echo -e "\n\033[1;32m❤️  Kaku environment is ready! Enjoy coding.\033[0m"
 
