@@ -29,13 +29,15 @@ impl crate::TermWindow {
         let pos_x = split.left as f32 * cell_width + padding_left + border.left.get() as f32;
 
         if split.direction == SplitDirection::Horizontal {
+            // Vertical split line (divides left/right)
+            let split_thickness = 2.0; // Make split line more visible
             self.filled_rectangle(
                 layers,
                 2,
                 euclid::rect(
-                    pos_x + (cell_width / 2.0),
+                    pos_x + (cell_width / 2.0) - (split_thickness / 2.0),
                     pos_y - (cell_height / 2.0),
-                    self.render_metrics.underline_height as f32,
+                    split_thickness,
                     (1. + split.size as f32) * cell_height,
                 ),
                 foreground,
@@ -52,14 +54,16 @@ impl crate::TermWindow {
                 item_type: UIItemType::Split(split.clone()),
             });
         } else {
+            // Horizontal split line (divides top/bottom)
+            let split_thickness = 2.0; // Make split line more visible
             self.filled_rectangle(
                 layers,
                 2,
                 euclid::rect(
                     pos_x - (cell_width / 2.0),
-                    pos_y + (cell_height / 2.0),
+                    pos_y + (cell_height / 2.0) - (split_thickness / 2.0),
                     (1.0 + split.size as f32) * cell_width,
-                    self.render_metrics.underline_height as f32,
+                    split_thickness,
                 ),
                 foreground,
             )?;

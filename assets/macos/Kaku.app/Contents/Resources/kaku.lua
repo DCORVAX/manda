@@ -18,8 +18,8 @@ local function equal_padding(all)
   return {
     left = all,
     right = all,
-    top = all,
-    bottom = all,
+    top = '40px',
+    bottom = '30px',
   }
 end
 
@@ -31,7 +31,7 @@ local function padding_matches(current, expected)
     and current.bottom == expected.bottom
 end
 
-local fullscreen_uniform_padding = equal_padding('24px')
+local fullscreen_uniform_padding = equal_padding('40px')
 
 local function update_window_config(window, is_full_screen)
   local overrides = window:get_config_overrides() or {}
@@ -238,6 +238,9 @@ config.colors = {
     '#61ffca',  -- bright cyan
     '#edecee',  -- bright white
   },
+
+  -- Split separator color (increased contrast for better visibility)
+  split = '#3d3a4f',
 
   -- Tab bar colors
   tab_bar = {
@@ -588,11 +591,15 @@ config.animation_fps = 60
 config.max_fps = 60
 
 -- ===== Visuals & Splits =====
--- Dim inactive panes to focus on the active one
+-- Inactive panes: No dimming (consistent background)
 config.inactive_pane_hsb = {
-  saturation = 0.9,
-  brightness = 0.65,
+  saturation = 1.0,
+  brightness = 1.0,
 }
+
+-- Prevent accidental clicks when focusing panes
+config.swallow_mouse_click_on_pane_focus = true
+config.swallow_mouse_click_on_window_focus = true
 
 -- ===== First Run Experience =====
 wezterm.on('gui-startup', function(cmd)
