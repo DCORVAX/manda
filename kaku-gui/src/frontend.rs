@@ -59,8 +59,8 @@ pub fn check_for_updates() {
 
                             if latest_version != current_version {
                                 let message = format!(
-                                    "A new version of Kaku is available!\n\nCurrent: {}\nLatest: {}\n\nPlease download the latest version manually.",
-                                    current_version, latest_version
+                                    "A new version {} is available and you are using {}.\n\nPlease download the latest version manually.",
+                                    latest_version, current_version
                                 );
 
                                 promise::spawn::spawn_into_main_thread(async move {
@@ -76,7 +76,10 @@ pub fn check_for_updates() {
                                 })
                                 .detach();
                             } else {
-                                let message = format!("Kaku is up to date ({}).", current_version);
+                                let message = format!(
+                                    "You are using the latest version {}.",
+                                    current_version
+                                );
                                 promise::spawn::spawn_into_main_thread(async move {
                                     if let Some(conn) = Connection::get() {
                                         conn.alert("Check for Updates", &message);
