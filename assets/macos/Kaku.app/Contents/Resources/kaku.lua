@@ -158,7 +158,7 @@ config.font_rules = {
 config.bold_brightens_ansi_colors = false
 config.font_size = 17.0
 config.line_height = 1.28
-config.cell_width = 1.05
+config.cell_width = 1.02
 config.harfbuzz_features = { 'calt=0', 'clig=0', 'liga=0' }
 config.use_cap_height_to_scale_fallback_fonts = false
 

@@ -31,6 +31,17 @@ fi
 echo ""
 echo -e "${BOLD}Kaku config update available!${NC} v$user_version -> v$CURRENT_CONFIG_VERSION"
 echo ""
+
+# Show what's new
+echo -e "${BOLD}What's new:${NC}"
+if [[ $user_version -lt 2 ]]; then
+    echo "  • 40% faster ZSH startup"
+    echo "  • Deferred syntax highlighting"
+    echo "  • Delta - syntax-highlighted git diffs"
+    echo "  • Better aliases"
+fi
+echo ""
+
 read -p "Apply update? [Y/n] " -n 1 -r
 echo ""
 
@@ -38,8 +49,13 @@ if [[ $REPLY =~ ^[Nn]$ ]]; then
     mkdir -p "$(dirname "$VERSION_FILE")"
     echo "$CURRENT_CONFIG_VERSION" > "$VERSION_FILE"
     echo -e "${YELLOW}Skipped${NC}"
+    echo ""
+    echo "Press any key to continue..."
+    read -n 1 -s
     exit 0
 fi
+
+echo ""
 
 # Apply updates
 if [[ -f "$RESOURCE_DIR/setup_zsh.sh" ]]; then
@@ -61,4 +77,10 @@ mkdir -p "$(dirname "$VERSION_FILE")"
 echo "$CURRENT_CONFIG_VERSION" > "$VERSION_FILE"
 
 echo ""
-echo -e "${GREEN}${BOLD}Updated to v$CURRENT_CONFIG_VERSION!${NC} Restart terminal to apply."
+echo -e "${GREEN}${BOLD}Updated to v$CURRENT_CONFIG_VERSION!${NC}"
+echo ""
+echo "Press any key to start..."
+read -n 1 -s
+
+# Start a new shell instead of exiting
+exec zsh -l
