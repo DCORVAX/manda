@@ -107,6 +107,12 @@ setopt APPEND_HISTORY            # Append history to the history file (no overwr
 setopt interactive_comments
 bindkey -e
 
+# Directory Navigation Options
+setopt auto_cd
+setopt auto_pushd
+setopt pushd_ignore_dups
+setopt pushdminus
+
 # Common Aliases (Oh My Zsh compatible)
 alias ll='ls -alF'
 alias la='ls -A'
