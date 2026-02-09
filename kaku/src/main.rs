@@ -23,7 +23,7 @@ mod cli;
 
 #[derive(Debug, Parser)]
 #[command(
-    about = "Wez's Terminal Emulator\nhttp://github.com/wezterm/wezterm",
+    about = "Kaku Terminal Emulator\nhttp://github.com/tw93/Kaku",
     version = wezterm_version()
 )]
 pub struct Opt {
