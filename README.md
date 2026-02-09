@@ -20,7 +20,7 @@
 ## Features
 
 - **Zero Config**: Polished defaults with JetBrains Mono, **optimized macOS font rendering**, and smooth animations.
-- **OpenCode Ready**: Detects OpenCode installation and offers an optimized high-contrast theme for AI coding.
+- **AI-Ready Theme**: Offers a signature "Kaku Theme" — a high-contrast dark mode optimized for long AI coding sessions.
 - **Built-in Shell Suite**: Comes pre-loaded with Starship, z, syntax highlighting, and autosuggestions.
 - **Fast & Lightweight**: Built on a stripped-down, GPU-accelerated core that launches instantly.
 - **Lua Scripting**: Retains the full power of WezTerm's Lua engine for infinite customization.
@@ -55,7 +55,7 @@ Kaku comes with intuitive macOS-native shortcuts:
 
 ## Configuration
 
-Kaku automatically configures **Starship**, **z**, **Autosuggestions**, **Syntax Highlighting**, and **OpenCode Theme**.
+Kaku automatically configures **Starship**, **z**, **Autosuggestions**, **Syntax Highlighting**, and the **Kaku Theme**.
 
 1. **Environment Variable**: `KAKU_CONFIG_FILE`
 2. **Bundled Config**: `Kaku.app/Contents/Resources/kaku.lua`
