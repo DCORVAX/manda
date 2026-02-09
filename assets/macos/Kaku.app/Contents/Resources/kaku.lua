@@ -311,18 +311,18 @@ config.keys = {
     action = wezterm.action.SpawnWindow,
   },
 
-  -- Cmd+W: close current tab/pane
+  -- Cmd+W: close current pane
   {
     key = 'w',
     mods = 'CMD',
-    action = wezterm.action.CloseCurrentTab({ confirm = false }),
+    action = wezterm.action.CloseCurrentPane({ confirm = false }),
   },
 
-  -- Cmd+Shift+W: close current pane
+  -- Cmd+Shift+W: close current tab
   {
     key = 'W',
     mods = 'CMD|SHIFT',
-    action = wezterm.action.CloseCurrentPane({ confirm = false }),
+    action = wezterm.action.CloseCurrentTab({ confirm = false }),
   },
 
   -- Cmd+T: new tab
