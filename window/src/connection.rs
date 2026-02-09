@@ -73,6 +73,9 @@ pub trait ConnectionOps {
     /// focus away from it.
     fn hide_application(&self) {}
 
+    /// Show a modal alert dialog
+    fn alert(&self, _title: &str, _message: &str) {}
+
     /// Perform the system beep/notification sound
     fn beep(&self) {}
 

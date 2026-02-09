@@ -172,6 +172,17 @@ impl ConnectionOps for Connection {
         }
     }
 
+    fn alert(&self, title: &str, message: &str) {
+        unsafe {
+            let alert: id = msg_send![class!(NSAlert), alloc];
+            let alert: id = msg_send![alert, init];
+            let () = msg_send![alert, setMessageText: *super::nsstring(title)];
+            let () = msg_send![alert, setInformativeText: *super::nsstring(message)];
+            let () = msg_send![alert, addButtonWithTitle: *super::nsstring("OK")];
+            let () = msg_send![alert, runModal];
+        }
+    }
+
     fn screens(&self) -> anyhow::Result<Screens> {
         let mut by_name = HashMap::new();
         let mut virtual_rect = euclid::rect(0, 0, 0, 0);

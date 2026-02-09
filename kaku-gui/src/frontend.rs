@@ -12,6 +12,7 @@ use mux::{Mux, MuxNotification};
 use promise::{Future, Promise};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
+use std::convert::TryInto;
 use std::rc::Rc;
 use std::sync::Arc;
 use wezterm_term::{Alert, ClipboardSelection};
@@ -30,6 +31,54 @@ impl Drop for GuiFrontEnd {
     fn drop(&mut self) {
         ::window::shutdown();
     }
+}
+
+pub fn check_for_updates() {
+    std::thread::spawn(move || {
+        log::info!("Checking for updates...");
+        let url = "https://api.github.com/repos/tw93/Kaku/releases/latest";
+        let mut writer = Vec::new();
+
+        let res = http_req::request::Request::new(&url.try_into().unwrap())
+            .header("User-Agent", "Kaku-Terminal")
+            .send(&mut writer);
+
+        match res {
+            Ok(resp) => {
+                if resp.status_code().is_success() {
+                    if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&writer) {
+                        if let Some(tag_name) = json.get("tag_name").and_then(|v| v.as_str()) {
+                            let current_version = config::wezterm_version();
+                            let latest_version = tag_name.trim_start_matches('v');
+
+                            let message = if latest_version != current_version {
+                                format!("A new version of Kaku is available!\n\nCurrent: {}\nLatest: {}", current_version, latest_version)
+                            } else {
+                                format!("Kaku is up to date ({}).", current_version)
+                            };
+
+                            promise::spawn::spawn_into_main_thread(async move {
+                                if let Some(conn) = Connection::get() {
+                                    conn.alert("Check for Updates", &message);
+                                }
+                            })
+                            .detach();
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to check for updates: {}", e);
+                let msg = format!("Failed to check for updates: {}", e);
+                promise::spawn::spawn_into_main_thread(async move {
+                    if let Some(conn) = Connection::get() {
+                        conn.alert("Check for Updates", &msg);
+                    }
+                })
+                .detach();
+            }
+        }
+    });
 }
 
 impl GuiFrontEnd {
@@ -288,6 +337,9 @@ impl GuiFrontEnd {
                 }
 
                 match action {
+                    KeyAssignment::EmitEvent(event) if event == "check-for-update" => {
+                        check_for_updates();
+                    }
                     KeyAssignment::QuitApplication => {
                         // If we get here, there are no windows that could have received
                         // the QuitApplication command, therefore it must be ok to quit

@@ -2832,7 +2832,11 @@ impl TermWindow {
                 self.do_open_link_at_mouse_cursor(pane);
             }
             EmitEvent(name) => {
-                self.emit_window_event(name, None);
+                if name == "check-for-update" {
+                    crate::frontend::check_for_updates();
+                } else {
+                    self.emit_window_event(name, None);
+                }
             }
             CompleteSelectionOrOpenLinkAtMouseCursor(dest) => {
                 let text = self.selection_text(pane);

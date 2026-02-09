@@ -454,6 +454,17 @@ impl CommandDef {
                         ));
 
                         menu.add_item(&about_item);
+
+                        let check_update = MenuItem::new_with(
+                            "Check for Updates...",
+                            Some(kaku_perform_key_assignment_sel),
+                            "",
+                        );
+                        check_update.set_represented_item(RepresentedItem::KeyAssignment(
+                            KeyAssignment::EmitEvent("check-for-update".to_string()),
+                        ));
+                        menu.add_item(&check_update);
+
                         menu.add_item(&MenuItem::new_separator());
 
                         let services_menu = Menu::new_with_title("Services");
