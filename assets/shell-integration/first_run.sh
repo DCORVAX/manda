@@ -50,25 +50,18 @@ if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
 	INSTALL_SHELL=true
 fi
 
-# Check if OpenCode is installed
-HAS_OPENCODE=false
-if command -v opencode >/dev/null 2>&1 || [[ -d "$HOME/.config/opencode" ]] || [[ -d "$HOME/.opencode" ]]; then
-	HAS_OPENCODE=true
-fi
+# Kaku Theme Prompt
+echo "--------------------------------------------------------"
+echo "Would you like to use the Kaku Theme?"
+echo "A modern, high-contrast dark theme optimized for AI coding."
+echo "Perfect for Claude, Codex, and late-night hacking."
+echo "--------------------------------------------------------"
+read -p "Apply Kaku Theme? [Y/n] " -n 1 -r
+echo ""
 
-# OpenCode Theme Prompt (Only if OpenCode is detected)
 INSTALL_THEME=false
-if [[ "$HAS_OPENCODE" == "true" ]]; then
-	echo "--------------------------------------------------------"
-	echo "OpenCode detected! Would you like to use the OpenCode Theme?"
-	echo "A modern, high-contrast dark theme optimized for AI coding."
-	echo "--------------------------------------------------------"
-	read -p "Apply OpenCode Theme? [y/N] " -n 1 -r
-	echo ""
-
-	if [[ $REPLY =~ ^[Yy]$ ]]; then
-		INSTALL_THEME=true
-	fi
+if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
+	INSTALL_THEME=true
 fi
 
 # Process Shell Features
@@ -86,26 +79,26 @@ fi
 
 mkdir -p "$HOME/.config/kaku"
 
-# Process OpenCode Theme
+# Process Kaku Theme
 if [[ "$INSTALL_THEME" == "true" ]]; then
 	KAKU_LUA_SRC="$RESOURCES_DIR/kaku.lua"
 	KAKU_LUA_DEST="$HOME/.config/kaku/kaku.lua"
 
 	if [[ -f "$KAKU_LUA_SRC" ]]; then
-		echo "Installing OpenCode theme..."
+		echo "Installing Kaku theme..."
 		cp "$KAKU_LUA_SRC" "$KAKU_LUA_DEST"
 
-		# Inject OpenCode theme before the return statement
+		# Inject Kaku theme before the return statement
 		# We use a temporary file to construct the new content
 		TMP_FILE=$(mktemp)
 
 		# Read all lines except the last one (return config)
 		sed '$d' "$KAKU_LUA_DEST" >"$TMP_FILE"
 
-		# Append OpenCode theme config
+		# Append Kaku theme config
 		cat <<EOF >>"$TMP_FILE"
 
--- ===== OpenCode Theme =====
+-- ===== Kaku Theme =====
 config.colors = {
   foreground = '#d4d4d4',
   background = '#1e1e1e',
@@ -151,7 +144,7 @@ config.window_frame = {
 return config
 EOF
 		mv "$TMP_FILE" "$KAKU_LUA_DEST"
-		echo "OpenCode theme applied!"
+		echo "Kaku theme applied!"
 	else
 		echo "Warning: Could not find kaku.lua source at $KAKU_LUA_SRC"
 	fi
