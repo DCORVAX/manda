@@ -183,6 +183,22 @@ impl ConnectionOps for Connection {
         }
     }
 
+    fn confirm(&self, title: &str, message: &str, action_label: &str) -> bool {
+        unsafe {
+            let alert: id = msg_send![class!(NSAlert), alloc];
+            let alert: id = msg_send![alert, init];
+            let () = msg_send![alert, setMessageText: *super::nsstring(title)];
+            let () = msg_send![alert, setInformativeText: *super::nsstring(message)];
+
+            let () = msg_send![alert, addButtonWithTitle: *super::nsstring(action_label)];
+            let () = msg_send![alert, addButtonWithTitle: *super::nsstring("Cancel")];
+
+            let result: NSInteger = msg_send![alert, runModal];
+            // NSAlertFirstButtonReturn is 1000
+            result == 1000
+        }
+    }
+
     fn screens(&self) -> anyhow::Result<Screens> {
         let mut by_name = HashMap::new();
         let mut virtual_rect = euclid::rect(0, 0, 0, 0);

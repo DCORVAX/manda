@@ -49,20 +49,41 @@ pub fn check_for_updates() {
                     if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&writer) {
                         if let Some(tag_name) = json.get("tag_name").and_then(|v| v.as_str()) {
                             let current_version = config::wezterm_version();
-                            let latest_version = tag_name.trim_start_matches('v');
+                            let latest_version =
+                                tag_name.trim_start_matches(|c| c == 'v' || c == 'V');
+                            let release_url = json
+                                .get("html_url")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("https://github.com/tw93/Kaku/releases/latest")
+                                .to_string();
 
-                            let message = if latest_version != current_version {
-                                format!("A new version of Kaku is available!\n\nCurrent: {}\nLatest: {}", current_version, latest_version)
+                            if latest_version != current_version {
+                                let message = format!(
+                                    "A new version of Kaku is available!\n\nCurrent: {}\nLatest: {}\n\nPlease download the latest version manually.",
+                                    current_version, latest_version
+                                );
+
+                                promise::spawn::spawn_into_main_thread(async move {
+                                    if let Some(conn) = Connection::get() {
+                                        if conn.confirm(
+                                            "Check for Updates",
+                                            &message,
+                                            "Go to Release",
+                                        ) {
+                                            wezterm_open_url::open_url(&release_url);
+                                        }
+                                    }
+                                })
+                                .detach();
                             } else {
-                                format!("Kaku is up to date ({}).", current_version)
-                            };
-
-                            promise::spawn::spawn_into_main_thread(async move {
-                                if let Some(conn) = Connection::get() {
-                                    conn.alert("Check for Updates", &message);
-                                }
-                            })
-                            .detach();
+                                let message = format!("Kaku is up to date ({}).", current_version);
+                                promise::spawn::spawn_into_main_thread(async move {
+                                    if let Some(conn) = Connection::get() {
+                                        conn.alert("Check for Updates", &message);
+                                    }
+                                })
+                                .detach();
+                            }
                         }
                     }
                 }

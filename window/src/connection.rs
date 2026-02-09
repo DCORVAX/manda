@@ -76,6 +76,12 @@ pub trait ConnectionOps {
     /// Show a modal alert dialog
     fn alert(&self, _title: &str, _message: &str) {}
 
+    /// Show a modal confirmation dialog
+    /// Returns true if the primary button (e.g. "OK", "Download") was clicked
+    fn confirm(&self, _title: &str, _message: &str, _action_label: &str) -> bool {
+        false
+    }
+
     /// Perform the system beep/notification sound
     fn beep(&self) {}
 
