@@ -9,7 +9,6 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 BOLD='\033[1m'
-DIM='\033[2m'
 NC='\033[0m'
 
 # Determine resource directory
@@ -27,7 +26,7 @@ if [[ ! -f "$VENDOR_DELTA" ]]; then
 fi
 
 echo -e "${BOLD}Delta Installation${NC}"
-echo -e "${DIM}Git diff beautifier for better code review${NC}"
+echo -e "${NC}Git diff beautifier for better code review${NC}"
 echo ""
 
 # Check if delta is already installed
@@ -39,7 +38,7 @@ fi
 # Check if vendor delta exists
 if [[ ! -f "$VENDOR_DELTA" ]]; then
     echo -e "${YELLOW}⚠${NC}  Delta binary not found in vendor directory"
-    echo -e "${DIM}    Expected: $VENDOR_DELTA${NC}"
+    echo -e "${NC}    Expected: $VENDOR_DELTA${NC}"
     echo ""
     echo "You can install delta manually:"
     echo "  brew install git-delta"
@@ -80,11 +79,11 @@ echo ""
 echo -e "${GREEN}${BOLD}✓ Delta installed successfully!${NC}"
 echo ""
 echo -e "${BOLD}Usage:${NC}"
-echo -e "  ${DIM}Delta works automatically with git commands:${NC}"
+echo -e "  ${NC}Delta works automatically with git commands:${NC}"
 echo "    git diff          # View changes with syntax highlighting"
 echo "    git diff --staged # View staged changes"
 echo "    git show          # View commit details"
 echo "    git log -p        # View commit history with diffs"
 echo ""
-echo -e "${DIM}  No need to learn new commands - delta just makes git better!${NC}"
+echo -e "${NC}  No need to learn new commands - delta just makes git better!${NC}"
 echo ""

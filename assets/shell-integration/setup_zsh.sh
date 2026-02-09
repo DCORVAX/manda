@@ -11,7 +11,6 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 BOLD='\033[1m'
-DIM='\033[2m'
 NC='\033[0m'
 
 # Configuration
@@ -63,14 +62,14 @@ fi
 cp -R "$VENDOR_DIR/zsh-z" "$USER_CONFIG_DIR/plugins/"
 cp -R "$VENDOR_DIR/zsh-autosuggestions" "$USER_CONFIG_DIR/plugins/"
 cp -R "$VENDOR_DIR/zsh-syntax-highlighting" "$USER_CONFIG_DIR/plugins/"
-echo -e "  ${GREEN}✓${NC} ${BOLD}Tools${NC}       Installed Starship & Zsh plugins ${DIM}(~/.config/kaku/zsh)${NC}"
+echo -e "  ${GREEN}✓${NC} ${BOLD}Tools${NC}       Installed Starship & Zsh plugins ${NC}(~/.config/kaku/zsh)${NC}"
 
 # Copy Starship Config (if not exists)
 if [[ ! -f "$STARSHIP_CONFIG" ]]; then
 	if [[ -f "$VENDOR_DIR/starship.toml" ]]; then
 		mkdir -p "$(dirname "$STARSHIP_CONFIG")"
 		cp "$VENDOR_DIR/starship.toml" "$STARSHIP_CONFIG"
-		echo -e "  ${GREEN}✓${NC} ${BOLD}Config${NC}      Initialized starship.toml ${DIM}(~/.config/starship.toml)${NC}"
+		echo -e "  ${GREEN}✓${NC} ${BOLD}Config${NC}      Initialized starship.toml ${NC}(~/.config/starship.toml)${NC}"
 	fi
 fi
 
