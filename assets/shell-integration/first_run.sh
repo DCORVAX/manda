@@ -178,7 +178,7 @@ fi
 # Save config version (v2)
 echo "2" > "$HOME/.config/kaku/.kaku_config_version"
 
-echo -e "\n\033[1;32m❤️  Kaku environment is ready! Enjoy coding.\033[0m"
+echo -e "\n\033[1;32m❤️ Kaku environment is ready! Enjoy coding.\033[0m"
 
 # Replace current process with zsh to enter the shell
 exec /bin/zsh -l
