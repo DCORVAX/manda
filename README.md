@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/kaku.png" alt="Kaku Screenshot" width="800" />
+  <img src="assets/kaku.jpeg" alt="Kaku Screenshot" width="1000" />
   <br/>
   Kaku is a deeply customized fork of <a href="https://github.com/wez/wezterm">WezTerm</a>, designed for an <b>out-of-the-box</b> experience.
 </p>
@@ -22,8 +22,8 @@
 ## Features
 
 - **Zero Config**: Polished defaults with JetBrains Mono, **optimized macOS font rendering**, and smooth animations.
-- **Built-in Shell Suite**: Comes pre-loaded with Starship, z, syntax highlighting, and autosuggestions.
-- **Fast & Lightweight**: Built on a stripped-down, GPU-accelerated core that launches instantly.
+- **Built-in Shell Suite**: Comes pre-loaded with **Starship** prompt, **z** smart jumper, **Delta** git diff beautifier, **syntax highlighting**, and **autosuggestions**.
+- **Fast & Lightweight**: **40% smaller binary**, instant startup with lazy loading, and a stripped-down GPU-accelerated core.
 - **Lua Scripting**: Retains the full power of WezTerm's Lua engine for infinite customization.
 
 ## Quick Start
@@ -38,11 +38,11 @@
 Kaku comes with intuitive macOS-native shortcuts:
 
 | Action | Shortcut |
-|--------|----------|
+| :--- | :--- |
 | **New Tab** | `Cmd + T` |
 | **New Window** | `Cmd + N` |
-| **Split Pane (Vertical)** | `Cmd + D` |
-| **Split Pane (Horizontal)** | `Cmd + Shift + D` |
+| **Split Pane Vertical** | `Cmd + D` |
+| **Split Pane Horizontal** | `Cmd + Shift + D` |
 | **Zoom/Unzoom Pane** | `Cmd + Shift + Enter` |
 | **Resize Pane** | `Cmd + Ctrl + Arrows` |
 | **Close Tab/Pane** | `Cmd + W` |
@@ -56,32 +56,45 @@ Kaku comes with intuitive macOS-native shortcuts:
 
 ## Configuration
 
-Kaku automatically configures **Starship**, **z**, **Autosuggestions**, **Syntax Highlighting**, and the **Kaku Theme**.
+Kaku automatically configures these built-in tools:
+
+- **Starship** - Fast prompt with git status and language versions
+- **z** - Jump to directories with `z <name>`
+- **Delta** - Syntax-highlighted git diffs, works automatically
+- **Syntax Highlighting** - Real-time command validation
+- **Autosuggestions** - Fish-style suggestions from history
+
+Config loading priority:
 
 1. **Environment Variable**: `KAKU_CONFIG_FILE`
 2. **Bundled Config**: `Kaku.app/Contents/Resources/kaku.lua`
 3. **User Config**: `~/.config/kaku/kaku.lua`
 
-## Development
+## Why Kaku?
 
-```bash
-# Clone the repository
-git clone https://github.com/tw93/Kaku.git
-cd Kaku
+I really enjoy using the CLI to handle everything in my work and life. I've even built open-source tools like [tw93/mole](https://github.com/tw93/mole) and [tw93/pake](https://github.com/tw93/pake) to stay in the terminal.
 
-# Build and verify
-cargo check
-cargo test
+I used **Alacritty** for a long time but its lack of multi-tab support makes it inconvenient when doing AI coding. **Kitty** has some aesthetic and window positioning issues I couldn't get past. **Ghostty** is promising but I haven't found a good solution for its font rendering yet. **Warp** feels too heavy and requires a login. **iTerm2** is reliable but shows its age and is harder to deeply customize.
 
-# Build application and DMG
-./scripts/build.sh
-# Outputs: dist/Kaku.app and dist/Kaku.dmg
-```
+**WezTerm** is fantastic and very hackable. However, I wanted a more "out-of-the-box" experience that didn't require extensive configuration.
+
+So I built Kaku for AI coding. Fast, beautiful, and ready to use.
+
+### Performance
+
+| Metric | Upstream | Kaku | Improvement |
+| :--- | :--- | :--- | :--- |
+| **Binary Size** | ~67 MB | **~40 MB** | **40% Smaller** |
+| **App Bundle** | ~100 MB | **~80 MB** | **20% Smaller** |
+| **Startup** | Standard | **Instant** | **Lazy Loading** |
+| **Shell Init** | Standard | **~100ms** | **50% Faster** |
+
+Achieved through aggressive stripping of unused features, lazy loading of color schemes, and shell optimizations.
 
 ## Support
 
-- If Kaku helped you, star the repo or [share it](https://twitter.com/intent/tweet?url=https://github.com/tw93/Kaku&text=Kaku%20-%20A%20fast,%20out-of-the-box%20terminal%20built%20for%20AI%20coding.) with friends.
-- Got ideas or found bugs? Open an issue or PR.
+- If Kaku helped you, star the repo or [share it](https://twitter.com/intent/tweet?url=https://github.com/tw93/Kaku&text=Kaku%20-%20A%20fast%20terminal%20built%20for%20AI%20coding.) with friends.
+- Got ideas or found bugs? Open an issue/PR or check [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 - Like Kaku? <a href="https://miaoyan.app/cats.html?name=Kaku" target="_blank">Buy Tw93 a Coke</a> to support the project!
 
 ## License
