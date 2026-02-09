@@ -1893,11 +1893,7 @@ fn default_clean_exits() -> Vec<u32> {
 }
 
 fn default_inactive_pane_hsb() -> HsbTransform {
-    HsbTransform {
-        brightness: 0.8,
-        saturation: 0.9,
-        hue: 1.0,
-    }
+    HsbTransform::default()
 }
 
 #[derive(FromDynamic, ToDynamic, Clone, Copy, Debug, Default)]

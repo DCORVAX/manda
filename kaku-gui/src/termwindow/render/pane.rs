@@ -9,7 +9,7 @@ use crate::termwindow::{ScrollHit, UIItem, UIItemType};
 use ::window::bitmaps::TextureRect;
 use ::window::DeadKeyStatus;
 use anyhow::Context;
-use config::VisualBellTarget;
+use config::{DimensionContext, VisualBellTarget};
 use mux::pane::{PaneId, WithPaneLines};
 use mux::renderable::{RenderableDimensions, StableCursorPosition};
 use mux::tab::PositionedPane;
@@ -133,22 +133,38 @@ impl crate::TermWindow {
                     cell_height,
                 )
             };
-            euclid::rect(
-                x,
-                y,
-                // Go all the way to the right edge if we're right-most
-                if pos.left + pos.width >= self.terminal_size.cols as usize {
-                    self.dimensions.pixel_width as f32 - x
-                } else {
-                    (pos.width as f32 * cell_width) + width_delta
-                },
-                // Go all the way to the bottom if we're bottom-most
-                if pos.top + pos.height >= self.terminal_size.rows as usize {
-                    self.dimensions.pixel_height as f32 - y
-                } else {
-                    (pos.height as f32 * cell_height) + height_delta as f32
-                },
-            )
+
+            // Calculate the width - respect right padding
+            let width = if pos.left + pos.width >= self.terminal_size.cols as usize {
+                // Right-most pane: extend to split center but respect window padding
+                let padding_right = self.config.window_padding.right.evaluate_as_pixels(
+                    DimensionContext {
+                        dpi: self.dimensions.dpi as f32,
+                        pixel_max: self.terminal_size.pixel_width as f32,
+                        pixel_cell: cell_width,
+                    },
+                );
+                self.dimensions.pixel_width as f32 - x - padding_right - border.right.get() as f32
+            } else {
+                (pos.width as f32 * cell_width) + width_delta
+            };
+
+            // Calculate the height - respect bottom padding
+            let height = if pos.top + pos.height >= self.terminal_size.rows as usize {
+                // Bottom-most pane: extend to split center but respect window padding
+                let padding_bottom = self.config.window_padding.bottom.evaluate_as_pixels(
+                    DimensionContext {
+                        dpi: self.dimensions.dpi as f32,
+                        pixel_max: self.terminal_size.pixel_height as f32,
+                        pixel_cell: cell_height,
+                    },
+                );
+                self.dimensions.pixel_height as f32 - y - padding_bottom - bottom_bar_height - border.bottom.get() as f32
+            } else {
+                (pos.height as f32 * cell_height) + height_delta as f32
+            };
+
+            euclid::rect(x, y, width, height)
         };
 
         if self.window_background.is_empty() {
@@ -318,6 +334,7 @@ impl crate::TermWindow {
                 dims: RenderableDimensions,
                 top_pixel_y: f32,
                 left_pixel_x: f32,
+                content_pixel_width: f32,
                 pos: &'a PositionedPane,
                 pane_id: PaneId,
                 cursor: &'a StableCursorPosition,
@@ -337,9 +354,40 @@ impl crate::TermWindow {
                 error: Option<anyhow::Error>,
             }
 
+            // Use the same padding as window padding for split lines
+            let split_padding_value = self.config.window_padding.left.evaluate_as_pixels(
+                DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: self.terminal_size.pixel_width as f32,
+                    pixel_cell: cell_width,
+                },
+            );
+
+            // Add padding when there's a split line on the left
+            let left_split_padding = if pos.left > 0 {
+                // Not leftmost pane, has split line on left
+                split_padding_value
+            } else {
+                0.0
+            };
+
+            // Add padding when there's a split line on the right
+            let right_split_padding = if pos.left + pos.width < self.terminal_size.cols as usize {
+                // Not rightmost pane, has split line on right
+                split_padding_value
+            } else {
+                0.0
+            };
+
             let left_pixel_x = padding_left
                 + border.left.get() as f32
-                + (pos.left as f32 * self.render_metrics.cell_size.width as f32);
+                + (pos.left as f32 * self.render_metrics.cell_size.width as f32)
+                + left_split_padding;
+
+            // Calculate content width accounting for split line paddings
+            let content_pixel_width = (pos.width as f32 * cell_width)
+                - left_split_padding
+                - right_split_padding;
 
             let mut render = LineRender {
                 term_window: self,
@@ -348,6 +396,7 @@ impl crate::TermWindow {
                 dims,
                 top_pixel_y,
                 left_pixel_x,
+                content_pixel_width,
                 pos,
                 pane_id,
                 cursor: &cursor,
@@ -492,8 +541,7 @@ impl crate::TermWindow {
                             RenderScreenLineParams {
                                 top_pixel_y: *quad_key.top_pixel_y,
                                 left_pixel_x: self.left_pixel_x,
-                                pixel_width: self.dims.cols as f32
-                                    * self.term_window.render_metrics.cell_size.width as f32,
+                                pixel_width: self.content_pixel_width,
                                 stable_line_idx: Some(stable_row),
                                 line: &line,
                                 selection: selrange.clone(),
@@ -593,7 +641,7 @@ impl crate::TermWindow {
         } else {
             0.
         };
-        let (top_bar_height, _bottom_bar_height) = if self.config.tab_bar_at_bottom {
+        let (top_bar_height, bottom_bar_height) = if self.config.tab_bar_at_bottom {
             (0.0, tab_bar_height)
         } else {
             (tab_bar_height, 0.0)
@@ -628,30 +676,92 @@ impl crate::TermWindow {
             )
         };
 
-        let background_rect = euclid::rect(
-            x,
-            y,
-            // Go all the way to the right edge if we're right-most
-            if pos.left + pos.width >= self.terminal_size.cols as usize {
-                self.dimensions.pixel_width as f32 - x
-            } else {
-                (pos.width as f32 * cell_width) + width_delta
-            },
-            // Go all the way to the bottom if we're bottom-most
-            if pos.top + pos.height >= self.terminal_size.rows as usize {
-                self.dimensions.pixel_height as f32 - y
-            } else {
-                (pos.height as f32 * cell_height) + height_delta as f32
+        // Calculate the width - respect right padding
+        let width = if pos.left + pos.width >= self.terminal_size.cols as usize {
+            // Right-most pane: extend to split center but respect window padding
+            let padding_right = self.config.window_padding.right.evaluate_as_pixels(
+                DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: self.terminal_size.pixel_width as f32,
+                    pixel_cell: cell_width,
+                },
+            );
+            self.dimensions.pixel_width as f32 - x - padding_right - border.right.get() as f32
+        } else {
+            (pos.width as f32 * cell_width) + width_delta
+        };
+
+        // Calculate the height - respect bottom padding
+        let height = if pos.top + pos.height >= self.terminal_size.rows as usize {
+            // Bottom-most pane: extend to split center but respect window padding
+            let padding_bottom = self.config.window_padding.bottom.evaluate_as_pixels(
+                DimensionContext {
+                    dpi: self.dimensions.dpi as f32,
+                    pixel_max: self.terminal_size.pixel_height as f32,
+                    pixel_cell: cell_height,
+                },
+            );
+            self.dimensions.pixel_height as f32 - y - padding_bottom - bottom_bar_height - border.bottom.get() as f32
+        } else {
+            (pos.height as f32 * cell_height) + height_delta as f32
+        };
+
+        let background_rect = euclid::rect(x, y, width, height);
+
+        // Use the same padding as window padding for split lines
+        let horizontal_split_padding = self.config.window_padding.left.evaluate_as_pixels(
+            DimensionContext {
+                dpi: self.dimensions.dpi as f32,
+                pixel_max: self.terminal_size.pixel_width as f32,
+                pixel_cell: cell_width,
             },
         );
 
-        // Bounds for the terminal cells
+        let vertical_split_padding = self.config.window_padding.top.evaluate_as_pixels(
+            DimensionContext {
+                dpi: self.dimensions.dpi as f32,
+                pixel_max: self.terminal_size.pixel_height as f32,
+                pixel_cell: cell_height,
+            },
+        );
+
+        // Add padding when there's a split line on the left
+        let left_split_padding = if pos.left > 0 {
+            horizontal_split_padding
+        } else {
+            0.0
+        };
+
+        // Add padding when there's a split line on the right
+        let right_split_padding = if pos.left + pos.width < self.terminal_size.cols as usize {
+            horizontal_split_padding
+        } else {
+            0.0
+        };
+
+        // Add padding when there's a split line on top
+        let top_split_padding = if pos.top > 0 {
+            vertical_split_padding
+        } else {
+            0.0
+        };
+
+        // Add padding when there's a split line on bottom
+        let bottom_split_padding = if pos.top + pos.height < self.terminal_size.rows as usize {
+            vertical_split_padding
+        } else {
+            0.0
+        };
+
+        // Bounds for the terminal cells - with padding for split lines
         let content_rect = euclid::rect(
             padding_left + border.left.get() as f32 - (cell_width / 2.0)
-                + (pos.left as f32 * cell_width),
-            top_pixel_y + (pos.top as f32 * cell_height) - (cell_height / 2.0),
-            pos.width as f32 * cell_width,
-            pos.height as f32 * cell_height,
+                + (pos.left as f32 * cell_width)
+                + left_split_padding,
+            top_pixel_y + (pos.top as f32 * cell_height) - (cell_height / 2.0)
+                + top_split_padding,
+            (pos.width as f32 * cell_width) - left_split_padding - right_split_padding,
+            (pos.height as f32 * cell_height) - top_split_padding - bottom_split_padding,
         );
 
         let palette = pos.pane.palette();
