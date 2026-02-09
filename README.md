@@ -49,8 +49,8 @@ Kaku comes with intuitive macOS-native shortcuts:
 | **Clear Screen** | `Cmd + R` |
 | **Font Size** | `Cmd + +`, `Cmd + -`, `Cmd + 0` |
 | **Smart Jump** | `z <dir>` |
-| **Smart Select** | `zi <dir>` |
-| **Go Back** | `z -` |
+| **Smart Select** | `z -l <dir>` |
+| **Recent Dirs** | `z -t` |
 
 ## Configuration
 

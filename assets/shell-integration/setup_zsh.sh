@@ -59,14 +59,8 @@ if [[ -f "$VENDOR_DIR/starship" ]]; then
 	chmod +x "$USER_CONFIG_DIR/bin/starship"
 fi
 
-# Copy zoxide binary
-if [[ -f "$VENDOR_DIR/zoxide" ]]; then
-	cp "$VENDOR_DIR/zoxide" "$USER_CONFIG_DIR/bin/"
-	chmod +x "$USER_CONFIG_DIR/bin/zoxide"
-fi
-
 # Copy Plugins
-# cp -R "$VENDOR_DIR/zsh-z" "$USER_CONFIG_DIR/plugins/"
+cp -R "$VENDOR_DIR/zsh-z" "$USER_CONFIG_DIR/plugins/"
 cp -R "$VENDOR_DIR/zsh-autosuggestions" "$USER_CONFIG_DIR/plugins/"
 cp -R "$VENDOR_DIR/zsh-syntax-highlighting" "$USER_CONFIG_DIR/plugins/"
 echo -e "  ${GREEN}✓${NC} ${BOLD}Tools${NC}       Installed Starship & Zsh plugins ${DIM}(~/.config/kaku/zsh)${NC}"
@@ -93,11 +87,6 @@ export PATH="\$KAKU_ZSH_DIR/bin:\$PATH"
 # Initialize Starship (Cross-shell prompt)
 if command -v starship &> /dev/null; then
     eval "\$(starship init zsh)"
-fi
-
-# Initialize zoxide (Smart cd)
-if command -v zoxide &> /dev/null; then
-    eval "\$(zoxide init zsh)"
 fi
 
 # Enable color output for ls
@@ -167,9 +156,9 @@ alias glgp='git log --stat -p'
 # Load Plugins
 autoload -Uz compinit && compinit
 
-# if [[ -f "\$KAKU_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh" ]]; then
-#     source "\$KAKU_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh"
-# fi
+if [[ -f "\$KAKU_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh" ]]; then
+    source "\$KAKU_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh"
+fi
 
 if [[ -f "\$KAKU_ZSH_DIR/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh" ]]; then
     source "\$KAKU_ZSH_DIR/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
