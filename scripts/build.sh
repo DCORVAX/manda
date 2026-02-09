@@ -84,14 +84,34 @@ DMG_NAME="$APP_NAME.dmg"
 DMG_PATH="$OUT_DIR/$DMG_NAME"
 STAGING_DIR="$OUT_DIR/dmg_staging"
 
-# Detach any existing volumes to prevent "Resource busy" errors
-if hdiutil info | grep "/Volumes/$APP_NAME" >/dev/null; then
-	echo "Detaching existing volumes..."
-	hdiutil info | grep "/Volumes/$APP_NAME" | awk '{print $1}' | while read -r dev; do
-		echo "Detaching $dev..."
-		hdiutil detach "$dev" -force || true
+cleanup_volumes() {
+	local vol_pattern="/Volumes/$APP_NAME"
+	local max_attempts=15
+	local attempt=1
+
+	while [ $attempt -le $max_attempts ]; do
+		if hdiutil info | grep -q "$vol_pattern"; then
+			echo "Detaching existing volumes (Attempt $attempt/$max_attempts)..."
+			hdiutil info | grep "$vol_pattern" | awk '{print $1}' | while read -r dev; do
+				echo "Force detaching $dev..."
+				hdiutil detach "$dev" -force || true
+			done
+			sleep 1
+		else
+			if [ -d "$vol_pattern" ]; then
+				echo "Removing stale mount point directory $vol_pattern..."
+				rmdir "$vol_pattern" || true
+			fi
+			return 0
+		fi
+		attempt=$((attempt + 1))
 	done
-fi
+	echo "Warning: Failed to fully detach volumes after $max_attempts attempts."
+}
+
+cleanup_volumes
+
+sync
 
 rm -rf "$DMG_PATH" "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
@@ -99,10 +119,30 @@ mkdir -p "$STAGING_DIR"
 cp -R "$APP_BUNDLE_OUT" "$STAGING_DIR/"
 ln -s /Applications "$STAGING_DIR/Applications"
 
-hdiutil create -volname "$APP_NAME" \
-	-srcfolder "$STAGING_DIR" \
-	-ov -format UDZO \
-	"$DMG_PATH"
+mdutil -i off "$STAGING_DIR" >/dev/null 2>&1 || true
+
+echo "Creating DMG..."
+MAX_RETRIES=3
+RETRY_COUNT=0
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+	if hdiutil create -volname "$APP_NAME" \
+		-srcfolder "$STAGING_DIR" \
+		-ov -format UDZO \
+		"$DMG_PATH"; then
+		break
+	else
+		echo "hdiutil create failed. Retrying in 2 seconds... ($((RETRY_COUNT + 1))/$MAX_RETRIES)"
+		cleanup_volumes
+		sleep 2
+		RETRY_COUNT=$((RETRY_COUNT + 1))
+	fi
+done
+
+if [ ! -f "$DMG_PATH" ]; then
+	echo "Error: Failed to create DMG after retries."
+	exit 1
+fi
 
 rm -rf "$STAGING_DIR"
 
