@@ -139,15 +139,26 @@ end)
 
 -- ===== Font =====
 config.font = wezterm.font_with_fallback({
-  'JetBrains Mono',
-  { family = 'PingFang SC', weight = 'Medium' },
+  { family = 'JetBrains Mono', weight = 'Regular' },
+  { family = 'PingFang SC', weight = 'Regular' },
   { family = 'Apple Color Emoji', assume_emoji_presentation = true },
 })
+
+config.font_rules = {
+  {
+    intensity = 'Normal',
+    italic = true,
+    font = wezterm.font_with_fallback({
+      { family = 'JetBrains Mono', weight = 'Regular', italic = false },
+      { family = 'PingFang SC', weight = 'Regular' },
+    }),
+  },
+}
 
 config.bold_brightens_ansi_colors = false
 config.font_size = 17.0
 config.line_height = 1.28
-config.cell_width = 1.0
+config.cell_width = 1.05
 config.harfbuzz_features = { 'calt=0', 'clig=0', 'liga=0' }
 config.use_cap_height_to_scale_fallback_fonts = false
 
@@ -183,7 +194,7 @@ config.initial_cols = 110
 config.initial_rows = 22
 config.window_decorations = "INTEGRATED_BUTTONS|RESIZE"
 config.window_frame = {
-  font = wezterm.font({ family = 'JetBrains Mono', weight = 'Bold' }),
+  font = wezterm.font({ family = 'JetBrains Mono', weight = 'Regular' }),
   font_size = 13.0,
   active_titlebar_bg = '#15141b',
   inactive_titlebar_bg = '#15141b',
@@ -601,56 +612,78 @@ config.inactive_pane_hsb = {
 config.swallow_mouse_click_on_pane_focus = true
 config.swallow_mouse_click_on_window_focus = true
 
--- ===== First Run Experience =====
+-- ===== First Run Experience & Config Version Check =====
 wezterm.on('gui-startup', function(cmd)
   local home = os.getenv("HOME")
-  -- Use a marker file to track if we've shown the first-run experience
-  -- Changed flag name to force re-run for existing users who might have skipped it accidentally
-  local installed_flag = home .. "/.config/kaku/.kaku_setup_v1_completed"
-  local f = io.open(installed_flag, "r")
-  
-  if f then
-    -- Already completed first run
-    f:close()
-    
-    -- If no specific command was requested, spawn the default window
-    if not cmd then
-      local tab, pane, window = wezterm.mux.spawn_window(cmd or {})
-      -- Respect initial_cols/rows, do not force maximize
+  local current_version = 2  -- Update this when config changes
+
+  -- Check for configuration version
+  local version_file = home .. "/.config/kaku/.kaku_config_version"
+  local is_first_run = false
+  local needs_update = false
+
+  -- Read current user version
+  local vf = io.open(version_file, "r")
+  if vf then
+    -- Has version file, check if update needed
+    local user_version = tonumber(vf:read("*all")) or 0
+    vf:close()
+    if user_version < current_version then
+      needs_update = true
     end
+  else
+    -- New user, show first run
+    is_first_run = true
+  end
+
+  if is_first_run then
+    -- First run experience
+    os.execute("mkdir -p " .. home .. "/.config/kaku")
+
+    local resource_dir = wezterm.executable_dir:gsub("MacOS/?$", "Resources")
+    local first_run_script = resource_dir .. "/first_run.sh"
+
+    -- Fallback for dev environment
+    local f_script = io.open(first_run_script, "r")
+    if not f_script then
+      first_run_script = wezterm.executable_dir .. "/../../assets/shell-integration/first_run.sh"
+    else
+      f_script:close()
+    end
+
+    wezterm.mux.spawn_window {
+      args = { first_run_script },
+      width = 106,
+      height = 22,
+    }
     return
   end
 
-  -- This is the first run!
-  -- Create the config directory if it doesn't exist
-  os.execute("mkdir -p " .. home .. "/.config/kaku")
-  
-  -- Determine the path to the first_run.sh script within the app bundle
-  local resource_dir = wezterm.executable_dir:gsub("MacOS/?$", "Resources")
-  local first_run_script = resource_dir .. "/first_run.sh"
-  
-  -- Fallback if we can't find it (e.g. running from source)
-  local f_script = io.open(first_run_script, "r")
-  if not f_script then
-      -- Try relative path for dev environment
-      first_run_script = wezterm.executable_dir .. "/../../assets/shell-integration/first_run.sh"
-  else
-      f_script:close()
-  end
-  
-  -- Set flag name for first run script as env var
-  -- But wezterm.mux.spawn_window args cannot directly pass env vars easily without a wrapper
-  -- So we rely on the script knowing the flag name.
-  -- But wait, first_run.sh uses a different flag name now?
-  -- We need to update first_run.sh to match the new flag name.
+  if needs_update then
+    -- Show config update prompt
+    local resource_dir = wezterm.executable_dir:gsub("MacOS/?$", "Resources")
+    local update_script = resource_dir .. "/check_config_version.sh"
 
-  -- Spawn a window running the first run script
-  local tab, pane, window = wezterm.mux.spawn_window {
-    args = { first_run_script },
-    width = 106,
-    height = 22,
-  }
-  -- No maximize here either
+    -- Fallback for dev environment
+    local u_script = io.open(update_script, "r")
+    if not u_script then
+      update_script = wezterm.executable_dir .. "/../../assets/shell-integration/check_config_version.sh"
+    else
+      u_script:close()
+    end
+
+    wezterm.mux.spawn_window {
+      args = { update_script },
+      width = 80,
+      height = 30,
+    }
+    return
+  end
+
+  -- Normal startup
+  if not cmd then
+    wezterm.mux.spawn_window(cmd or {})
+  end
 end)
 
 return config
