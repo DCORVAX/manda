@@ -1,4 +1,3 @@
-use crate::ICON_DATA;
 use anyhow::anyhow;
 use config::{configuration, wezterm_version};
 use http_req::request::{HttpVersion, Request};
@@ -9,11 +8,6 @@ use std::convert::TryFrom;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
-use termwiz::cell::{Hyperlink, Underline};
-use termwiz::color::AnsiColor;
-use termwiz::escape::csi::{Cursor, Sgr};
-use termwiz::escape::osc::{ITermDimension, ITermFileData, ITermProprietary};
-use termwiz::escape::{OneBased, OperatingSystemCommand, CSI};
 use wezterm_toast_notification::*;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -65,6 +59,29 @@ lazy_static::lazy_static! {
     static ref UPDATER_WINDOW: Mutex<Option<ConnectionUI>> = Mutex::new(None);
 }
 
+fn is_newer(latest: &str, current: &str) -> bool {
+    let latest = latest.trim_start_matches('v');
+    let current = current.trim_start_matches('v');
+
+    // If latest is a WezTerm-style date version (e.g. 20240203-...) and current is SemVer (e.g. 0.1.0),
+    // treat the date version as older/different system.
+    if latest.starts_with("20") && latest.contains('-') && !current.starts_with("20") {
+        return false;
+    }
+
+    // Basic SemVer-ish string comparison
+    // TODO: Use proper SemVer parsing if strictly needed
+    latest > current
+}
+
+fn schedule_set_banner_from_release_info(_latest: &Release) {
+    // Banner scheduling disabled
+}
+
+fn set_banner_from_release_info(_latest: &Release) {
+    // Banner disabled to avoid intrusiveness
+}
+
 pub fn load_last_release_info_and_set_banner() {
     if !configuration().check_for_updates {
         return;
@@ -79,70 +96,12 @@ pub fn load_last_release_info_and_set_banner() {
 
         let current = wezterm_version();
         let force_ui = std::env::var_os("KAKU_ALWAYS_SHOW_UPDATE_UI").is_some();
-        if latest.tag_name.as_str() <= current && !force_ui {
+        if !is_newer(&latest.tag_name, current) && !force_ui {
             return;
         }
 
         set_banner_from_release_info(&latest);
     }
-}
-
-fn set_banner_from_release_info(latest: &Release) {
-    let mux = crate::Mux::get();
-    let url = format!(
-        "https://github.com/tw93/Kaku/releases/tag/{}",
-        latest.tag_name
-    );
-
-    let icon = ITermFileData {
-        name: None,
-        size: Some(ICON_DATA.len()),
-        width: ITermDimension::Automatic,
-        height: ITermDimension::Cells(2),
-        preserve_aspect_ratio: true,
-        inline: true,
-        do_not_move_cursor: false,
-        data: ICON_DATA.to_vec(),
-    };
-    let icon = OperatingSystemCommand::ITermProprietary(ITermProprietary::File(Box::new(icon)));
-    let top_line_pos = CSI::Cursor(Cursor::CharacterAndLinePosition {
-        line: OneBased::new(1),
-        col: OneBased::new(6),
-    });
-    let second_line_pos = CSI::Cursor(Cursor::CharacterAndLinePosition {
-        line: OneBased::new(2),
-        col: OneBased::new(6),
-    });
-    let link_on = OperatingSystemCommand::SetHyperlink(Some(Hyperlink::new(url)));
-    let underline_color = CSI::Sgr(Sgr::UnderlineColor(AnsiColor::Blue.into()));
-    let underline_on = CSI::Sgr(Sgr::Underline(Underline::Single));
-    let reset = CSI::Sgr(Sgr::Reset);
-    let link_off = OperatingSystemCommand::SetHyperlink(None);
-    mux.set_banner(Some(format!(
-        "{}{}Kaku Update Available\r\n{}{}{}{}Click to download from releases{}{}\\r\\n",
-        icon,
-        top_line_pos,
-        second_line_pos,
-        link_on,
-        underline_color,
-        underline_on,
-        link_off,
-        reset,
-    )));
-}
-
-fn schedule_set_banner_from_release_info(latest: &Release) {
-    let current = wezterm_version();
-    if latest.tag_name.as_str() <= current {
-        return;
-    }
-    promise::spawn::spawn_into_main_thread({
-        let latest = latest.clone();
-        async move {
-            set_banner_from_release_info(&latest);
-        }
-    })
-    .detach();
 }
 
 /// Returns true if the provided socket path is dead.
@@ -184,17 +143,14 @@ fn update_checker() {
             if let Ok(latest) = get_latest_release_info() {
                 schedule_set_banner_from_release_info(&latest);
                 let current = wezterm_version();
-                if latest.tag_name.as_str() > current || force_ui {
+                if is_newer(&latest.tag_name, current) || force_ui {
                     log::info!(
                         "latest release {} is newer than current build {}",
                         latest.tag_name,
                         current
                     );
 
-                    let url = format!(
-                        "https://github.com/tw93/Kaku/releases/tag/{}",
-                        latest.tag_name
-                    );
+                    let url = "https://github.com/tw93/Kaku/releases".to_string();
 
                     if force_ui || socks.is_empty() || socks[0] == my_sock {
                         persistent_toast_notification_with_click_to_open_url(

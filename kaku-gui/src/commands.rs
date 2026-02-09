@@ -444,16 +444,13 @@ impl CommandDef {
                         menu.assign_as_app_menu();
 
                         let about_item = MenuItem::new_with(
-                            &format!("Kaku {}", config::wezterm_version()),
+                            &format!("Kaku V{}", config::wezterm_version()),
                             Some(kaku_perform_key_assignment_sel),
                             "",
                         );
-                        about_item.set_tool_tip("Click to copy version number");
+                        about_item.set_tool_tip("Click to visit GitHub");
                         about_item.set_represented_item(RepresentedItem::KeyAssignment(
-                            KeyAssignment::CopyTextTo {
-                                text: config::wezterm_version().to_string(),
-                                destination: ClipboardCopyDestination::ClipboardAndPrimarySelection,
-                            },
+                            KeyAssignment::OpenUri("https://github.com/tw93/Kaku".to_string()),
                         ));
 
                         menu.add_item(&about_item);
