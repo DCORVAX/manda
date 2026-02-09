@@ -45,6 +45,17 @@ fi
 mkdir -p "$APP_BUNDLE_OUT/Contents/MacOS"
 mkdir -p "$APP_BUNDLE_OUT/Contents/Resources"
 
+echo "[2.5/6] Syncing version from Cargo.toml..."
+# Extract version from kaku/Cargo.toml (assuming it's the source of truth)
+VERSION=$(grep '^version =' kaku/Cargo.toml | head -n 1 | cut -d '"' -f2)
+if [[ -n "$VERSION" ]]; then
+	echo "Stamping version $VERSION into Info.plist"
+	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_BUNDLE_OUT/Contents/Info.plist"
+	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP_BUNDLE_OUT/Contents/Info.plist"
+else
+	echo "Warning: Could not detect version from kaku/Cargo.toml"
+fi
+
 echo "[3/6] Downloading vendor dependencies..."
 ./scripts/download_vendor.sh
 
