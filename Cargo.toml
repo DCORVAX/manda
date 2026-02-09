@@ -27,6 +27,16 @@ lto = "thin"
 codegen-units = 16
 panic = "abort"
 
+# Optimized release profile for smaller binary size
+# Usage: cargo build --profile release-opt
+[profile.release-opt]
+inherits = "release"
+opt-level = "z"           # Optimize for size
+lto = "fat"               # Full LTO for better optimization
+codegen-units = 1         # Single codegen unit for better optimization
+strip = "symbols"         # Strip debug symbols
+panic = "abort"           # Smaller panic implementation
+
 [profile.dev]
 # https://jakedeichert.com/blog/reducing-rust-incremental-compilation-times-on-macos-by-70-percent/
 # Disabled because it breaks builds on Windows
@@ -119,7 +129,9 @@ http_req = "0.11"
 human-sort = "0.2"
 humansize = "2.1"
 humantime = "2.1"
-image = "0.25"
+# Only include image formats actually used in the codebase
+# Removed: tiff, bmp, ico, pnm, dds, tga, openexr, qoi, hdr, farbfeld
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 intrusive-collections = "0.9"
 k9 = "0.12.0"
 lazy_static = "1.4"
@@ -260,7 +272,8 @@ wezterm-term = { path = "term" }
 wezterm-toast-notification = { path = "crates/wezterm-toast-notification" }
 wezterm-uds = { path = "crates/wezterm-uds" }
 wezterm-version = { path = "crates/wezterm-version" }
-wgpu = "25.0.2"
+# macOS-only: only compile Metal backend (removes Vulkan, DX12, GL)
+wgpu = { version = "25.0.2", default-features = false, features = ["metal", "wgsl"] }
 whoami = "1.5"
 winapi = "0.3.9"
 window = {path="window"}

@@ -4,6 +4,7 @@ use anyhow::{anyhow, bail, Context, Error};
 use lazy_static::lazy_static;
 use mlua::Lua;
 use ordered_float::NotNan;
+use parking_lot::RwLock;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use std::cell::RefCell;
@@ -78,7 +79,7 @@ lazy_static! {
     static ref SHOW_ERROR: Mutex<Option<ErrorCallback>> =
         Mutex::new(Some(|e| log::error!("{}", e)));
     static ref LUA_PIPE: LuaPipe = LuaPipe::new();
-    pub static ref COLOR_SCHEMES: HashMap<String, Palette> = build_default_schemes();
+    pub static ref COLOR_SCHEMES: ColorSchemeRegistry = ColorSchemeRegistry::new();
 }
 
 thread_local! {
@@ -169,6 +170,94 @@ pub fn build_default_schemes() -> HashMap<String, Palette> {
         }
     }
     color_schemes
+}
+
+/// Lazy-loading color scheme registry
+/// Loads color schemes on-demand instead of eagerly loading all 1001 schemes at startup
+pub struct ColorSchemeRegistry {
+    loaded: RwLock<HashMap<String, Palette>>,
+}
+
+impl ColorSchemeRegistry {
+    pub fn new() -> Self {
+        Self {
+            loaded: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Get a color scheme by name, loading it on-demand if not already cached
+    /// Returns an owned Palette for API compatibility
+    pub fn get(&self, name: &str) -> Option<Palette> {
+        self.get_internal(name)
+    }
+
+    fn get_internal(&self, name: &str) -> Option<Palette> {
+        // Fast path: check if already loaded
+        {
+            let loaded = self.loaded.read();
+            if let Some(palette) = loaded.get(name) {
+                return Some(palette.clone());
+            }
+        }
+
+        // Slow path: search and load from scheme_data
+        self.load_scheme(name)
+    }
+
+    fn load_scheme(&self, name: &str) -> Option<Palette> {
+        for (scheme_name, data) in scheme_data::SCHEMES.iter() {
+            // Check if this is the scheme we're looking for (by name or alias)
+            let should_load = if *scheme_name == name {
+                true
+            } else {
+                // Quick check: parse to see if name matches an alias
+                if let Ok(scheme) = ColorSchemeFile::from_toml_str(data) {
+                    scheme.metadata.aliases.iter().any(|alias| alias == name)
+                } else {
+                    false
+                }
+            };
+
+            if should_load {
+                if let Ok(scheme) = ColorSchemeFile::from_toml_str(data) {
+                    let palette = scheme.colors.clone();
+                    let mut loaded = self.loaded.write();
+
+                    // Cache the main scheme name
+                    loaded.insert(scheme_name.to_string(), palette.clone());
+
+                    // Also cache all aliases to avoid re-parsing
+                    for alias in &scheme.metadata.aliases {
+                        loaded.insert(alias.clone(), palette.clone());
+                    }
+
+                    return Some(palette);
+                }
+                return None;
+            }
+        }
+
+        None
+    }
+
+    /// Get all available scheme names (without loading them)
+    pub fn available_schemes() -> Vec<&'static str> {
+        scheme_data::SCHEMES.iter().map(|(name, _)| *name).collect()
+    }
+
+    /// Clone all loaded schemes (for backward compatibility with .clone())
+    /// Note: This will eagerly load ALL schemes if called before any are cached
+    pub fn clone(&self) -> HashMap<String, Palette> {
+        let loaded = self.loaded.read();
+
+        // If nothing is loaded yet, load everything (backward compatibility)
+        if loaded.is_empty() {
+            drop(loaded);
+            return build_default_schemes();
+        }
+
+        loaded.clone()
+    }
 }
 
 struct LuaPipe {

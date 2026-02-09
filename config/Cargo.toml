@@ -24,6 +24,7 @@ lazy_static.workspace = true
 libc.workspace = true
 log.workspace = true
 luahelper.workspace = true
+parking_lot.workspace = true
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 notify.workspace = true
 ordered-float = { workspace=true, features = ["serde"] }

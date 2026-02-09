@@ -1403,7 +1403,7 @@ impl Config {
                     );
                 }
                 Some(p) => {
-                    cfg.resolved_palette = p.clone();
+                    cfg.resolved_palette = p;
                 }
             }
         }
@@ -1493,11 +1493,11 @@ impl Config {
         Ok(())
     }
 
-    pub fn resolve_color_scheme(&self) -> Option<&Palette> {
+    pub fn resolve_color_scheme(&self) -> Option<Palette> {
         let scheme_name = self.color_scheme.as_ref()?;
 
         if let Some(palette) = self.color_schemes.get(scheme_name) {
-            Some(palette)
+            Some(palette.clone())
         } else {
             crate::COLOR_SCHEMES.get(scheme_name)
         }
