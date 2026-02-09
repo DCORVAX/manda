@@ -45,7 +45,7 @@ if [[ ! -d "$VENDOR_DIR" ]]; then
 	exit 1
 fi
 
-echo -e "\n${BOLD}Setting up Kaku Shell Environment${NC}"
+echo -e "${BOLD}Setting up Kaku Shell Environment${NC}"
 
 # 1. Prepare User Config Directory
 mkdir -p "$USER_CONFIG_DIR"
@@ -171,7 +171,7 @@ configure_touchid() {
 		return 0
 	fi
 	echo "" # Move to next line for result display
-	
+
 	# Try the modern sudo_local method (macOS Sonoma+)
 	if grep -q "sudo_local" "$PAM_SUDO_FILE" 2>/dev/null; then
 		echo "# sudo_local: local customizations for sudo" | sudo tee "$PAM_SUDO_LOCAL_FILE" >/dev/null
@@ -181,12 +181,10 @@ configure_touchid() {
 		echo -e "  ${GREEN}✓${NC} ${BOLD}Sudo${NC}        Enabled via sudo_local"
 	else
 		# Fallback to editing /etc/pam.d/sudo
-		sudo awk -v line="$PAM_TID_LINE" 'NR==2{print line} 1' "$PAM_SUDO_FILE" > "${PAM_SUDO_FILE}.tmp" && \
-		sudo mv "${PAM_SUDO_FILE}.tmp" "$PAM_SUDO_FILE"
+		sudo awk -v line="$PAM_TID_LINE" 'NR==2{print line} 1' "$PAM_SUDO_FILE" >"${PAM_SUDO_FILE}.tmp" &&
+			sudo mv "${PAM_SUDO_FILE}.tmp" "$PAM_SUDO_FILE"
 		echo -e "  ${GREEN}✓${NC} ${BOLD}Sudo${NC}        Enabled via /etc/pam.d/sudo"
 	fi
 }
 
 configure_touchid
-
-echo -e "\n${RED}❤️ ${NC} ${BOLD}Kaku environment is ready!${NC} Open a new tab to enjoy your optimized shell.\n"

@@ -84,6 +84,15 @@ DMG_NAME="$APP_NAME.dmg"
 DMG_PATH="$OUT_DIR/$DMG_NAME"
 STAGING_DIR="$OUT_DIR/dmg_staging"
 
+# Detach any existing volumes to prevent "Resource busy" errors
+if hdiutil info | grep "/Volumes/$APP_NAME" >/dev/null; then
+	echo "Detaching existing volumes..."
+	hdiutil info | grep "/Volumes/$APP_NAME" | awk '{print $1}' | while read -r dev; do
+		echo "Detaching $dev..."
+		hdiutil detach "$dev" -force || true
+	done
+fi
+
 rm -rf "$DMG_PATH" "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
 

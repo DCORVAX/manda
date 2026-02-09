@@ -46,7 +46,6 @@ read -p "Install enhanced shell features? [Y/n] " -n 1 -r
 echo ""
 
 if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-	echo ""
 	if [[ -f "$SETUP_SCRIPT" ]]; then
 		"$SETUP_SCRIPT"
 	else
@@ -62,11 +61,7 @@ else
 	touch "$HOME/.config/kaku/.kaku_setup_v1_completed"
 fi
 
-echo ""
-echo "All set! Enjoy coding with Kaku."
-echo ""
-echo "Press any key to start your shell..."
-read -n 1 -s -r
+echo -e "\n\033[1;32m❤️  Kaku environment is ready! Enjoy coding.\033[0m"
 
 # Replace current process with zsh to enter the shell
 exec /bin/zsh -l

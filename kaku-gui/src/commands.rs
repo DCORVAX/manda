@@ -2138,7 +2138,6 @@ fn compute_default_actions() -> Vec<KeyAssignment> {
         ShowTabNavigator,
         // ----------------- Help
         OpenUri("https://github.com/tw93/Kaku".to_string()),
-        OpenUri("https://github.com/tw93/Kaku/discussions/".to_string()),
         OpenUri("https://github.com/tw93/Kaku/issues/".to_string()),
         ShowDebugOverlay,
         // ----------------- Misc
