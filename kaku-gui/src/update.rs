@@ -78,7 +78,7 @@ pub fn load_last_release_info_and_set_banner() {
         };
 
         let current = wezterm_version();
-        let force_ui = std::env::var_os("WEZTERM_ALWAYS_SHOW_UPDATE_UI").is_some();
+        let force_ui = std::env::var_os("KAKU_ALWAYS_SHOW_UPDATE_UI").is_some();
         if latest.tag_name.as_str() <= current && !force_ui {
             return;
         }
