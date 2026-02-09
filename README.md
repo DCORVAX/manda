@@ -20,7 +20,6 @@
 ## Features
 
 - **Zero Config**: Polished defaults with JetBrains Mono, **optimized macOS font rendering**, and smooth animations.
-- **AI-Ready Theme**: Offers a signature "Kaku Theme" — a high-contrast dark mode optimized for long AI coding sessions.
 - **Built-in Shell Suite**: Comes pre-loaded with Starship, z, syntax highlighting, and autosuggestions.
 - **Fast & Lightweight**: Built on a stripped-down, GPU-accelerated core that launches instantly.
 - **Lua Scripting**: Retains the full power of WezTerm's Lua engine for infinite customization.
