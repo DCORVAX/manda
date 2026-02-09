@@ -13,12 +13,13 @@ fn main() {
     if kaku_toml_path.exists() {
         println!("cargo:rerun-if-changed={}", kaku_toml_path.display());
         if let Ok(contents) = std::fs::read_to_string(&kaku_toml_path) {
-            if let Some(line) = contents.lines().find(|line| line.trim().starts_with("version =")) {
+            if let Some(line) = contents
+                .lines()
+                .find(|line| line.trim().starts_with("version ="))
+            {
                 if let Some(v) = line.split('"').nth(1) {
                     ci_tag = v.to_string();
                 }
-            }
-        }
             }
         }
     }
