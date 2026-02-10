@@ -421,7 +421,7 @@ pub fn selector(
     let event_name = match *args.action {
         KeyAssignment::EmitEvent(ref id) => id.to_string(),
         _ => {
-            anyhow::bail!("InputSelector requires action to be defined by wezterm.action_callback")
+            anyhow::bail!("InputSelector requires action to be defined by action_callback")
         }
     };
     let mut state = SelectorState {

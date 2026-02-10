@@ -479,7 +479,7 @@ impl Publish {
                         Ok(res) => {
                             log::info!(
                                 "Spawned your command via the existing GUI instance. \
-                             Use wezterm start --always-new-process if you do not want this behavior. \
+                             Use kaku start --always-new-process if you do not want this behavior. \
                              Result={:?}",
                                 res
                             );
@@ -612,7 +612,7 @@ fn run_terminal_gui(opts: StartCommand, default_domain_name: Option<String>) -> 
         opts.workspace.as_deref(),
     )?;
 
-    // First, let's see if we can ask an already running wezterm to do this.
+    // First, let's see if we can ask an already running Kaku instance to do this.
     // We must do this before we start the gui frontend as the scheduler
     // requirements are different.
     let mut publish = Publish::resolve(
