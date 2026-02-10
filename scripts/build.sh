@@ -96,7 +96,11 @@ touch "$APP_BUNDLE_OUT"
 echo "[6/6] Creating DMG..."
 DMG_NAME="$APP_NAME.dmg"
 DMG_PATH="$OUT_DIR/$DMG_NAME"
+DMG_BASE_PATH="$OUT_DIR/$APP_NAME"
+TEMP_DMG_PATH="$OUT_DIR/${APP_NAME}-temp.dmg"
 STAGING_DIR="$OUT_DIR/dmg_staging"
+BACKGROUND_IMAGE_SOURCE="assets/macos/dmg/background.png"
+BACKGROUND_IMAGE_NAME="background.png"
 
 cleanup_volumes() {
 	local vol_pattern="/Volumes/$APP_NAME"
@@ -123,15 +127,53 @@ cleanup_volumes() {
 	echo "Warning: Failed to fully detach volumes after $max_attempts attempts."
 }
 
+configure_dmg_layout() {
+	local disk_name="$1"
+	local app_name="$2"
+	local background_name="$3"
+
+	osascript >/dev/null <<EOF
+tell application "Finder"
+	tell disk "${disk_name}"
+		open
+		set current view of container window to icon view
+		set toolbar visible of container window to false
+		set statusbar visible of container window to false
+		set the bounds of container window to {100, 100, 780, 520}
+		set viewOptions to the icon view options of container window
+		set arrangement of viewOptions to not arranged
+		set icon size of viewOptions to 120
+		set text size of viewOptions to 14
+		try
+			set background picture of viewOptions to file ".background:${background_name}"
+		end try
+		set position of item "${app_name}.app" of container window to {190, 250}
+		set position of item "Applications" of container window to {500, 250}
+		close
+		open
+		update without registering applications
+		delay 1
+	end tell
+end tell
+EOF
+}
+
 cleanup_volumes
 
 sync
 
-rm -rf "$DMG_PATH" "$STAGING_DIR"
+rm -rf "$DMG_PATH" "$TEMP_DMG_PATH" "$STAGING_DIR" "$DMG_BASE_PATH.dmg"
 mkdir -p "$STAGING_DIR"
 
 cp -R "$APP_BUNDLE_OUT" "$STAGING_DIR/"
 ln -s /Applications "$STAGING_DIR/Applications"
+
+if [[ -f "$BACKGROUND_IMAGE_SOURCE" ]]; then
+	mkdir -p "$STAGING_DIR/.background"
+	cp "$BACKGROUND_IMAGE_SOURCE" "$STAGING_DIR/.background/$BACKGROUND_IMAGE_NAME"
+else
+	echo "Warning: DMG background image not found at $BACKGROUND_IMAGE_SOURCE; using default Finder background."
+fi
 
 mdutil -i off "$STAGING_DIR" >/dev/null 2>&1 || true
 
@@ -140,13 +182,47 @@ MAX_RETRIES=3
 RETRY_COUNT=0
 
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-	if hdiutil create -volname "$APP_NAME" \
+	if ! hdiutil create -volname "$APP_NAME" \
 		-srcfolder "$STAGING_DIR" \
-		-ov -format UDZO \
-		"$DMG_PATH"; then
+		-ov -format UDRW \
+		"$TEMP_DMG_PATH"; then
+		echo "hdiutil create failed. Retrying in 2 seconds... ($((RETRY_COUNT + 1))/$MAX_RETRIES)"
+		cleanup_volumes
+		sleep 2
+		RETRY_COUNT=$((RETRY_COUNT + 1))
+		continue
+	fi
+
+	ATTACH_OUTPUT=$(hdiutil attach -readwrite -noverify -noautoopen "$TEMP_DMG_PATH" 2>/dev/null || true)
+	DEVICE=$(echo "$ATTACH_OUTPUT" | awk '/\/dev\// {print $1; exit}')
+	MOUNT_POINT=$(echo "$ATTACH_OUTPUT" | awk -F'\t' '/\/Volumes\// {print $NF; exit}')
+	MOUNT_NAME=$(basename "$MOUNT_POINT")
+
+	if [[ -z "$DEVICE" || -z "$MOUNT_POINT" ]]; then
+		echo "Failed to attach temporary DMG. Retrying..."
+		if [[ -n "${DEVICE:-}" ]]; then
+			hdiutil detach "$DEVICE" -force >/dev/null 2>&1 || true
+		fi
+		cleanup_volumes
+		sleep 2
+		RETRY_COUNT=$((RETRY_COUNT + 1))
+		continue
+	fi
+
+	if ! configure_dmg_layout "$MOUNT_NAME" "$APP_NAME" "$BACKGROUND_IMAGE_NAME"; then
+		echo "Warning: Failed to configure Finder layout for DMG."
+	fi
+
+	sync
+	hdiutil detach "$DEVICE" -force >/dev/null 2>&1 || true
+
+	if hdiutil convert "$TEMP_DMG_PATH" \
+		-format UDZO \
+		-imagekey zlib-level=9 \
+		-ov -o "$DMG_BASE_PATH"; then
 		break
 	else
-		echo "hdiutil create failed. Retrying in 2 seconds... ($((RETRY_COUNT + 1))/$MAX_RETRIES)"
+		echo "hdiutil convert failed. Retrying in 2 seconds... ($((RETRY_COUNT + 1))/$MAX_RETRIES)"
 		cleanup_volumes
 		sleep 2
 		RETRY_COUNT=$((RETRY_COUNT + 1))
@@ -158,7 +234,7 @@ if [ ! -f "$DMG_PATH" ]; then
 	exit 1
 fi
 
-rm -rf "$STAGING_DIR"
+rm -rf "$STAGING_DIR" "$TEMP_DMG_PATH"
 
 echo "DMG created: $DMG_PATH"
 
