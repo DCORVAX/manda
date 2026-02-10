@@ -615,7 +615,7 @@ config.swallow_mouse_click_on_window_focus = true
 -- ===== First Run Experience & Config Version Check =====
 wezterm.on('gui-startup', function(cmd)
   local home = os.getenv("HOME")
-  local current_version = 2  -- Update this when config changes
+  local current_version = 3  -- Update this when config changes
 
   -- Check for configuration version
   local version_file = home .. "/.config/kaku/.kaku_config_version"
@@ -660,20 +660,20 @@ wezterm.on('gui-startup', function(cmd)
   end
 
   if needs_update then
-    -- Show config update prompt
+    -- Re-run guided setup on version upgrades
     local resource_dir = wezterm.executable_dir:gsub("MacOS/?$", "Resources")
-    local update_script = resource_dir .. "/check_config_version.sh"
+    local first_run_script = resource_dir .. "/first_run.sh"
 
     -- Fallback for dev environment
-    local u_script = io.open(update_script, "r")
-    if not u_script then
-      update_script = wezterm.executable_dir .. "/../../assets/shell-integration/check_config_version.sh"
+    local f_script = io.open(first_run_script, "r")
+    if not f_script then
+      first_run_script = wezterm.executable_dir .. "/../../assets/shell-integration/first_run.sh"
     else
-      u_script:close()
+      f_script:close()
     end
 
     wezterm.mux.spawn_window {
-      args = { 'bash', update_script },
+      args = { 'bash', first_run_script },
       width = 106,
       height = 22,
     }

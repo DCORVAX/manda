@@ -6,15 +6,15 @@
 set -e
 
 CONFIG_DIR="$HOME/.config/kaku"
-FLAG_FILE="$CONFIG_DIR/.kaku_setup_v1_completed"
+FLAG_FILE="$CONFIG_DIR/.kaku_config_version"
 
 echo "Resetting Kaku First Run..."
 
 if [[ -f "$FLAG_FILE" ]]; then
 	rm "$FLAG_FILE"
-	echo "✅ Removed flag file: $FLAG_FILE"
+	echo "✅ Removed version file: $FLAG_FILE"
 else
-	echo "ℹ️  Flag file not found: $FLAG_FILE"
+	echo "ℹ️  Version file not found: $FLAG_FILE"
 fi
 
 echo "Now relaunch Kaku to see the First Run experience."

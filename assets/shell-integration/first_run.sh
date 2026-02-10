@@ -4,15 +4,25 @@
 
 set -euo pipefail
 
+# Always persist config version at script exit to avoid repeated onboarding loops
+# when optional setup steps fail on user machines.
+persist_config_version() {
+	mkdir -p "$HOME/.config/kaku"
+	echo "3" >"$HOME/.config/kaku/.kaku_config_version"
+}
+trap persist_config_version EXIT
+
 # Resources directory resolution
-if [[ -d "../../../Contents/Resources" ]]; then
-	RESOURCES_DIR="$(cd ../../../Contents/Resources && pwd)"
-elif [[ -d "/Applications/Kaku.app/Contents/Resources" ]]; then
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$SCRIPT_DIR/setup_zsh.sh" ]]; then
+	RESOURCES_DIR="$SCRIPT_DIR"
+elif [[ -f "/Applications/Kaku.app/Contents/Resources/setup_zsh.sh" ]]; then
 	RESOURCES_DIR="/Applications/Kaku.app/Contents/Resources"
+elif [[ -f "$HOME/Applications/Kaku.app/Contents/Resources/setup_zsh.sh" ]]; then
+	RESOURCES_DIR="$HOME/Applications/Kaku.app/Contents/Resources"
 else
 	# Fallback for dev environment
-	DIR="$(dirname "$0")"
-	RESOURCES_DIR="$DIR"
+	RESOURCES_DIR="$SCRIPT_DIR"
 fi
 
 SETUP_SCRIPT="$RESOURCES_DIR/setup_zsh.sh"
@@ -81,7 +91,11 @@ fi
 # Process Shell Features
 if [[ "$INSTALL_SHELL" == "true" ]]; then
 	if [[ -f "$SETUP_SCRIPT" ]]; then
-		"$SETUP_SCRIPT"
+		if ! "$SETUP_SCRIPT"; then
+			echo ""
+			echo "Warning: shell setup failed. You can retry manually:"
+			echo "  bash \"$SETUP_SCRIPT\""
+		fi
 	else
 		echo "Error: setup_zsh.sh not found at $SETUP_SCRIPT"
 	fi
@@ -169,16 +183,19 @@ if [[ "$INSTALL_DELTA" == "true" ]]; then
 	DELTA_SCRIPT="$RESOURCES_DIR/install_delta.sh"
 	if [[ -f "$DELTA_SCRIPT" ]]; then
 		echo ""
-		bash "$DELTA_SCRIPT"
+		if ! bash "$DELTA_SCRIPT"; then
+			echo "Warning: Delta installation failed."
+		fi
 	else
 		echo "Warning: install_delta.sh not found at $DELTA_SCRIPT"
 	fi
 fi
 
-# Save config version (v2)
-echo "2" > "$HOME/.config/kaku/.kaku_config_version"
-
 echo -e "\n\033[1;32m❤️ Kaku environment is ready! Enjoy coding.\033[0m"
+
+# `exec` replaces the shell process and skips EXIT trap handlers.
+# Persist explicitly here so successful first-run/upgrade paths are recorded.
+persist_config_version
 
 # Replace current process with zsh to enter the shell
 exec /bin/zsh -l

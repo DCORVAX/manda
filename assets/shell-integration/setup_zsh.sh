@@ -14,28 +14,29 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 # Configuration
-KAKU_APP_DIR="/Applications/Kaku.app"
-# If running from inside the app bundle (typical case), detect location
-if [[ -d "../../../Contents/Resources" ]]; then
-	RESOURCES_DIR="$(cd ../../../Contents/Resources && pwd)"
-elif [[ -d "$KAKU_APP_DIR/Contents/Resources" ]]; then
-	RESOURCES_DIR="$KAKU_APP_DIR/Contents/Resources"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Resolve resources by script location first so setup works regardless of app install path.
+# - App bundle:   setup_zsh.sh in Resources/, vendor in Resources/vendor
+# - Dev checkout: setup_zsh.sh in assets/shell-integration/, vendor in assets/vendor
+if [[ -d "$SCRIPT_DIR/vendor" ]]; then
+	RESOURCES_DIR="$SCRIPT_DIR"
+elif [[ -d "$SCRIPT_DIR/../vendor" ]]; then
+	RESOURCES_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+elif [[ -d "/Applications/Kaku.app/Contents/Resources/vendor" ]]; then
+	RESOURCES_DIR="/Applications/Kaku.app/Contents/Resources"
+elif [[ -d "$HOME/Applications/Kaku.app/Contents/Resources/vendor" ]]; then
+	RESOURCES_DIR="$HOME/Applications/Kaku.app/Contents/Resources"
 else
-	echo -e "${YELLOW}Warning: Could not locate Kaku resources. Running in dev mode?${NC}"
-	# Fallback for local development
-	if [[ -d "$(dirname "$0")/../vendor" ]]; then
-		RESOURCES_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-	else
-		echo -e "${YELLOW}Error: Vendor resources not found.${NC}"
-		exit 1
-	fi
+	echo -e "${YELLOW}Error: Could not locate Kaku resources (vendor directory missing).${NC}"
+	exit 1
 fi
 
 VENDOR_DIR="$RESOURCES_DIR/vendor"
 USER_CONFIG_DIR="$HOME/.config/kaku/zsh"
 KAKU_INIT_FILE="$USER_CONFIG_DIR/kaku.zsh"
 STARSHIP_CONFIG="$HOME/.config/starship.toml"
-ZSHRC="$HOME/.zshrc"
+ZSHRC="${ZDOTDIR:-$HOME}/.zshrc"
 BACKUP_SUFFIX=".kaku-backup-$(date +%s)"
 
 # Ensure vendor resources exist
