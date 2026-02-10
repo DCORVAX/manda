@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-CURRENT_CONFIG_VERSION=3
+CURRENT_CONFIG_VERSION=4
 VERSION_FILE="$HOME/.config/kaku/.kaku_config_version"
 
 # Determine resource dir
@@ -44,6 +44,11 @@ if [[ $user_version -lt 3 ]]; then
 	echo "  • More reliable setup path detection"
 	echo "  • Respect ZDOTDIR when patching .zshrc"
 	echo "  • Prevent repeated first-run onboarding loops"
+fi
+if [[ $user_version -lt 4 ]]; then
+	echo "  • Delta defaults to side-by-side with line numbers"
+	echo "  • Mouse wheel scrolling enabled in diff pager"
+	echo "  • Cleaner file labels and theme-aligned highlighting"
 fi
 echo ""
 

@@ -8,7 +8,7 @@ set -euo pipefail
 # when optional setup steps fail on user machines.
 persist_config_version() {
 	mkdir -p "$HOME/.config/kaku"
-	echo "3" >"$HOME/.config/kaku/.kaku_config_version"
+	echo "4" >"$HOME/.config/kaku/.kaku_config_version"
 }
 trap persist_config_version EXIT
 
