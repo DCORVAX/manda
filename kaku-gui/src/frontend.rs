@@ -276,13 +276,15 @@ impl GuiFrontEnd {
             }
             true
         });
-        // Re-evaluate the config so that folks that are using
-        // `wezterm.gui.get_appearance()` can have that take effect
-        // before any windows are created
-        config::reload();
+        // Re-evaluate config only if it queried `wezterm.gui.get_appearance()`
+        // before the GUI connection was ready during initial config load.
+        if window_funcs::take_appearance_queried_before_gui_ready() {
+            config::reload();
+        }
 
-        // And build the initial menu bar.
-        // TODO: arrange for this to happen on config reload.
+        // Build the initial menu bar synchronously during startup.
+        // AppKit may inspect menu item selectors during reopen events,
+        // so avoid deferring the first menubar reconstruction.
         crate::commands::CommandDef::recreate_menubar(&config::configuration());
 
         Ok(front_end)
@@ -609,10 +611,13 @@ pub fn try_new() -> Result<Rc<GuiFrontEnd>, Error> {
 
     let config_subscription = config::subscribe_to_config_reload({
         move || {
-            promise::spawn::spawn_into_main_thread(async {
-                crate::commands::CommandDef::recreate_menubar(&config::configuration());
-            })
-            .detach();
+            #[cfg(not(target_os = "macos"))]
+            {
+                promise::spawn::spawn_into_main_thread(async {
+                    crate::commands::CommandDef::recreate_menubar(&config::configuration());
+                })
+                .detach();
+            }
             true
         }
     });

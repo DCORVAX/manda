@@ -500,6 +500,9 @@ pub fn set_config_file_override(path: &Path) {
 pub fn set_config_overrides(items: &[(String, String)]) -> anyhow::Result<()> {
     *CONFIG_OVERRIDES.lock().unwrap() = items.to_vec();
 
+    // Keep this eager validation call even when `items` is empty.
+    // It primes lua context setup hooks that install config-reload
+    // subscriptions; deferring this can deadlock during initial reload.
     let _ = default_config_with_overrides_applied()?;
     Ok(())
 }
