@@ -78,30 +78,8 @@ fn schedule_set_banner_from_release_info(_latest: &Release) {
     // Banner scheduling disabled
 }
 
-fn set_banner_from_release_info(_latest: &Release) {
-    // Banner disabled to avoid intrusiveness
-}
-
 pub fn load_last_release_info_and_set_banner() {
-    if !configuration().check_for_updates {
-        return;
-    }
-
-    let update_file_name = config::DATA_DIR.join("check_update");
-    if let Ok(data) = std::fs::read(update_file_name) {
-        let latest: Release = match serde_json::from_slice(&data) {
-            Ok(d) => d,
-            Err(_) => return,
-        };
-
-        let current = wezterm_version();
-        let force_ui = std::env::var_os("KAKU_ALWAYS_SHOW_UPDATE_UI").is_some();
-        if !is_newer(&latest.tag_name, current) && !force_ui {
-            return;
-        }
-
-        set_banner_from_release_info(&latest);
-    }
+    // Banner UI is currently disabled; avoid unnecessary startup I/O and JSON parsing.
 }
 
 /// Returns true if the provided socket path is dead.

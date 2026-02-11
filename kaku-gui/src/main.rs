@@ -207,7 +207,10 @@ async fn connect_to_auto_connect_domains() -> anyhow::Result<()> {
     for dom in domains {
         if let Some(dom) = dom.downcast_ref::<ClientDomain>() {
             if dom.connect_automatically() {
-                dom.attach(None).await?;
+                let domain_name = dom.domain_name().to_string();
+                dom.attach(None)
+                    .await
+                    .with_context(|| format!("auto-connect domain `{domain_name}`"))?;
             }
         }
     }
@@ -280,7 +283,23 @@ async fn async_run_terminal_gui(
     }
 
     if !opts.no_auto_connect {
-        connect_to_auto_connect_domains().await?;
+        let default_domain_is_local = Mux::get().default_domain().domain_name() == "local";
+        let explicit_domain_requested = opts.domain.is_some();
+
+        if default_domain_is_local && !explicit_domain_requested {
+            promise::spawn::spawn_with_low_priority(async {
+                if let Err(err) = connect_to_auto_connect_domains().await {
+                    log::warn!(
+                        "auto-connect domains failed in background (startup continues): {err:#}"
+                    );
+                }
+            })
+            .detach();
+        } else {
+            // Preserve existing startup semantics when the startup target
+            // is a non-local/explicit domain.
+            connect_to_auto_connect_domains().await?;
+        }
     }
 
     let spawn_command = match &cmd {
