@@ -399,6 +399,7 @@ pub struct TermWindow {
     is_click_to_focus_window: bool,
     last_mouse_coords: (usize, i64),
     window_drag_position: Option<MouseEvent>,
+    is_window_dragging: bool,
     current_mouse_event: Option<MouseEvent>,
     prev_cursor: PrevCursorPos,
     last_scroll_info: RenderableDimensions,
@@ -716,6 +717,7 @@ impl TermWindow {
             left_status: String::new(),
             last_mouse_coords: (0, -1),
             window_drag_position: None,
+            is_window_dragging: false,
             current_mouse_event: None,
             current_modifier_and_leds: Default::default(),
             prev_cursor: PrevCursorPos::new(),
@@ -2836,6 +2838,7 @@ impl TermWindow {
             }
             StartWindowDrag => {
                 self.window_drag_position = self.current_mouse_event.clone();
+                self.is_window_dragging = self.window_drag_position.is_some();
             }
             OpenLinkAtMouseCursor => {
                 self.do_open_link_at_mouse_cursor(pane);

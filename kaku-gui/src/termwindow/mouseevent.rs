@@ -125,9 +125,13 @@ impl super::TermWindow {
             WMEK::Release(ref press) => {
                 self.current_mouse_capture = None;
                 self.current_mouse_buttons.retain(|p| p != press);
-                if press == &MousePress::Left && self.window_drag_position.take().is_some() {
-                    // Completed a window drag
-                    return;
+                if press == &MousePress::Left {
+                    let was_dragging_window = self.is_window_dragging;
+                    self.is_window_dragging = false;
+                    if self.window_drag_position.take().is_some() || was_dragging_window {
+                        // Completed a window drag
+                        return;
+                    }
                 }
                 if press == &MousePress::Left && self.dragging.take().is_some() {
                     // Completed a drag
@@ -158,25 +162,40 @@ impl super::TermWindow {
             }
 
             WMEK::Move => {
-                if let Some(start) = self.window_drag_position.as_ref() {
-                    // Dragging the window
-                    // Compute the distance since the initial event
-                    let delta_x = start.screen_coords.x - event.screen_coords.x;
-                    let delta_y = start.screen_coords.y - event.screen_coords.y;
+                if let Some(start) = self.window_drag_position.clone() {
+                    if event.mouse_buttons != WMB::LEFT {
+                        self.window_drag_position = None;
+                        self.is_window_dragging = false;
+                    } else {
+                        // Dragging the window
+                        // Compute the distance since the initial event
+                        let delta_x = start.screen_coords.x - event.screen_coords.x;
+                        let delta_y = start.screen_coords.y - event.screen_coords.y;
 
-                    // Now compute a new window position.
-                    // We don't have a direct way to get the position,
-                    // but we can infer it by comparing the mouse coords
-                    // with the screen coords in the initial event.
-                    // This computes the original top_left position,
-                    // and applies the total drag delta to it.
-                    let top_left = ::window::ScreenPoint::new(
-                        (start.screen_coords.x - start.coords.x) - delta_x,
-                        (start.screen_coords.y - start.coords.y) - delta_y,
-                    );
-                    // and now tell the window to go there
-                    context.set_window_position(top_left);
-                    return;
+                        // Now compute a new window position.
+                        // We don't have a direct way to get the position,
+                        // but we can infer it by comparing the mouse coords
+                        // with the screen coords in the initial event.
+                        // This computes the original top_left position,
+                        // and applies the total drag delta to it.
+                        let top_left = ::window::ScreenPoint::new(
+                            (start.screen_coords.x - start.coords.x) - delta_x,
+                            (start.screen_coords.y - start.coords.y) - delta_y,
+                        );
+                        // and now tell the window to go there
+                        context.set_window_position(top_left);
+                        return;
+                    }
+                }
+                if self.is_window_dragging {
+                    if event.mouse_buttons == WMB::NONE {
+                        // Defensive reset in case release was consumed by native drag.
+                        self.is_window_dragging = false;
+                    } else {
+                        // We requested a native drag move; while it is active,
+                        // suppress terminal mouse handling to avoid accidental scrolling.
+                        return;
+                    }
                 }
 
                 if let Some((item, start_event)) = self.dragging.take() {
@@ -184,7 +203,11 @@ impl super::TermWindow {
                     return;
                 }
             }
-            _ => {}
+            WMEK::VertWheel(_) | WMEK::HorzWheel(_) => {
+                if self.is_window_dragging {
+                    return;
+                }
+            }
         }
 
         let prior_ui_item = self.last_ui_item.clone();
@@ -485,6 +508,7 @@ impl super::TermWindow {
                         }
                     }
                     // Potentially starting a drag by the tab bar
+                    self.is_window_dragging = true;
                     if !maximized {
                         self.window_drag_position.replace(event.clone());
                     }
