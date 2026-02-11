@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-CURRENT_CONFIG_VERSION=5
+CURRENT_CONFIG_VERSION=6
 VERSION_FILE="$HOME/.config/kaku/.kaku_config_version"
 
 # Determine resource dir
@@ -54,6 +54,10 @@ if [[ $user_version -lt 5 ]]; then
 	echo "  • Refined diff header display to avoid duplicate file hints"
 	echo "  • Updated Delta default theme and label readability"
 	echo "  • Better protection for user custom kaku.lua during onboarding"
+fi
+if [[ $user_version -lt 6 ]]; then
+	echo "  • Added zsh-completions to default shell setup"
+	echo "  • Richer command and subcommand Tab completion coverage"
 fi
 echo ""
 

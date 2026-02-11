@@ -8,7 +8,7 @@ set -euo pipefail
 # when optional setup steps fail on user machines.
 persist_config_version() {
 	mkdir -p "$HOME/.config/kaku"
-	echo "5" >"$HOME/.config/kaku/.kaku_config_version"
+	echo "6" >"$HOME/.config/kaku/.kaku_config_version"
 }
 trap persist_config_version EXIT
 
@@ -46,6 +46,7 @@ echo "Would you like to install Kaku's enhanced shell features?"
 echo "This includes:"
 echo "  - Starship Prompt"
 echo "  - z - Smart Directory Jumper"
+echo "  - zsh-completions - Rich Tab Completions"
 echo "  - Zsh Syntax Highlighting"
 echo "  - Zsh Autosuggestions"
 echo "--------------------------------------------------------"

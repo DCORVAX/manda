@@ -59,10 +59,21 @@ if [[ -f "$VENDOR_DIR/starship" ]]; then
 	chmod +x "$USER_CONFIG_DIR/bin/starship"
 fi
 
+# Validate required plugin directories up front.
+# setup_zsh.sh may be run standalone, so provide a clear dependency hint.
+for plugin in zsh-z zsh-autosuggestions zsh-syntax-highlighting zsh-completions; do
+	if [[ ! -d "$VENDOR_DIR/$plugin" ]]; then
+		echo -e "${YELLOW}Error: Missing plugin vendor directory: $VENDOR_DIR/$plugin${NC}"
+		echo -e "${YELLOW}Hint: Run scripts/download_vendor.sh before setup_zsh.sh.${NC}"
+		exit 1
+	fi
+done
+
 # Copy Plugins
 cp -R "$VENDOR_DIR/zsh-z" "$USER_CONFIG_DIR/plugins/"
 cp -R "$VENDOR_DIR/zsh-autosuggestions" "$USER_CONFIG_DIR/plugins/"
 cp -R "$VENDOR_DIR/zsh-syntax-highlighting" "$USER_CONFIG_DIR/plugins/"
+cp -R "$VENDOR_DIR/zsh-completions" "$USER_CONFIG_DIR/plugins/"
 echo -e "  ${GREEN}✓${NC} ${BOLD}Tools${NC}       Installed Starship & Zsh plugins ${NC}(~/.config/kaku/zsh)${NC}"
 
 # Copy Starship Config (if not exists)
@@ -154,6 +165,11 @@ alias glg='git log --stat'
 alias glgp='git log --stat -p'
 
 # Load Plugins (Performance Optimized)
+
+# Load zsh-completions into fpath before compinit
+if [[ -d "\$KAKU_ZSH_DIR/plugins/zsh-completions/src" ]]; then
+    fpath=("\$KAKU_ZSH_DIR/plugins/zsh-completions/src" \$fpath)
+fi
 
 # Optimized compinit: Use cache and only rebuild when needed (~30ms saved)
 autoload -Uz compinit

@@ -7,7 +7,7 @@ set -euo pipefail
 VENDOR_DIR="$(cd "$(dirname "$0")/../assets/vendor" && pwd)"
 mkdir -p "$VENDOR_DIR"
 
-echo "[1/3] Downloading Starship (Universal Binary)..."
+echo "[1/4] Downloading Starship (Universal Binary)..."
 STARSHIP_BIN="$VENDOR_DIR/starship"
 
 # Download both architectures
@@ -35,7 +35,7 @@ else
 	echo "Starship already exists, skipping."
 fi
 
-echo "[2/3] Cloning zsh-autosuggestions..."
+echo "[2/4] Cloning zsh-autosuggestions..."
 AUTOSUGGEST_DIR="$VENDOR_DIR/zsh-autosuggestions"
 if [[ ! -d "$AUTOSUGGEST_DIR" ]]; then
 	git clone --depth 1 https://github.com/zsh-users/zsh-autosuggestions "$AUTOSUGGEST_DIR"
@@ -44,13 +44,22 @@ else
 	echo "zsh-autosuggestions already exists, skipping."
 fi
 
-echo "[3/3] Cloning zsh-syntax-highlighting..."
+echo "[3/4] Cloning zsh-syntax-highlighting..."
 SYNTAX_DIR="$VENDOR_DIR/zsh-syntax-highlighting"
 if [[ ! -d "$SYNTAX_DIR" ]]; then
 	git clone --depth 1 https://github.com/zsh-users/zsh-syntax-highlighting.git "$SYNTAX_DIR"
 	rm -rf "$SYNTAX_DIR/.git"
 else
 	echo "zsh-syntax-highlighting already exists, skipping."
+fi
+
+echo "[4/4] Cloning zsh-completions..."
+ZSH_COMPLETIONS_DIR="$VENDOR_DIR/zsh-completions"
+if [[ ! -d "$ZSH_COMPLETIONS_DIR" ]]; then
+	git clone --depth 1 https://github.com/zsh-users/zsh-completions.git "$ZSH_COMPLETIONS_DIR"
+	rm -rf "$ZSH_COMPLETIONS_DIR/.git"
+else
+	echo "zsh-completions already exists, skipping."
 fi
 
 echo "[Extra] Cloning zsh-z..."

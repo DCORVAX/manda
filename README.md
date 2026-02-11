@@ -19,8 +19,8 @@
 
 ## Features
 
-- **Zero Config**: Polished defaults with JetBrains Mono, optimized macOS font rendering, smooth animations.
-- **Built-in Shell Suite**: Comes pre-loaded with Starship, z, Delta, syntax highlighting, and autosuggestions.
+- **Zero Config**: Polished defaults with JetBrains Mono, opencode theme, optimized macOS font rendering, smooth animations.
+- **Built-in Shell Suite**: Comes pre-loaded with Starship, z, Delta, syntax highlighting, autosuggestions, and autocompletions.
 - **Fast & Lightweight**: 40% smaller binary, instant startup, lazy loading, stripped-down GPU-accelerated core.
 - **Lua Scripting**: Retains the full power of WezTerm's Lua engine for infinite customization.
 
@@ -58,6 +58,7 @@ Kaku comes with a carefully curated suite of CLI tools, pre-configured for immed
 - **Starship**: A fast, customizable prompt showing git status, package versions, and execution time.
 - **z**: A smarter cd command that learns your most used directories for instant navigation.
 - **Delta**: A syntax-highlighting pager for git, diff, and grep output.
+- **zsh-completions**: Extended command and subcommand completion definitions.
 - **Syntax Highlighting**: Real-time command validation and coloring.
 - **Autosuggestions**: Intelligent, history-based completions similar to Fish shell.
 
