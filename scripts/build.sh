@@ -188,6 +188,18 @@ done
 # Clean up xattrs to prevent icon caching issues or quarantine
 xattr -cr "$APP_BUNDLE_OUT"
 
+echo "[4.5/7] Signing vendored binaries..."
+# Sign vendored binaries before signing the main app bundle
+# This is required for notarization - all executables must be signed
+VENDOR_BINARIES=("starship" "delta" "zoxide")
+for bin_name in "${VENDOR_BINARIES[@]}"; do
+	bin_path="$APP_BUNDLE_OUT/Contents/Resources/vendor/$bin_name"
+	if [[ -f "$bin_path" && "$SIGNING_IDENTITY" != "-" ]]; then
+		echo "Signing vendor binary: $bin_name"
+		codesign --force --sign "$SIGNING_IDENTITY" --options runtime "$bin_path" || echo "Warning: Failed to sign $bin_name"
+	fi
+done
+
 echo "[5/7] Signing app bundle..."
 # Signing strategy:
 # - Dev builds (PROFILE=dev): Always use ad-hoc signing (-) for speed

@@ -151,5 +151,17 @@ else
 	echo "❌ Notarization failed or returned unexpected status."
 	echo "Full output:"
 	echo "$SUBMIT_OUTPUT"
+
+	# Extract submission ID and fetch detailed log
+	SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | grep "id:" | head -1 | awk '{print $2}')
+	if [[ -n "$SUBMISSION_ID" ]]; then
+		echo ""
+		echo "Fetching detailed notarization log..."
+		xcrun notarytool log "$SUBMISSION_ID" \
+			--apple-id "$APPLE_ID" \
+			--team-id "$TEAM_ID" \
+			--password "$PASSWORD" 2>&1 || true
+	fi
+
 	exit 1
 fi
