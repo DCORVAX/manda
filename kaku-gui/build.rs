@@ -168,21 +168,38 @@ END
             .join("Contents")
             .join("Info.plist");
         
-        // Use CARGO_TARGET_DIR if set, otherwise derive from OUT_DIR
-        // OUT_DIR is like: target/release-opt/build/kaku-gui-xxx/out
-        // We need to get to: target/release-opt
-        let build_target_dir = std::env::var("CARGO_TARGET_DIR")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| {
-                let out_dir = std::env::var("OUT_DIR").unwrap();
-                let out_path = std::path::PathBuf::from(out_dir);
-                // Go up 3 levels: out -> build -> kaku-gui-xxx -> release-opt
-                out_path
-                    .ancestors()
-                    .nth(3)
-                    .map(|p| p.to_path_buf())
-                    .unwrap_or_else(|| repo_dir.join("target").join("release"))
-            });
+        // Determine the target directory where the binary will be placed
+        // Priority: CARGO_TARGET_DIR > derive from OUT_DIR > fallback to target/release
+        let build_target_dir = if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {
+            std::path::PathBuf::from(target_dir)
+        } else {
+            // OUT_DIR is like: target/release-opt/build/kaku-gui-xxx/out
+            // We need to get to: target/release-opt
+            let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
+            let out_path = std::path::PathBuf::from(&out_dir);
+            
+            // Navigate up: out -> build -> kaku-gui-xxx -> release-opt
+            let mut target = out_path.clone();
+            for _ in 0..3 {
+                if let Some(parent) = target.parent() {
+                    target = parent.to_path_buf();
+                } else {
+                    break;
+                }
+            }
+            
+            // Verify this looks like a target directory
+            if target.file_name().map_or(false, |f| {
+                let s = f.to_string_lossy();
+                s == "release" || s == "debug" || s == "release-opt" || s.ends_with("-opt")
+            }) {
+                target
+            } else {
+                eprintln!("Warning: Could not derive target dir from OUT_DIR={}, using fallback", out_dir);
+                repo_dir.join("target").join("release")
+            }
+        };
+        
         let dest_plist = build_target_dir.join("Info.plist");
         println!("cargo:rerun-if-changed=assets/macos/Kaku.app/Contents/Info.plist");
 
