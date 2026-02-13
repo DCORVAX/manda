@@ -67,14 +67,11 @@ Kaku comes with a carefully curated suite of CLI tools, pre-configured for immed
 
 ### Configuration
 
-Kaku uses `~/.config/kaku/kaku.lua` for configuration—fully compatible with WezTerm's Lua API. Built-in defaults are located at `Kaku.app/Contents/Resources/kaku.lua` as fallback only.
+Kaku uses `~/.config/kaku/kaku.lua` for configuration, fully compatible with WezTerm's Lua API. Built-in defaults are located at `Kaku.app/Contents/Resources/kaku.lua` as fallback only.
 
 ### CLI Commands
 
-Run `kaku` in your terminal to see available commands. Common operations:
-- `kaku update` — Check and apply updates
-- `kaku reset` — Remove Kaku-managed shell integrations
-- `kaku config` — Open configuration file
+Run `kaku` in your terminal to see all available commands. Common operations include `kaku update` to check and apply updates, `kaku reset` to remove shell integrations, and `kaku config` to open the configuration file.
 
 ## Why Kaku?
 
