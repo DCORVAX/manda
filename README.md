@@ -92,13 +92,13 @@ Achieved through aggressive stripping of unused features, lazy loading of color 
 
 ## FAQ
 
-**Why is the Homebrew cask named `kakuku` instead of `kaku`?**
+1. **Why is the Homebrew cask named `kakuku` instead of `kaku`?**
 
-The name `kaku` conflicts with another package in Homebrew's official repository (an unmaintained music player). `kakuku` is a cute variation that's easy to remember.
+   The name `kaku` conflicts with another package in Homebrew's official repository (an unmaintained music player). `kakuku` is a cute variation that's easy to remember.
 
-**Is there a Windows or Linux version?**
+2. **Is there a Windows or Linux version?**
 
-Not at the moment. Kaku is currently macOS-only while we focus on polishing the macOS experience. Windows and Linux versions may come later once the macOS version is mature.
+   Not at the moment. Kaku is currently macOS-only while we focus on polishing the macOS experience. Windows and Linux versions may come later once the macOS version is mature.
 
 ## Support
 

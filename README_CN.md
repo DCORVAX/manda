@@ -91,13 +91,13 @@ WezTerm 强大且可扩展，我非常感谢它的引擎。但我想要一个开
 
 ## 常见问题
 
-**为什么 Homebrew cask 叫 `kakuku` 而不是 `kaku`？**
+1. **为什么 Homebrew cask 叫 `kakuku` 而不是 `kaku`？**
 
-因为 `kaku` 与 Homebrew 官方仓库中的另一个软件冲突，用户在 update 的时候会更新到这个同名软件，我认为 `kakuku` 也可爱好记
+   因为 `kaku` 与 Homebrew 官方仓库中的另一个软件冲突，用户在 update 的时候会更新到这个同名软件，我认为 `kakuku` 也可爱好记
 
-**有 Windows 或 Linux 版本吗？**
+2. **有 Windows 或 Linux 版本吗？**
 
-暂时没有，Kaku 目前仅支持 macOS，我们会先专注于完善 Mac 上体验，等成熟后可能会推出 Windows 版本给大伙
+   暂时没有，Kaku 目前仅支持 macOS，我们会先专注于完善 Mac 上体验，等成熟后可能会推出 Windows 版本给大伙
 
 ## 支持
 
