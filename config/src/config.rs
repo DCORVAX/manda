@@ -1127,7 +1127,33 @@ impl Config {
                     lua.load(s.trim_start_matches('\u{FEFF}'))
                         .set_name(p.to_string_lossy())
                         .eval_async(),
-                )?;
+                )
+                .map_err(|e| {
+                    let err_str = format!("{}", e);
+                    // Detect common mistake: using `config.xxx` without defining `config` first
+                    if err_str.contains("attempt to index a nil value")
+                        && err_str.contains("global 'config'")
+                    {
+                        anyhow::anyhow!(
+                            "Config error: You may have forgotten to define the config variable.\n\
+                             \n\
+                             In kaku.lua, you need to create the config table first:\n\
+                             \n\
+                             local wezterm = require 'wezterm'\n\
+                             local config = {{}}  -- or wezterm.config_builder()\n\
+                             \n\
+                             config.line_height = 1.2\n\
+                             config.font_size = 14.0\n\
+                             \n\
+                             return config\n\
+                             \n\
+                             Original error: {}",
+                            e
+                        )
+                    } else {
+                        anyhow::anyhow!("{}", e)
+                    }
+                })?;
                 let config = Config::apply_overrides_to(&lua, config)?;
                 let config = Config::apply_overrides_obj_to(&lua, config, overrides)?;
                 let cfg = Config::from_lua(config, &lua).with_context(|| {

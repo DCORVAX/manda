@@ -83,6 +83,9 @@ mkdir -p "$USER_CONFIG_DIR/bin"
 if [[ -f "$VENDOR_DIR/starship" ]]; then
 	cp "$VENDOR_DIR/starship" "$USER_CONFIG_DIR/bin/"
 	chmod +x "$USER_CONFIG_DIR/bin/starship"
+else
+	echo -e "${YELLOW}Warning: Starship binary not found in $VENDOR_DIR${NC}"
+	echo -e "${YELLOW}         Prompt will not be available until you reinstall Kaku.${NC}"
 fi
 
 # Validate required plugin directories up front.
@@ -122,7 +125,11 @@ export KAKU_ZSH_DIR="\$HOME/.config/kaku/zsh"
 export PATH="\$KAKU_ZSH_DIR/bin:\$PATH"
 
 # Initialize Starship (Cross-shell prompt)
-if command -v starship &> /dev/null; then
+# Check file existence to avoid "no such file" errors in some zsh configurations
+if [[ -x "\$KAKU_ZSH_DIR/bin/starship" ]]; then
+    eval "\$("\$KAKU_ZSH_DIR/bin/starship" init zsh)"
+elif command -v starship &> /dev/null; then
+    # Fallback to system starship if available
     eval "\$(starship init zsh)"
 fi
 
