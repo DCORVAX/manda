@@ -1205,18 +1205,21 @@ impl WindowInner {
             match fullscreen {
                 Some(saved_rect) => unsafe {
                     // Restore prior dimensions
-                    self.window.orderOut_(nil);
+                    // Use NO for display to batch updates, then flush with makeKeyAndOrderFront
                     apply_decorations_to_window(
                         &self.window,
                         self.config.window_decorations,
                         self.config.integrated_title_button_style,
                     );
-                    self.window.setFrame_display_(saved_rect, YES);
-                    self.window.makeKeyAndOrderFront_(nil);
+                    self.window.setFrame_display_(saved_rect, NO);
                     self.window.setOpaque_(NO);
                     current_app.setPresentationOptions_(
                         NSApplicationPresentationOptions::NSApplicationPresentationDefault,
                     );
+                    // Invalidate to force redraw at new size
+                    if let Some(view) = WindowView::get_this(&**self.view) {
+                        view.inner.borrow_mut().invalidated = true;
+                    }
                 },
                 None => unsafe {
                     // Go full screen
@@ -1230,16 +1233,18 @@ impl WindowInner {
                     let main_screen = NSScreen::mainScreen(nil);
                     let screen_rect = NSScreen::frame(main_screen);
 
-                    self.window.orderOut_(nil);
+                    self.window.setOpaque_(YES);
                     self.window
                         .setStyleMask_(NSWindowStyleMask::NSBorderlessWindowMask);
-                    self.window.setFrame_display_(screen_rect, YES);
-                    self.window.makeKeyAndOrderFront_(nil);
-                    self.window.setOpaque_(YES);
+                    self.window.setFrame_display_(screen_rect, NO);
                     current_app.setPresentationOptions_(
                         NSApplicationPresentationOptions:: NSApplicationPresentationAutoHideMenuBar
                             | NSApplicationPresentationOptions::NSApplicationPresentationAutoHideDock
                     );
+                    // Invalidate to force redraw at new size
+                    if let Some(view) = WindowView::get_this(&**self.view) {
+                        view.inner.borrow_mut().invalidated = true;
+                    }
                 },
             }
         }
