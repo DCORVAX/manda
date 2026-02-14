@@ -1,8 +1,4 @@
 use crate::termwindow::box_model::*;
-use crate::termwindow::render::corners::{
-    BOTTOM_LEFT_ROUNDED_CORNER, BOTTOM_RIGHT_ROUNDED_CORNER, TOP_LEFT_ROUNDED_CORNER,
-    TOP_RIGHT_ROUNDED_CORNER,
-};
 use crate::termwindow::{DimensionContext, RenderFrame, TermWindowNotif};
 use crate::utilsprites::RenderMetrics;
 use ::window::bitmaps::atlas::OutOfTextureSpace;
@@ -309,25 +305,25 @@ impl crate::TermWindow {
             .context("paint_window_borders")?;
         drop(layers);
         self.paint_modal().context("paint_modal")?;
-        self.paint_copy_toast().context("paint_copy_toast")?;
+        self.paint_toast().context("paint_toast")?;
 
         Ok(())
     }
 
-    /// Render the "Copied!" toast notification
-    pub fn paint_copy_toast(&mut self) -> anyhow::Result<()> {
-        let toast_at = match self.copy_toast_at {
-            Some(t) if t.elapsed() < Duration::from_millis(1500) => t,
+    /// Render the toast notification
+    pub fn paint_toast(&mut self) -> anyhow::Result<()> {
+        let (toast_at, message) = match &self.toast {
+            Some((t, msg)) if t.elapsed() < Duration::from_millis(2500) => (*t, msg.clone()),
             _ => return Ok(()),
         };
 
         let font = self.fonts.title_font()?;
         let metrics = RenderMetrics::with_font_metrics(&font.metrics());
 
-        // Fade out during the last 500ms
+        // Fade out during the last 500ms (after 2000ms)
         let elapsed_ms = toast_at.elapsed().as_millis() as f32;
-        let alpha = if elapsed_ms > 1000.0 {
-            (1.0 - (elapsed_ms - 1000.0) / 500.0).max(0.0)
+        let alpha = if elapsed_ms > 2000.0 {
+            (1.0 - (elapsed_ms - 2000.0) / 500.0).max(0.0)
         } else {
             1.0
         };
@@ -339,7 +335,7 @@ impl crate::TermWindow {
         // Always use white text for visibility
         let text_color = LinearRgba(1.0, 1.0, 1.0, alpha);
 
-        let element = Element::new(&font, ElementContent::Text("Copied".to_string()))
+        let element = Element::new(&font, ElementContent::Text(message.clone()))
             .colors(ElementColors {
                 border: BorderColor::new(bg_color.into()),
                 bg: bg_color.into(),
@@ -356,7 +352,8 @@ impl crate::TermWindow {
 
         let dimensions = self.dimensions;
         let border = self.get_os_border();
-        let approx_width = 10.0 * metrics.cell_size.width as f32;
+        // Calculate width based on message length (each char ~cell_width + padding)
+        let approx_width = (message.len() as f32 + 1.5) * metrics.cell_size.width as f32;
         let toast_height = metrics.cell_size.height as f32 * 1.5;
         // Use consistent margin based on cell size
         let h_margin = metrics.cell_size.width as f32 * 2.0;
@@ -392,7 +389,7 @@ impl crate::TermWindow {
         self.render_element(&computed, gl_state, None)?;
 
         // Keep redrawing during fade-out
-        if elapsed_ms > 1000.0 {
+        if elapsed_ms > 2000.0 {
             let next = Instant::now() + Duration::from_millis(16);
             let mut anim = self.has_animation.borrow_mut();
             match *anim {

@@ -424,9 +424,8 @@ impl GuiFrontEnd {
                         open_kaku_config();
                     }
                     KeyAssignment::ReloadConfiguration => {
-                        config::reload();
-                        refresh_fast_config_snapshot();
-                        persistent_toast_notification("Kaku", "Configuration reloaded");
+                        // Reload is handled by the active window showing a toast
+                        // See termwindow/mod.rs ReloadConfiguration handling
                     }
                     KeyAssignment::QuitApplication => {
                         // If we get here, there are no windows that could have received

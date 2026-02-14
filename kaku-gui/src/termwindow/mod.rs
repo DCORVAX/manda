@@ -583,8 +583,8 @@ pub struct TermWindow {
     webgpu: Option<Rc<WebGpuState>>,
     config_subscription: Option<config::ConfigSubscription>,
 
-    /// Timestamp when "Copied!" toast started showing
-    copy_toast_at: Option<Instant>,
+    /// Toast notification: (start_time, message)
+    toast: Option<(Instant, String)>,
 }
 
 impl TermWindow {
@@ -917,7 +917,7 @@ impl TermWindow {
             key_table_state: KeyTableState::default(),
             modal: RefCell::new(None),
             opengl_info: None,
-            copy_toast_at: None,
+            toast: None,
         };
 
         let tw = Rc::new(RefCell::new(myself));
@@ -1981,6 +1981,9 @@ impl TermWindow {
 
         self.invalidate_modal();
         self.emit_window_event("window-config-reloaded", None);
+
+        // Show toast notification for config reload
+        self.show_toast("Config reloaded".to_string());
     }
 
     fn invalidate_modal(&mut self) {
@@ -2946,10 +2949,7 @@ impl TermWindow {
             ReloadConfiguration => {
                 config::reload();
                 crate::frontend::refresh_fast_config_snapshot();
-                wezterm_toast_notification::persistent_toast_notification(
-                    "Kaku",
-                    "Configuration reloaded",
-                );
+                // Toast is shown by config_was_reloaded() callback
             }
             MoveTab(n) => self.move_tab(*n)?,
             MoveTabRelative(n) => self.move_tab_relative(*n)?,

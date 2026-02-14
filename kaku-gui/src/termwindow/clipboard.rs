@@ -26,25 +26,27 @@ impl TermWindow {
         }
     }
 
-    /// Show "Copied!" toast notification (disappears after 1.5 seconds)
-    pub fn show_copy_toast(&mut self) {
+    /// Show toast notification with a message (disappears after 2.5 seconds)
+    pub fn show_toast(&mut self, message: String) {
         let now = Instant::now();
-        self.copy_toast_at = Some(now);
+        self.toast = Some((now, message));
         if let Some(window) = self.window.clone() {
             let win = window.clone();
-            // Trigger fade-out after 1000ms
+            // Trigger fade-out after 2000ms
             let fade_win = win.clone();
             promise::spawn::spawn(async move {
-                Timer::after(Duration::from_millis(1000)).await;
+                Timer::after(Duration::from_millis(2000)).await;
                 fade_win.invalidate();
             })
             .detach();
-            // Clear after 1500ms
+            // Clear after 2500ms
             promise::spawn::spawn(async move {
-                Timer::after(Duration::from_millis(1500)).await;
+                Timer::after(Duration::from_millis(2500)).await;
                 window.notify(TermWindowNotif::Apply(Box::new(move |tw| {
-                    if tw.copy_toast_at == Some(now) {
-                        tw.copy_toast_at = None;
+                    if let Some((toast_time, _)) = &tw.toast {
+                        if *toast_time == now {
+                            tw.toast = None;
+                        }
                     }
                     win.invalidate();
                 })));
@@ -54,6 +56,11 @@ impl TermWindow {
         if let Some(window) = self.window.as_ref() {
             window.invalidate();
         }
+    }
+
+    /// Show "Copied" toast notification
+    pub fn show_copy_toast(&mut self) {
+        self.show_toast("Copied".to_string());
     }
 
     pub fn paste_from_clipboard(&mut self, pane: &Arc<dyn Pane>, clipboard: ClipboardPasteSource) {
