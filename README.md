@@ -22,7 +22,7 @@
 - **Zero Config**: Defaults with JetBrains Mono, opencode theme, macOS font rendering, and low-res font sizing.
 - **Built-in Shell Suite**: Pre-loaded Starship, z, Delta, syntax highlighting, autocompletions, and zsh history.
 - **Fast & Lightweight**: 40% smaller binary, instant startup, lazy loading, stripped-down GPU-accelerated core.
-- **Lua + Native macOS**: Full WezTerm Lua API with Finder open, default-terminal handoff, and SSH host-aware tabs.
+- **WezTerm-Compatible Config**: Use WezTerm's Lua config directly with full API compatibility and no migration.
 
 ## Quick Start
 
@@ -71,9 +71,9 @@ Run `kaku` in your terminal to see all available commands such as `kaku update`,
 
 I heavily rely on the CLI for both work and personal projects. Tools I've built, like [Mole](https://github.com/tw93/mole) and [Pake](https://github.com/tw93/pake), reflect this.
 
-I used Alacritty for years, but its lack of multi-tab support became cumbersome for AI-assisted coding. Kitty has some aesthetic and positioning quirks I couldn't get past. Ghostty shows promise but font rendering needs work. Warp feels bloated and requires a login. iTerm2 is reliable but showing its age and harder to deeply customize.
+I used Alacritty for years and learned to value speed and simplicity. As my workflow shifted toward AI-assisted coding, I wanted stronger tab and pane ergonomics. I also explored Kitty, Ghostty, Warp, and iTerm2. Each is strong in different areas, but I still wanted a setup that matched my own balance of performance, defaults, and control.
 
-WezTerm is robust and hackable, and I am grateful for its powerful engine. However, I wanted an environment that was ready immediately, without extensive configuration—and something significantly faster and lighter.
+WezTerm is robust and highly hackable, and I am grateful for its engine and ecosystem. Kaku builds on that foundation with practical defaults for day one use, while keeping full Lua-based customization and a fast, lightweight feel.
 
 So I built Kaku to be that environment: fast, polished, and ready to work.
 
