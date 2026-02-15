@@ -2,7 +2,8 @@ use crate::termwindow::{PaneInformation, TabInformation, UIItem, UIItemType};
 use config::{ConfigHandle, TabBarColors};
 use finl_unicode::grapheme_clusters::Graphemes;
 use mlua::FromLua;
-use mux::{pane::CachePolicy, Mux};
+use mux::pane::CachePolicy;
+use mux::Mux;
 use std::path::Path;
 use termwiz::cell::{unicode_column_width, Cell, CellAttributes};
 use termwiz::color::{AnsiColor, ColorSpec};
@@ -309,8 +310,7 @@ fn ssh_option_needs_value(token: &str) -> bool {
     matches!(
         token.chars().nth(1),
         Some(
-            'B'
-                | 'b'
+            'B' | 'b'
                 | 'c'
                 | 'D'
                 | 'E'

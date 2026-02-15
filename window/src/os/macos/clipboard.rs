@@ -89,7 +89,8 @@ impl Clipboard {
         let pid = std::process::id();
         for attempt in 0..64u32 {
             let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
-            let file_name = format!("{CLIPBOARD_IMAGE_FILE_PREFIX}{pid}-{now}-{attempt}.{extension}");
+            let file_name =
+                format!("{CLIPBOARD_IMAGE_FILE_PREFIX}{pid}-{now}-{attempt}.{extension}");
             let path = dir.join(file_name);
 
             let mut options = std::fs::OpenOptions::new();

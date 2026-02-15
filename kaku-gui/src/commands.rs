@@ -490,12 +490,11 @@ impl CommandDef {
                         set_default_terminal_item.set_tool_tip(
                             "Set Kaku as the default terminal for shell scripts and executables",
                         );
-                        set_default_terminal_item
-                            .set_represented_item(RepresentedItem::KeyAssignment(
-                                KeyAssignment::EmitEvent(
-                                    crate::frontend::SET_DEFAULT_TERMINAL_EVENT.to_string(),
-                                ),
-                            ));
+                        set_default_terminal_item.set_represented_item(
+                            RepresentedItem::KeyAssignment(KeyAssignment::EmitEvent(
+                                crate::frontend::SET_DEFAULT_TERMINAL_EVENT.to_string(),
+                            )),
+                        );
                         menu.add_item(&set_default_terminal_item);
 
                         menu.add_item(&MenuItem::new_separator());

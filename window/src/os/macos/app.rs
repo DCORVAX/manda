@@ -312,8 +312,7 @@ fn get_class() -> &'static Class {
             );
             cls.add_method(
                 sel!(application:openFiles:),
-                application_open_files
-                    as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object),
+                application_open_files as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object),
             );
             cls.add_method(
                 sel!(applicationDockMenu:),
@@ -342,13 +341,7 @@ fn get_class() -> &'static Class {
             cls.add_method(
                 sel!(openInKakuService:userData:error:),
                 open_in_kaku_service
-                    as extern "C" fn(
-                        &mut Object,
-                        Sel,
-                        *mut Object,
-                        *mut Object,
-                        *mut Object,
-                    ),
+                    as extern "C" fn(&mut Object, Sel, *mut Object, *mut Object, *mut Object),
             );
         }
 

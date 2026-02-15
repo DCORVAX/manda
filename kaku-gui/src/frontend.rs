@@ -127,9 +127,10 @@ pub fn set_default_terminal_with_feedback() {
 
         for gui in windows {
             let text = message.to_string();
-            gui.window.notify(TermWindowNotif::Apply(Box::new(move |tw| {
-                tw.show_toast(text);
-            })));
+            gui.window
+                .notify(TermWindowNotif::Apply(Box::new(move |tw| {
+                    tw.show_toast(text);
+                })));
         }
 
         true

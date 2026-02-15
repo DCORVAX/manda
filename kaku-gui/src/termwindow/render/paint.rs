@@ -230,19 +230,20 @@ impl crate::TermWindow {
                 .mul_alpha(self.config.window_background_opacity);
                 let border = self.get_os_border();
                 let tab_bar_height = if self.show_tab_bar {
-                    self.tab_bar_pixel_height().context("tab_bar_pixel_height")?
+                    self.tab_bar_pixel_height()
+                        .context("tab_bar_pixel_height")?
                 } else {
                     0.0
                 };
-                let padding_bottom = self
-                    .config
-                    .window_padding
-                    .bottom
-                    .evaluate_as_pixels(DimensionContext {
-                        dpi: self.dimensions.dpi as f32,
-                        pixel_max: self.terminal_size.pixel_height as f32,
-                        pixel_cell: self.render_metrics.cell_size.height as f32,
-                    });
+                let padding_bottom =
+                    self.config
+                        .window_padding
+                        .bottom
+                        .evaluate_as_pixels(DimensionContext {
+                            dpi: self.dimensions.dpi as f32,
+                            pixel_max: self.terminal_size.pixel_height as f32,
+                            pixel_cell: self.render_metrics.cell_size.height as f32,
+                        });
                 let top_fill_height = border.top.get() as f32
                     + if self.config.tab_bar_at_bottom {
                         0.0
@@ -265,12 +266,7 @@ impl crate::TermWindow {
                     self.filled_rectangle(
                         &mut layers,
                         0,
-                        euclid::rect(
-                            0.0,
-                            0.0,
-                            window_width,
-                            top_fill_height.min(window_height),
-                        ),
+                        euclid::rect(0.0, 0.0, window_width, top_fill_height.min(window_height)),
                         strip_background,
                     )
                     .context("filled_rectangle for transparent top strip")?;

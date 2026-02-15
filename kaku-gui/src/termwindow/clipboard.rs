@@ -97,7 +97,9 @@ impl TermWindow {
                             })
                         {
                             if let Err(err) = pane.send_paste(&clip) {
-                                log::warn!("failed to paste clipboard content into pane {pane_id}: {err:#}");
+                                log::warn!(
+                                    "failed to paste clipboard content into pane {pane_id}: {err:#}"
+                                );
                             }
                         }
                     })));
@@ -155,7 +157,8 @@ fn quote_path_for_clipboard_paste(
                 Err(e) => {
                     log::warn!(
                         "Failed to quote path {:?} for clipboard paste: {}. Using as-is.",
-                        path_str, e
+                        path_str,
+                        e
                     );
                     path_str
                 }

@@ -34,8 +34,7 @@ mod imp {
     const KAKU_SOURCE_PATTERN: &str = "kaku/zsh/kaku.zsh";
     const KAKU_LEGACY_INLINE_MARKER: &str = "# Kaku Shell Integration";
     const KAKU_LEGACY_INLINE_VAR: &str = "KAKU_ZSH_DIR";
-    const KAKU_LEGACY_SYNTAX_HINT: &str =
-        "zsh-syntax-highlighting/zsh-syntax-highlighting.zsh";
+    const KAKU_LEGACY_SYNTAX_HINT: &str = "zsh-syntax-highlighting/zsh-syntax-highlighting.zsh";
 
     const KAKU_GIT_DEFAULTS: &[(&str, &str)] = &[
         ("core.pager", "delta"),
@@ -207,7 +206,10 @@ mod imp {
 
         let (updated, removed_legacy_block) = strip_legacy_inline_block(&updated);
         if !removed_source_line && !removed_legacy_block {
-            report.skipped(format!("no Kaku shell integration found in {}", zshrc.display()));
+            report.skipped(format!(
+                "no Kaku shell integration found in {}",
+                zshrc.display()
+            ));
             return Ok(());
         }
 
