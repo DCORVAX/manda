@@ -2727,7 +2727,10 @@ impl WindowView {
     }
 
     extern "C" fn selected_range(_this: &mut Object, _sel: Sel) -> NSRange {
-        NSRange::new(NSNotFound as _, 0)
+        // Return a valid cursor position instead of NSNotFound.
+        // This enables macOS dictation/voice input which requires
+        // a valid cursor position where dictated text can be inserted.
+        NSRange::new(0, 0)
     }
 
     // Called by the IME when inserting composed text and/or emoji
