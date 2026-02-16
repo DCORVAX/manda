@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-CURRENT_CONFIG_VERSION=8
+CURRENT_CONFIG_VERSION=9
 CONFIG_DIR="$HOME/.config/kaku"
 STATE_FILE="$CONFIG_DIR/state.json"
 LEGACY_VERSION_FILE="$CONFIG_DIR/.kaku_config_version"
@@ -182,6 +182,10 @@ if [[ $user_version -lt 8 ]]; then
 	echo "  • Preserve complete Zsh history persistence across sessions"
 	echo "  • Respect ZDOTDIR and existing HISTFILE/HISTSIZE defaults"
 	echo "  • Write history entries immediately with timestamps"
+fi
+if [[ $user_version -lt 9 ]]; then
+	echo "  • Tab key now shows completion list instead of accepting suggestions"
+	echo "  • Use Right Arrow key to accept autosuggestions"
 fi
 echo ""
 
