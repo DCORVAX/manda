@@ -1045,7 +1045,7 @@ impl TabInner {
         Mux::try_get().map(|mux| mux.notify(MuxNotification::TabResized(self.id)));
     }
 
-    // 切换 active pane 所属 split 节点的方向 (H↔V)
+    // Toggle the split direction of the active pane's parent node (H↔V)
     fn toggle_pane_split_direction(&mut self) {
         if self.zoomed.is_some() {
             return;

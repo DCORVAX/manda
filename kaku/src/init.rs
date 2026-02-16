@@ -34,7 +34,9 @@ mod imp {
 
     pub fn run(update_only: bool) -> anyhow::Result<()> {
         ensure_user_config().context("ensure user config exists")?;
-        ensure_opencode_config().context("ensure opencode config exists")?;
+        if !update_only {
+            maybe_setup_opencode_config().context("opencode config setup")?;
+        }
 
         install_kaku_wrapper().context("install kaku wrapper")?;
 
@@ -210,12 +212,32 @@ exit 127
         Ok(())
     }
 
-    fn ensure_opencode_config() -> anyhow::Result<()> {
+    fn prompt_yes_no(question: &str) -> bool {
+        use std::io::{BufRead, Write as _};
+        print!("{} [Y/n] ", question);
+        std::io::stdout().flush().ok();
+        let stdin = std::io::stdin();
+        let mut line = String::new();
+        if stdin.lock().read_line(&mut line).is_err() {
+            return true;
+        }
+        let answer = line.trim();
+        if answer.is_empty() {
+            return true;
+        }
+        !matches!(answer, "n" | "N" | "no" | "No" | "NO")
+    }
+
+    fn maybe_setup_opencode_config() -> anyhow::Result<()> {
         let opencode_dir = config::HOME_DIR.join(".config").join("opencode");
         let opencode_config = opencode_dir.join("opencode.json");
         let themes_dir = opencode_dir.join("themes");
 
         if opencode_config.exists() {
+            if !prompt_yes_no("OpenCode config already exists. Overwrite with Kaku theme?") {
+                return Ok(());
+            }
+        } else if !prompt_yes_no("Set up OpenCode with Kaku-matching theme?") {
             return Ok(());
         }
 
@@ -306,6 +328,7 @@ exit 127
 "#;
 
         std::fs::write(&opencode_config, config_content).context("write opencode config file")?;
+        println!("OpenCode theme configured successfully.");
         Ok(())
     }
 
