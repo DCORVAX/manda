@@ -419,7 +419,17 @@ config.quit_when_all_windows_are_closed = false
 
 -- ===== Key Bindings =====
 config.keys = {
-  -- Cmd+R: clear screen + scrollback
+  -- Cmd+K: clear screen + scrollback
+  {
+    key = 'k',
+    mods = 'CMD',
+    action = wezterm.action.Multiple({
+      wezterm.action.SendKey({ key = 'l', mods = 'CTRL' }),
+      wezterm.action.ClearScrollback('ScrollbackAndViewport'),
+    }),
+  },
+
+  -- Compatibility: keep Cmd+R for existing muscle memory
   {
     key = 'r',
     mods = 'CMD',
