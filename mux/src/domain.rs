@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 use wezterm_term::TerminalSize;
 
@@ -500,12 +501,12 @@ impl LocalDomain {
 #[derive(Clone)]
 pub(crate) struct WriterWrapper {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
-    encoding: PaneEncoding,
+    encoding: Arc<AtomicU8>,
     input_encoder: Arc<Mutex<PaneInputEncoder>>,
 }
 
 impl WriterWrapper {
-    pub fn new(writer: Box<dyn Write + Send>, encoding: PaneEncoding) -> Self {
+    pub fn new(writer: Box<dyn Write + Send>, encoding: Arc<AtomicU8>) -> Self {
         Self {
             writer: Arc::new(Mutex::new(writer)),
             encoding,
@@ -516,7 +517,8 @@ impl WriterWrapper {
 
 impl std::io::Write for WriterWrapper {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let encoded = self.input_encoder.lock().encode(self.encoding, buf);
+        let encoding = PaneEncoding::from_u8(self.encoding.load(Ordering::Relaxed));
+        let encoded = self.input_encoder.lock().encode(encoding, buf);
         self.writer.lock().write_all(&encoded)?;
         Ok(buf.len())
     }
@@ -627,7 +629,8 @@ impl Domain for LocalDomain {
             self.name
         );
         let child_result = pair.slave.spawn_command(cmd);
-        let mut writer = WriterWrapper::new(pair.master.take_writer()?, encoding);
+        let encoding = Arc::new(AtomicU8::new(encoding.to_u8()));
+        let mut writer = WriterWrapper::new(pair.master.take_writer()?, Arc::clone(&encoding));
 
         let mut terminal = wezterm_term::Terminal::new(
             size,

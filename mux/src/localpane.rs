@@ -133,7 +133,7 @@ pub struct LocalPane {
     proc_list: Mutex<Option<CachedProcInfo>>,
     #[cfg(unix)]
     leader: Arc<Mutex<Option<CachedLeaderInfo>>>,
-    encoding: AtomicU8,
+    encoding: Arc<AtomicU8>,
     command_description: String,
 }
 
@@ -182,26 +182,11 @@ impl Pane for LocalPane {
     }
 
     fn get_encoding(&self) -> PaneEncoding {
-        match self.encoding.load(Ordering::Relaxed) {
-            1 => PaneEncoding::Gbk,
-            2 => PaneEncoding::Gb18030,
-            3 => PaneEncoding::Big5,
-            4 => PaneEncoding::EucKr,
-            5 => PaneEncoding::ShiftJis,
-            _ => PaneEncoding::Utf8,
-        }
+        PaneEncoding::from_u8(self.encoding.load(Ordering::Relaxed))
     }
 
     fn set_encoding(&self, encoding: PaneEncoding) {
-        let value = match encoding {
-            PaneEncoding::Utf8 => 0,
-            PaneEncoding::Gbk => 1,
-            PaneEncoding::Gb18030 => 2,
-            PaneEncoding::Big5 => 3,
-            PaneEncoding::EucKr => 4,
-            PaneEncoding::ShiftJis => 5,
-        };
-        self.encoding.store(value, Ordering::Relaxed);
+        self.encoding.store(encoding.to_u8(), Ordering::Relaxed);
     }
 
     fn get_current_seqno(&self) -> SequenceNo {
@@ -1030,7 +1015,7 @@ impl LocalPane {
         pty: Box<dyn MasterPty>,
         writer: Box<dyn Write + Send>,
         domain_id: DomainId,
-        encoding: PaneEncoding,
+        encoding: Arc<AtomicU8>,
         command_description: String,
     ) -> Self {
         let (process, signaller, pid) = split_child(process);
@@ -1057,14 +1042,7 @@ impl LocalPane {
             proc_list: Mutex::new(None),
             #[cfg(unix)]
             leader: Arc::new(Mutex::new(None)),
-            encoding: AtomicU8::new(match encoding {
-                PaneEncoding::Utf8 => 0,
-                PaneEncoding::Gbk => 1,
-                PaneEncoding::Gb18030 => 2,
-                PaneEncoding::Big5 => 3,
-                PaneEncoding::EucKr => 4,
-                PaneEncoding::ShiftJis => 5,
-            }),
+            encoding,
             command_description,
         }
     }

@@ -9,15 +9,13 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU8, Ordering};
 use wezterm_dynamic::{FromDynamic, FromDynamicOptions, ToDynamic, Value};
 use wezterm_input_types::{KeyCode, Modifiers};
 use wezterm_term::input::MouseButton;
 use wezterm_term::SemanticType;
 
-lazy_static::lazy_static! {
-    static ref LAST_PANE_ENCODING: Mutex<PaneEncoding> = Mutex::new(PaneEncoding::Utf8);
-}
+static LAST_PANE_ENCODING: AtomicU8 = AtomicU8::new(0);
 
 #[derive(Default, Debug, Clone, FromDynamic, ToDynamic, PartialEq, Eq)]
 pub struct LauncherActionArgs {
@@ -196,7 +194,7 @@ pub enum PaneEncoding {
 
 impl std::fmt::Display for PaneEncoding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.into_string())
+        f.write_str(self.as_str())
     }
 }
 
@@ -227,10 +225,30 @@ impl PaneEncoding {
         Self::ShiftJis,
     ];
 
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Self::Utf8 => 0,
+            Self::Gbk => 1,
+            Self::Gb18030 => 2,
+            Self::Big5 => 3,
+            Self::EucKr => 4,
+            Self::ShiftJis => 5,
+        }
+    }
+
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::Gbk,
+            2 => Self::Gb18030,
+            3 => Self::Big5,
+            4 => Self::EucKr,
+            5 => Self::ShiftJis,
+            _ => Self::Utf8,
+        }
+    }
+
     pub fn ordered_list() -> Vec<Self> {
-        let last_selected = *LAST_PANE_ENCODING
-            .lock()
-            .expect("LAST_PANE_ENCODING mutex poisoned");
+        let last_selected = Self::from_u8(LAST_PANE_ENCODING.load(Ordering::Relaxed));
 
         if last_selected == Self::Utf8 {
             return Self::DEFAULT_ORDER.to_vec();
@@ -250,12 +268,10 @@ impl PaneEncoding {
     }
 
     pub fn set_last_selected(encoding: Self) {
-        *LAST_PANE_ENCODING
-            .lock()
-            .expect("LAST_PANE_ENCODING mutex poisoned") = encoding;
+        LAST_PANE_ENCODING.store(encoding.to_u8(), Ordering::Relaxed);
     }
 
-    pub fn into_string(self) -> String {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Utf8 => "UTF-8",
             Self::Gbk => "GBK",
@@ -264,7 +280,6 @@ impl PaneEncoding {
             Self::EucKr => "EUC-KR",
             Self::ShiftJis => "Shift_JIS",
         }
-        .to_string()
     }
 }
 

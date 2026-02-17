@@ -12,6 +12,7 @@ use portable_pty::{MasterPty, PtySize};
 use std::collections::HashSet;
 use std::fmt::{Debug, Write};
 use std::io::Write as _;
+use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 use termwiz::escape::csi::{Cursor, CSI};
 use termwiz::escape::{Action, OneBased};
@@ -207,7 +208,8 @@ impl TmuxDomainState {
         };
 
         let pane_encoding = Self::pane_encoding_for_spawn(spawn_encoding);
-        let writer = WriterWrapper::new(pane_pty.take_writer()?, pane_encoding);
+        let encoding = Arc::new(AtomicU8::new(pane_encoding.to_u8()));
+        let writer = WriterWrapper::new(pane_pty.take_writer()?, Arc::clone(&encoding));
 
         let size = TerminalSize {
             rows: pane.pane_height as usize,
@@ -236,7 +238,7 @@ impl TmuxDomainState {
             Box::new(pane_pty),
             Box::new(writer),
             self.domain_id,
-            pane_encoding,
+            encoding,
             "tmux pane".to_string(),
         )))
     }
