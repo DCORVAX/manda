@@ -751,7 +751,11 @@ impl App {
             return;
         }
         self.editing = true;
-        self.edit_buf = field.value.clone();
+        self.edit_buf = if field.value == "—" {
+            String::new()
+        } else {
+            field.value.clone()
+        };
         self.focus = Focus::Editor;
     }
 
@@ -809,7 +813,7 @@ impl App {
 
         let new_val = self.edit_buf.trim().to_string();
         let old_val = tool.fields[self.field_index].value.clone();
-        if new_val == old_val {
+        if new_val == old_val || (new_val.is_empty() && old_val == "—") {
             return;
         }
 
