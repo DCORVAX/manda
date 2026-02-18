@@ -132,18 +132,68 @@ local function extract_path_from_cwd(cwd)
   return path
 end
 
-local function tab_path_parts(pane)
-  local cwd = pane.current_working_dir
-  if not cwd then
+local active_tab_cwd_cache = {}
+-- os.time() returns integer wall-clock seconds; 1s granularity is fine for tab title throttle
+local active_tab_cwd_refresh_interval = 1
+local function now_secs()
+  return os.time()
+end
+
+local function evict_stale_cache(live_pane_ids)
+  for pane_id in pairs(active_tab_cwd_cache) do
+    if not live_pane_ids[pane_id] then
+      active_tab_cwd_cache[pane_id] = nil
+    end
+  end
+end
+
+local function tab_path_parts(tab)
+  local pane = tab.active_pane
+  if not pane then
+    return '', ''
+  end
+
+  local source_cwd = pane.current_working_dir
+  local source_path = extract_path_from_cwd(source_cwd)
+  local path = source_path
+
+  if tab.is_active then
+    local pane_id = tostring(pane.pane_id)
+    local now = now_secs()
+    local cached = active_tab_cwd_cache[pane_id]
+    local should_refresh = (not cached)
+      or path == ''
+      or source_path ~= cached.source_path
+      or (now - cached.updated_at) >= active_tab_cwd_refresh_interval
+
+    if should_refresh then
+      local ok, runtime_cwd = pcall(function()
+        return pane:get_current_working_dir()
+      end)
+      if ok and runtime_cwd then
+        local runtime_path = extract_path_from_cwd(runtime_cwd)
+        if runtime_path ~= '' then
+          path = runtime_path
+        end
+      end
+
+      active_tab_cwd_cache[pane_id] = {
+        path = path,
+        source_path = source_path,
+        updated_at = now,
+      }
+    elseif cached and cached.path ~= '' then
+      path = cached.path
+    end
+  elseif path == '' then
     local ok, runtime_cwd = pcall(function()
       return pane:get_current_working_dir()
     end)
-    if ok then
-      cwd = runtime_cwd
+    if ok and runtime_cwd then
+      path = extract_path_from_cwd(runtime_cwd)
     end
   end
 
-  local path = extract_path_from_cwd(cwd)
   if path == '' then
     return '', ''
   end
@@ -154,22 +204,53 @@ local function tab_path_parts(pane)
   return parent, current
 end
 
-wezterm.on('format-tab-title', function(tab, _, _, _, _, max_width)
-  local parent, current = tab_path_parts(tab.active_pane)
+wezterm.on('format-tab-title', function(tab, tabs, _, effective_config, hover, max_width)
+  -- Evict stale cache only on the first tab to avoid O(n²) across the render cycle
+  if tab.tab_index == 0 then
+    local live_pane_ids = {}
+    for _, t in ipairs(tabs) do
+      if t.active_pane then
+        live_pane_ids[tostring(t.active_pane.pane_id)] = true
+      end
+    end
+    evict_stale_cache(live_pane_ids)
+  end
+
+  local parent, current = tab_path_parts(tab)
   local text = current
   if parent ~= '' and current ~= '' then
     text = parent .. '/' .. current
   end
-  if text == '' then
-    text = tab.active_pane.title
+
+  -- Guard active_pane nil before accessing .title / .is_zoomed
+  local active_pane = tab.active_pane
+  if text == '' and active_pane then
+    text = active_pane.title
   end
-  if tab.active_pane.is_zoomed then
+  if active_pane and active_pane.is_zoomed then
     text = text .. ' [Z]'
   end
   text = wezterm.truncate_right(text, math.max(8, max_width - 2))
 
-  local fg = tab.is_active and '#edecee' or '#6b6b6b'
   local intensity = tab.is_active and 'Bold' or 'Normal'
+  -- resolved_palette.tab_bar and its sub-fields are all optional; guard each level
+  local tab_bar_colors = effective_config.resolved_palette.tab_bar
+  local fg
+  if tab_bar_colors then
+    local entry
+    if tab.is_active then
+      entry = tab_bar_colors.active_tab
+    elseif hover then
+      entry = tab_bar_colors.inactive_tab_hover or tab_bar_colors.inactive_tab
+    else
+      entry = tab_bar_colors.inactive_tab
+    end
+    fg = entry and entry.fg_color
+  end
+  -- fallback defaults when palette entry or sub-field is absent
+  if not fg then
+    fg = tab.is_active and '#edecee' or (hover and '#9b9b9b' or '#6b6b6b')
+  end
   return {
     { Attribute = { Intensity = intensity } },
     { Foreground = { Color = fg } },
@@ -177,7 +258,7 @@ wezterm.on('format-tab-title', function(tab, _, _, _, _, max_width)
   }
 end)
 
-wezterm.on('window-resized', function(window, pane)
+wezterm.on('window-resized', function(window, _)
   local dims = window:get_dimensions()
   update_window_config(window, dims.is_full_screen)
 end)
