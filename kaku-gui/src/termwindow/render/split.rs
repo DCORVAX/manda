@@ -33,20 +33,27 @@ impl crate::TermWindow {
         let is_horizontal = split.direction == SplitDirection::Horizontal;
 
         if is_horizontal {
-            // Vertical line (left-right split): find boundary horizontal splits
-            // at the top and bottom to align precisely
-            let boundary_top = all_splits.iter().find(|s| {
-                s.direction == SplitDirection::Vertical
-                    && s.top <= split.top
-                    && split.left >= s.left
-                    && split.left < s.left + s.size
-            });
-            let boundary_bottom = all_splits.iter().find(|s| {
-                s.direction == SplitDirection::Vertical
-                    && s.top >= split.top + split.size
-                    && split.left >= s.left
-                    && split.left < s.left + s.size
-            });
+            // Vertical line (left-right split): find the nearest boundary
+            // horizontal splits at the top and bottom to align precisely.
+            // Use max/min by key to select the closest candidate in nested layouts.
+            let boundary_top = all_splits
+                .iter()
+                .filter(|s| {
+                    s.direction == SplitDirection::Vertical
+                        && s.top <= split.top
+                        && split.left >= s.left
+                        && split.left < s.left + s.size
+                })
+                .max_by_key(|s| s.top);
+            let boundary_bottom = all_splits
+                .iter()
+                .filter(|s| {
+                    s.direction == SplitDirection::Vertical
+                        && s.top >= split.top + split.size
+                        && split.left >= s.left
+                        && split.left < s.left + s.size
+                })
+                .min_by_key(|s| s.top);
 
             // Extend to boundary split center, or use default extend to window edge
             let extend_top = match boundary_top {
@@ -72,20 +79,27 @@ impl crate::TermWindow {
                 foreground,
             )?;
         } else {
-            // Horizontal line (top-bottom split): find boundary vertical splits
-            // at the left and right to align precisely
-            let boundary_left = all_splits.iter().find(|s| {
-                s.direction == SplitDirection::Horizontal
-                    && s.left <= split.left
-                    && split.top >= s.top
-                    && split.top < s.top + s.size
-            });
-            let boundary_right = all_splits.iter().find(|s| {
-                s.direction == SplitDirection::Horizontal
-                    && s.left >= split.left + split.size
-                    && split.top >= s.top
-                    && split.top < s.top + s.size
-            });
+            // Horizontal line (top-bottom split): find the nearest boundary
+            // vertical splits at the left and right to align precisely.
+            // Use max/min by key to select the closest candidate in nested layouts.
+            let boundary_left = all_splits
+                .iter()
+                .filter(|s| {
+                    s.direction == SplitDirection::Horizontal
+                        && s.left <= split.left
+                        && split.top >= s.top
+                        && split.top < s.top + s.size
+                })
+                .max_by_key(|s| s.left);
+            let boundary_right = all_splits
+                .iter()
+                .filter(|s| {
+                    s.direction == SplitDirection::Horizontal
+                        && s.left >= split.left + split.size
+                        && split.top >= s.top
+                        && split.top < s.top + s.size
+                })
+                .min_by_key(|s| s.left);
 
             // Extend to boundary split center, or use default extend to window edge
             let extend_left = match boundary_left {

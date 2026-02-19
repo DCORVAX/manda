@@ -405,15 +405,17 @@ impl crate::TermWindow {
 
         // Draw dot indicator for the active pane when split
         if let Some((dot_x, dot_y, is_top_pane)) = active_pane_top_right {
-            const DOT_SIZE: f32 = 12.0;
+            let cell_height = self.render_metrics.cell_size.height as f32;
+            // Size and margin scale with the current font's cell height so the
+            // indicator looks consistent regardless of font size or display DPI.
+            let dot_size = (cell_height * 0.6).round();
             const DOT_ALPHA: f32 = 0.5;
-            const MARGIN_TOP_FOR_TOP_PANE: f32 = 50.0;
-            const MARGIN_TOP_FOR_LOWER_PANE: f32 = 72.0;
-
+            // Top pane: 2.5 cells below the pane top (clears the tab bar).
+            // Lower panes: 3.5 cells below to stay clear of the split line.
             let margin_top = if is_top_pane {
-                MARGIN_TOP_FOR_TOP_PANE
+                cell_height * 2.5
             } else {
-                MARGIN_TOP_FOR_LOWER_PANE
+                cell_height * 3.5
             };
             let dot_color = self.palette().cursor_bg.to_linear().mul_alpha(DOT_ALPHA);
 
@@ -429,10 +431,10 @@ impl crate::TermWindow {
             self.poly_quad(
                 &mut layers,
                 2,
-                euclid::point2(dot_x - DOT_SIZE, dot_y + margin_top),
+                euclid::point2(dot_x - dot_size, dot_y + margin_top),
                 CIRCLE_POLY,
                 1,
-                euclid::size2(DOT_SIZE, DOT_SIZE),
+                euclid::size2(dot_size, dot_size),
                 dot_color,
             )
             .context("active pane indicator")?;
