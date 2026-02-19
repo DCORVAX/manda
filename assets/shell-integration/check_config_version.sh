@@ -66,9 +66,10 @@ echo ""
 echo -e "${BOLD}What's new:${NC}"
 case "$CURRENT_CONFIG_VERSION" in
 10)
-	echo "  • Smart Tab now prefers completion for arguments and path-like tokens"
-	echo "  • Inline autosuggestion accept is kept for the first command token"
-	echo "  • Shell update flow remains single-source via managed kaku.zsh"
+	echo "  • Smart Tab: prefers completion for arguments and path-like tokens"
+	echo "  • Optional CLI tools (Starship, Delta, Lazygit) via Homebrew"
+	echo "  • Auto-detect 1Password SSH agent to prevent auth failures"
+	echo "  • Shell config centralized in managed kaku.zsh (single source)"
 	;;
 *)
 	echo "  • Shell integration and reliability improvements"

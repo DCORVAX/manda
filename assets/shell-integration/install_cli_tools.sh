@@ -124,9 +124,9 @@ install_missing_tools() {
 	fi
 
 	echo "Installing: ${MISSING_TOOLS[*]}"
-	if ! "$BREW_BIN" install --formula --force-bottle "${MISSING_TOOLS[@]}"; then
+	if ! "$BREW_BIN" install "${MISSING_TOOLS[@]}"; then
 		echo -e "${YELLOW}Tool installation failed. You can retry manually:${NC}"
-		echo "  brew install --formula --force-bottle ${MISSING_TOOLS[*]}"
+		echo "  brew install ${MISSING_TOOLS[*]}"
 		return 0
 	fi
 
