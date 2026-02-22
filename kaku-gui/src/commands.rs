@@ -203,6 +203,7 @@ impl CommandDef {
     }
 
     /// Returns only essential commands for Command Palette (fast, lightweight)
+    #[allow(dead_code)]
     pub fn actions_for_palette_only(config: &ConfigHandle) -> Vec<ExpandedCommand> {
         fn is_palette_noise_action(action: &KeyAssignment) -> bool {
             matches!(

@@ -2,28 +2,37 @@ use crate::commands::{CommandDef, ExpandedCommand};
 use crate::overlay::selector::{matcher_pattern, matcher_score};
 use crate::termwindow::box_model::*;
 use crate::termwindow::modal::Modal;
-use crate::termwindow::{DimensionContext, TermWindow};
+use crate::termwindow::render::corners::{
+    BOTTOM_LEFT_ROUNDED_CORNER, BOTTOM_RIGHT_ROUNDED_CORNER, TOP_LEFT_ROUNDED_CORNER,
+    TOP_RIGHT_ROUNDED_CORNER,
+};
+use crate::termwindow::{DimensionContext, GuiWin, TermWindow};
 use crate::utilsprites::RenderMetrics;
 use config::keyassignment::KeyAssignment;
-use config::Dimension;
+use config::{Dimension, RgbaColor, SrgbaTuple};
 use frecency::Frecency;
+use luahelper::{from_lua_value_dynamic, impl_lua_conversion_dynamic};
+use mux_lua::MuxPane;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cell::{Ref, RefCell};
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use wezterm_dynamic::{FromDynamic, ToDynamic};
 use wezterm_term::{KeyCode, KeyModifiers, MouseEvent};
 use window::color::LinearRgba;
 use window::WindowOps;
 
-// Kaku theme colors for Command Palette
-const KAKU_BG: LinearRgba = LinearRgba::with_components(0.082, 0.078, 0.106, 0.95); // #15141b with opacity
-const KAKU_FG: LinearRgba = LinearRgba::with_components(0.929, 0.925, 0.933, 1.0); // #edecee
-const KAKU_ACCENT: LinearRgba = LinearRgba::with_components(0.635, 0.467, 1.0, 1.0); // #a277ff
-const KAKU_SELECTION_BG: LinearRgba = LinearRgba::with_components(0.161, 0.149, 0.235, 1.0); // #29263c
-const KAKU_DIM_FG: LinearRgba = LinearRgba::with_components(0.420, 0.420, 0.420, 1.0); // #6b6b6b
-const KAKU_BORDER: LinearRgba = LinearRgba::with_components(0.2, 0.18, 0.28, 0.6);
+// Kaku palette visual defaults. Used only when the user keeps the stock
+// command_palette_* colors, so custom config still takes precedence.
+const KAKU_BG: LinearRgba = LinearRgba::with_components(0.082, 0.078, 0.106, 0.95);
+const KAKU_FG: LinearRgba = LinearRgba::with_components(0.929, 0.925, 0.933, 1.0);
+const KAKU_ACCENT: LinearRgba = LinearRgba::with_components(0.635, 0.467, 1.0, 1.0);
+const KAKU_SELECTION_BG: LinearRgba = LinearRgba::with_components(0.161, 0.149, 0.235, 1.0);
+const KAKU_DIM_FG: LinearRgba = LinearRgba::with_components(0.420, 0.420, 0.420, 1.0);
+const KAKU_SEPARATOR: LinearRgba = LinearRgba::with_components(0.2, 0.18, 0.28, 0.34);
 
 struct MatchResults {
     selection: String,
@@ -45,6 +54,16 @@ struct PaletteBounds {
     y: f32,
     width: f32,
     height: f32,
+}
+
+#[derive(Clone, Copy)]
+struct PaletteTheme {
+    bg: LinearRgba,
+    fg: LinearRgba,
+    accent: LinearRgba,
+    dim_fg: LinearRgba,
+    separator: LinearRgba,
+    selection_bg: LinearRgba,
 }
 
 pub struct CommandPalette {
@@ -101,9 +120,113 @@ fn save_recent(command: &ExpandedCommand) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn build_commands() -> Vec<ExpandedCommand> {
-    // Fast path: return static list without sorting or frecency
-    CommandDef::actions_for_palette_only(&config::configuration())
+#[derive(Debug, Clone, FromDynamic, ToDynamic)]
+pub struct UserPaletteEntry {
+    pub brief: String,
+    pub doc: Option<String>,
+    pub action: KeyAssignment,
+    pub icon: Option<String>,
+}
+impl_lua_conversion_dynamic!(UserPaletteEntry);
+
+fn build_commands(term_window: &mut TermWindow) -> Vec<ExpandedCommand> {
+    fn is_palette_noise_action(action: &KeyAssignment) -> bool {
+        matches!(
+            action,
+            KeyAssignment::SendString(_)
+                | KeyAssignment::SendKey(_)
+                | KeyAssignment::Nop
+                | KeyAssignment::Multiple(_)
+                | KeyAssignment::ActivateTab(_)
+        )
+    }
+
+    // Showing the CopyMode actions in the palette is useless if CopyOverlay isn't active.
+    let filter_copy_mode = term_window
+        .get_active_pane_or_overlay()
+        .map(|pane| {
+            pane.downcast_ref::<crate::termwindow::CopyOverlay>()
+                .is_none()
+        })
+        .unwrap_or(true);
+
+    let gui_window = GuiWin::new(term_window);
+    let pane = term_window
+        .get_active_pane_or_overlay()
+        .map(|pane| MuxPane(pane.pane_id()));
+
+    let mut commands = CommandDef::actions_for_palette_and_menubar(&config::configuration());
+
+    match config::run_immediate_with_lua_config(|lua| {
+        let mut entries: Vec<UserPaletteEntry> = vec![];
+
+        if let Some(lua) = lua {
+            let result = config::lua::emit_sync_callback(
+                &*lua,
+                ("augment-command-palette".to_string(), (gui_window, pane)),
+            )?;
+
+            if !matches!(&result, mlua::Value::Nil) {
+                entries = from_lua_value_dynamic(result)?;
+            }
+        }
+
+        Ok(entries)
+    }) {
+        Ok(entries) => {
+            for entry in entries {
+                commands.push(ExpandedCommand {
+                    brief: entry.brief.into(),
+                    doc: entry.doc.unwrap_or_default().into(),
+                    action: entry.action,
+                    keys: vec![],
+                    menubar: &[],
+                });
+            }
+        }
+        Err(err) => {
+            log::warn!("augment-command-palette: {err:#}");
+        }
+    }
+
+    commands.retain(|cmd| {
+        if is_palette_noise_action(&cmd.action) {
+            return false;
+        }
+        if filter_copy_mode {
+            !matches!(cmd.action, KeyAssignment::CopyMode(_))
+        } else {
+            true
+        }
+    });
+
+    let mut scores: HashMap<&str, f64> = HashMap::new();
+    let recents = load_recents();
+    if let Ok(recents) = &recents {
+        for recent in recents {
+            scores.insert(&recent.brief, recent.frecency.score());
+        }
+    }
+
+    commands.sort_by(|a, b| {
+        match (scores.get(&*a.brief), scores.get(&*b.brief)) {
+            // Want descending frecency score, so swap a<->b for comparison.
+            (Some(a), Some(b)) => match b.partial_cmp(a) {
+                Some(Ordering::Equal) | None => {}
+                Some(ordering) => return ordering,
+            },
+            (Some(_), None) => return Ordering::Less,
+            (None, Some(_)) => return Ordering::Greater,
+            (None, None) => {}
+        }
+
+        match a.menubar.cmp(&b.menubar) {
+            Ordering::Equal => a.brief.cmp(&b.brief),
+            ordering => ordering,
+        }
+    });
+
+    commands
 }
 
 #[derive(Debug)]
@@ -153,6 +276,82 @@ fn compute_matches(selection: &str, commands: &[ExpandedCommand]) -> Vec<usize> 
 }
 
 impl CommandPalette {
+    fn mix_color(a: LinearRgba, b: LinearRgba, t: f32) -> LinearRgba {
+        let t = t.clamp(0.0, 1.0);
+        let (ar, ag, ab, aa) = a.tuple();
+        let (br, bg, bb, ba) = b.tuple();
+        LinearRgba::with_components(
+            ar + (br - ar) * t,
+            ag + (bg - ag) * t,
+            ab + (bb - ab) * t,
+            aa + (ba - aa) * t,
+        )
+    }
+
+    fn using_default_palette_colors(term_window: &TermWindow) -> bool {
+        let default_fg: RgbaColor = SrgbaTuple(0.75, 0.75, 0.75, 1.0).into();
+        let default_bg: RgbaColor = (0x33, 0x33, 0x33).into();
+        term_window.config.command_palette_fg_color == default_fg
+            && term_window.config.command_palette_bg_color == default_bg
+    }
+
+    fn palette_theme(term_window: &TermWindow) -> PaletteTheme {
+        if Self::using_default_palette_colors(term_window) {
+            return PaletteTheme {
+                bg: KAKU_BG,
+                fg: KAKU_FG,
+                accent: KAKU_ACCENT,
+                dim_fg: KAKU_DIM_FG,
+                separator: KAKU_SEPARATOR,
+                selection_bg: KAKU_SELECTION_BG,
+            };
+        }
+
+        let bg = term_window.config.command_palette_bg_color.to_linear();
+        let fg = term_window.config.command_palette_fg_color.to_linear();
+        let accent = fg;
+        let dim_fg = fg.mul_alpha(0.65);
+        let separator = Self::mix_color(fg, bg, 0.68).mul_alpha(0.42);
+        let selection_bg = Self::mix_color(fg, bg, 0.78).mul_alpha(0.92);
+
+        PaletteTheme {
+            bg,
+            fg,
+            accent,
+            dim_fg,
+            separator,
+            selection_bg,
+        }
+    }
+
+    fn palette_corners(radius_px: f32) -> Corners {
+        // Pixel-based radius keeps the modal corner smooth and consistent
+        // regardless of command palette font size.
+        let radius = Dimension::Pixels(radius_px);
+        Corners {
+            top_left: SizedPoly {
+                width: radius,
+                height: radius,
+                poly: TOP_LEFT_ROUNDED_CORNER,
+            },
+            top_right: SizedPoly {
+                width: radius,
+                height: radius,
+                poly: TOP_RIGHT_ROUNDED_CORNER,
+            },
+            bottom_left: SizedPoly {
+                width: radius,
+                height: radius,
+                poly: BOTTOM_LEFT_ROUNDED_CORNER,
+            },
+            bottom_right: SizedPoly {
+                width: radius,
+                height: radius,
+                poly: BOTTOM_RIGHT_ROUNDED_CORNER,
+            },
+        }
+    }
+
     fn palette_bounds(term_window: &TermWindow, metrics: &RenderMetrics) -> PaletteBounds {
         let top_bar_height = if term_window.show_tab_bar && !term_window.config.tab_bar_at_bottom {
             term_window.tab_bar_pixel_height().unwrap_or(0.0)
@@ -190,8 +389,8 @@ impl CommandPalette {
         }
     }
 
-    pub fn new(_term_window: &mut TermWindow) -> Self {
-        let commands = build_commands();
+    pub fn new(term_window: &mut TermWindow) -> Self {
+        let commands = build_commands(term_window);
 
         Self {
             element: RefCell::new(None),
@@ -221,6 +420,7 @@ impl CommandPalette {
         let metrics = RenderMetrics::with_font_metrics(&font.metrics());
         let dimensions = term_window.dimensions;
         let bounds = Self::palette_bounds(term_window, &metrics);
+        let theme = Self::palette_theme(term_window);
         let epoch = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_else(|_| Duration::from_secs(0));
@@ -246,7 +446,7 @@ impl CommandPalette {
             .colors(ElementColors {
                 border: BorderColor::default(),
                 bg: LinearRgba::TRANSPARENT.into(),
-                text: KAKU_ACCENT.into(),
+                text: theme.accent.into(),
             })];
         let caret = if cursor_visible { "▏" } else { " " };
         if selection.is_empty() {
@@ -255,7 +455,7 @@ impl CommandPalette {
                     ElementColors {
                         border: BorderColor::default(),
                         bg: LinearRgba::TRANSPARENT.into(),
-                        text: KAKU_ACCENT.into(),
+                        text: theme.accent.into(),
                     },
                 ),
             );
@@ -267,7 +467,7 @@ impl CommandPalette {
                 .colors(ElementColors {
                     border: BorderColor::default(),
                     bg: LinearRgba::TRANSPARENT.into(),
-                    text: KAKU_DIM_FG.into(),
+                    text: theme.dim_fg.into(),
                 }),
             );
         } else {
@@ -276,7 +476,7 @@ impl CommandPalette {
                     ElementColors {
                         border: BorderColor::default(),
                         bg: LinearRgba::TRANSPARENT.into(),
-                        text: KAKU_FG.into(),
+                        text: theme.fg.into(),
                     },
                 ),
             );
@@ -285,7 +485,7 @@ impl CommandPalette {
                     ElementColors {
                         border: BorderColor::default(),
                         bg: LinearRgba::TRANSPARENT.into(),
-                        text: KAKU_ACCENT.into(),
+                        text: theme.accent.into(),
                     },
                 ),
             );
@@ -296,7 +496,7 @@ impl CommandPalette {
                 .colors(ElementColors {
                     border: BorderColor::default(),
                     bg: LinearRgba::TRANSPARENT.into(),
-                    text: KAKU_FG.into(),
+                    text: theme.fg.into(),
                 })
                 .padding(BoxDimension {
                     left: Dimension::Cells(1.0),
@@ -312,15 +512,15 @@ impl CommandPalette {
         elements.push(
             Element::new(&font, ElementContent::Text("".to_string()))
                 .colors(ElementColors {
-                    border: BorderColor::new(KAKU_BORDER.into()),
+                    border: BorderColor::new(theme.separator.into()),
                     bg: LinearRgba::TRANSPARENT.into(),
-                    text: KAKU_FG.into(),
+                    text: theme.fg.into(),
                 })
                 .display(DisplayType::Block)
                 .min_height(Some(Dimension::Pixels(1.0)))
                 .margin(BoxDimension {
-                    left: Dimension::Cells(0.6),
-                    right: Dimension::Cells(0.6),
+                    left: Dimension::Cells(0.9),
+                    right: Dimension::Cells(0.9),
                     top: Dimension::Cells(0.),
                     bottom: Dimension::Cells(0.),
                 }),
@@ -340,7 +540,7 @@ impl CommandPalette {
             let is_selected = display_idx == selected_row;
 
             let bg: InheritableColor = if is_selected {
-                KAKU_SELECTION_BG.into()
+                theme.selection_bg.into()
             } else {
                 LinearRgba::TRANSPARENT.into()
             };
@@ -381,9 +581,9 @@ impl CommandPalette {
                             border: BorderColor::default(),
                             bg: LinearRgba::TRANSPARENT.into(),
                             text: if is_selected {
-                                KAKU_FG.into()
+                                theme.fg.into()
                             } else {
-                                KAKU_DIM_FG.into()
+                                theme.dim_fg.into()
                             },
                         }),
                 );
@@ -394,7 +594,7 @@ impl CommandPalette {
                     .colors(ElementColors {
                         border: BorderColor::default(),
                         bg,
-                        text: KAKU_FG.into(),
+                        text: theme.fg.into(),
                     })
                     .padding(BoxDimension {
                         left: Dimension::Cells(0.6),
@@ -407,12 +607,16 @@ impl CommandPalette {
             );
         }
 
-        // Centered floating container with 70% height
+        // Centered floating container with rounded clipping and no stroked
+        // border, which avoids corner seam artifacts and jagged double edges.
         let element = Element::new(&font, ElementContent::Children(elements))
             .colors(ElementColors {
-                border: BorderColor::new(KAKU_BORDER.into()),
-                bg: KAKU_BG.into(),
-                text: KAKU_FG.into(),
+                // Rounded corner polys are drawn using border colors even when
+                // border width is zero, so match them to the panel background
+                // to avoid tiny transparent corner gaps.
+                border: BorderColor::new(theme.bg),
+                bg: theme.bg.into(),
+                text: theme.fg.into(),
             })
             .padding(BoxDimension {
                 left: Dimension::Cells(0.),
@@ -420,7 +624,7 @@ impl CommandPalette {
                 top: Dimension::Cells(0.4),
                 bottom: Dimension::Cells(0.4),
             })
-            .border(BoxDimension::new(Dimension::Pixels(1.)))
+            .border_corners(Some(Self::palette_corners(10.0)))
             .min_width(Some(Dimension::Pixels(bounds.width)));
 
         let computed = term_window.compute_element(
@@ -648,11 +852,6 @@ impl Modal for CommandPalette {
     }
 
     fn mouse_event(&self, event: MouseEvent, term_window: &mut TermWindow) -> anyhow::Result<()> {
-        let font = term_window
-            .fonts
-            .command_palette_font()
-            .expect("to resolve command palette font");
-        let metrics = RenderMetrics::with_font_metrics(&font.metrics());
         let top_bar_height = if term_window.show_tab_bar && !term_window.config.tab_bar_at_bottom {
             term_window.tab_bar_pixel_height().unwrap_or(0.0)
         } else {
@@ -662,11 +861,13 @@ impl Modal for CommandPalette {
         let border = term_window.get_os_border();
         let content_x = padding_left + border.left.get() as f32;
         let content_y = top_bar_height + padding_top + border.top.get() as f32;
+        let cell_width = term_window.render_metrics.cell_size.width as f32;
+        let cell_height = term_window.render_metrics.cell_size.height as f32;
         let abs_x = content_x
-            + event.x as f32 * metrics.cell_size.width as f32
+            + event.x as f32 * cell_width
             + event.x_pixel_offset as f32;
         let abs_y = content_y
-            + event.y as f32 * metrics.cell_size.height as f32
+            + event.y as f32 * cell_height
             + event.y_pixel_offset as f32;
 
         match event.button {

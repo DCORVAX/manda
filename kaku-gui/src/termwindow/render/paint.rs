@@ -1,5 +1,9 @@
 use crate::customglyph::{BlockAlpha, BlockCoord, Poly, PolyCommand, PolyStyle};
 use crate::termwindow::box_model::*;
+use crate::termwindow::render::corners::{
+    BOTTOM_LEFT_ROUNDED_CORNER, BOTTOM_RIGHT_ROUNDED_CORNER, TOP_LEFT_ROUNDED_CORNER,
+    TOP_RIGHT_ROUNDED_CORNER,
+};
 use crate::termwindow::{DimensionContext, RenderFrame, TermWindowNotif};
 use crate::utilsprites::RenderMetrics;
 use ::window::bitmaps::atlas::OutOfTextureSpace;
@@ -492,9 +496,20 @@ impl crate::TermWindow {
         let bg_color = LinearRgba(bg_linear.0, bg_linear.1, bg_linear.2, 0.9 * alpha);
         // Always use white text for visibility
         let text_color = LinearRgba(1.0, 1.0, 1.0, alpha);
+        let toast_radius = Dimension::Pixels(8.0);
 
-        let element = Element::new(&font, ElementContent::Text(message.clone()))
+        let text = Element::new(&font, ElementContent::Text(message.clone()))
             .colors(ElementColors {
+                border: BorderColor::default(),
+                bg: LinearRgba::TRANSPARENT.into(),
+                text: text_color.into(),
+            })
+            .display(DisplayType::Block);
+
+        let element = Element::new(&font, ElementContent::Children(vec![text]))
+            .colors(ElementColors {
+                // Rounded corner polys use border colors even if the border
+                // width is zero; match bg to avoid corner gaps.
                 border: BorderColor::new(bg_color.into()),
                 bg: bg_color.into(),
                 text: text_color.into(),
@@ -505,8 +520,29 @@ impl crate::TermWindow {
                 top: Dimension::Cells(0.25),
                 bottom: Dimension::Cells(0.25),
             })
-            .border(BoxDimension::new(Dimension::Pixels(1.)))
-            .border_corners(None);
+            .border(BoxDimension::new(Dimension::Pixels(0.0)))
+            .border_corners(Some(Corners {
+                top_left: SizedPoly {
+                    width: toast_radius,
+                    height: toast_radius,
+                    poly: TOP_LEFT_ROUNDED_CORNER,
+                },
+                top_right: SizedPoly {
+                    width: toast_radius,
+                    height: toast_radius,
+                    poly: TOP_RIGHT_ROUNDED_CORNER,
+                },
+                bottom_left: SizedPoly {
+                    width: toast_radius,
+                    height: toast_radius,
+                    poly: BOTTOM_LEFT_ROUNDED_CORNER,
+                },
+                bottom_right: SizedPoly {
+                    width: toast_radius,
+                    height: toast_radius,
+                    poly: BOTTOM_RIGHT_ROUNDED_CORNER,
+                },
+            }));
 
         let dimensions = self.dimensions;
         let border = self.get_os_border();
