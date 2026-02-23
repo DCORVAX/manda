@@ -9,8 +9,8 @@ use anyhow::{anyhow, Context};
 use std::path::{Path, PathBuf};
 
 /// Default AI model to use when none is specified.
-/// This is a lightweight, fast model suitable for command analysis.
-pub const DEFAULT_MODEL: &str = "gpt-5-mini";
+/// Default model for command analysis suggestions.
+pub const DEFAULT_MODEL: &str = "DeepSeek-V3.2";
 
 /// Default API base URL for the AI service.
 pub const DEFAULT_BASE_URL: &str = "https://api.vivgrid.com/v1";

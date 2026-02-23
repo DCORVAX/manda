@@ -138,6 +138,8 @@ local active_tab_cwd_refresh_interval = 1
 local function now_secs()
   return os.time()
 end
+local runtime_cwd_startup_grace_secs = 3
+local runtime_cwd_warmup_until_secs = now_secs() + runtime_cwd_startup_grace_secs
 
 local home_dir = os.getenv("HOME")
 local kaku_state_dir = home_dir and (home_dir .. "/.config/kaku") or nil
@@ -149,6 +151,10 @@ local lazygit_command_probe = { value = nil, command = nil, checked_at = 0 }
 local lazygit_command_probe_interval_secs = 30
 local yazi_command_probe = { value = nil, command = nil, checked_at = 0 }
 local yazi_command_probe_interval_secs = 30
+local lazygit_hint_startup_grace_secs = 3
+local lazygit_hint_warmup_until_secs = now_secs() + lazygit_hint_startup_grace_secs
+local lazygit_hint_schedule_cooldown_secs = 8
+local lazygit_hint_probe_state_by_pane = {}
 
 local function trim_trailing_whitespace(value)
   if type(value) ~= "string" then
@@ -368,12 +374,11 @@ local function read_ai_setting(file_key, default_value)
   return value
 end
 
-ai_fix_file_settings = load_ai_fix_file_settings()
-
-local ai_fix_enabled = read_ai_setting("enabled", "1") ~= "0"
-local ai_fix_api_base_url = read_ai_setting("base_url", "https://api.vivgrid.com/v1")
-local ai_fix_api_key = read_ai_setting("api_key", nil)
-local ai_fix_model = read_ai_setting("model", "gpt-5-mini")
+-- Keep cold startup fast: parse assistant.toml lazily only when AI fix is needed.
+local ai_fix_enabled = true
+local ai_fix_api_base_url = "https://api.vivgrid.com/v1"
+local ai_fix_api_key = nil
+local ai_fix_model = "DeepSeek-V3.2"
 local ai_fix_timeout_secs = 12
 local ai_fix_debug_enabled = false
 local ai_fix_state_by_pane = {}
@@ -1055,7 +1060,7 @@ local function repo_has_pending_changes(repo_root)
     repo_root,
     "status",
     "--porcelain",
-    "--untracked-files=normal",
+    "--untracked-files=no",
   })
   if not ok then
     return false
@@ -1205,6 +1210,10 @@ local function show_yazi_toast(window, pane, event_name)
 end
 
 local function maybe_show_lazygit_hint(window, pane)
+  if now_secs() < lazygit_hint_warmup_until_secs then
+    return
+  end
+
   pane = resolve_active_pane(window, pane)
 
   local path = pane_cwd(pane)
@@ -1233,6 +1242,44 @@ local function maybe_show_lazygit_hint(window, pane)
 
   show_lazygit_toast(window, pane, "kaku-toast-try-lazygit")
   mark_repo_lazygit_hinted(repo_root)
+end
+
+local function schedule_lazygit_hint_probe(window, pane)
+  local active_pane = resolve_active_pane(window, pane)
+  if not active_pane then
+    return
+  end
+
+  local pane_id_ok, pane_id_value = pcall(function()
+    return active_pane:pane_id()
+  end)
+  if not pane_id_ok or not pane_id_value then
+    return
+  end
+
+  local pane_id = tostring(pane_id_value)
+  local state = lazygit_hint_probe_state_by_pane[pane_id] or {}
+  lazygit_hint_probe_state_by_pane[pane_id] = state
+
+  if state.scheduled then
+    return
+  end
+
+  local now = now_secs()
+  if state.last_scheduled_at and (now - state.last_scheduled_at) < lazygit_hint_schedule_cooldown_secs then
+    return
+  end
+
+  state.scheduled = true
+  state.last_scheduled_at = now
+
+  local delay = math.max(0, lazygit_hint_warmup_until_secs - now)
+  wezterm.time.call_after(delay, function()
+    state.scheduled = false
+    pcall(function()
+      maybe_show_lazygit_hint(window, active_pane)
+    end)
+  end)
 end
 
 local function launch_lazygit(window, pane)
@@ -1321,6 +1368,7 @@ local function tab_path_parts(tab)
   if tab.is_active then
     local pane_id = tostring(pane.pane_id)
     local now = now_secs()
+    local runtime_cwd_ready = now >= runtime_cwd_warmup_until_secs
     local cached = active_tab_cwd_cache[pane_id]
     local should_refresh = (not cached)
       or path == ''
@@ -1329,6 +1377,9 @@ local function tab_path_parts(tab)
 
     if should_refresh then
       local ok, runtime_cwd = pcall(function()
+        if not runtime_cwd_ready then
+          return nil
+        end
         return pane:get_current_working_dir()
       end)
       if ok and runtime_cwd then
@@ -1346,7 +1397,7 @@ local function tab_path_parts(tab)
     elseif cached and cached.path ~= '' then
       path = cached.path
     end
-  elseif path == '' then
+  elseif path == '' and now_secs() >= runtime_cwd_warmup_until_secs then
     local ok, runtime_cwd = pcall(function()
       return pane:get_current_working_dir()
     end)
@@ -1595,7 +1646,7 @@ wezterm.on('user-var-changed', function(window, pane, name, value)
 end)
 
 wezterm.on('update-right-status', function(window, pane)
-  maybe_show_lazygit_hint(window, pane)
+  schedule_lazygit_hint_probe(window, pane)
 
   local dims = window:get_dimensions()
   if not dims.is_full_screen then
@@ -2171,7 +2222,7 @@ config.mouse_bindings = {
 -- ===== Performance =====
 config.enable_scroll_bar = false
 config.front_end = 'WebGpu'
-config.webgpu_power_preference = 'HighPerformance'
+config.webgpu_power_preference = 'LowPower'
 config.animation_fps = 60
 config.max_fps = 60
 config.status_update_interval = 1000
@@ -2192,6 +2243,9 @@ config.swallow_mouse_click_on_window_focus = true
 
 -- ===== First Run Experience & Config Version Check =====
 wezterm.on('gui-startup', function(cmd)
+  lazygit_hint_warmup_until_secs = now_secs() + lazygit_hint_startup_grace_secs
+  runtime_cwd_warmup_until_secs = now_secs() + runtime_cwd_startup_grace_secs
+
   local home = os.getenv("HOME")
   local current_version = 11  -- Update this when config changes
 
