@@ -20,6 +20,7 @@ enum Tool {
     Codex,
     Gemini,
     Copilot,
+    FactoryDroid,
     OpenCode,
     OpenClaw,
 }
@@ -32,6 +33,7 @@ impl Tool {
             Tool::Codex => "Codex",
             Tool::Gemini => "Gemini CLI",
             Tool::Copilot => "Copilot CLI",
+            Tool::FactoryDroid => "Factory Droid",
             Tool::OpenCode => "OpenCode",
             Tool::OpenClaw => "OpenClaw",
         }
@@ -50,6 +52,7 @@ impl Tool {
             Tool::Codex => home.join(".codex").join("config.toml"),
             Tool::Gemini => home.join(".gemini").join("settings.json"),
             Tool::Copilot => home.join(".copilot").join("config.json"),
+            Tool::FactoryDroid => home.join(".factory").join("settings.json"),
             Tool::OpenCode => {
                 let jsonc_path = home.join(".config").join("opencode").join("opencode.jsonc");
                 if jsonc_path.exists() {
@@ -72,12 +75,13 @@ impl Tool {
     }
 }
 
-const ALL_TOOLS: [Tool; 7] = [
+const ALL_TOOLS: [Tool; 8] = [
     Tool::KakuAssistant,
     Tool::ClaudeCode,
     Tool::Codex,
     Tool::Gemini,
     Tool::Copilot,
+    Tool::FactoryDroid,
     Tool::OpenCode,
     Tool::OpenClaw,
 ];
@@ -167,6 +171,10 @@ impl ToolState {
             Tool::Copilot => {
                 let parsed = parse_json_with_debug(&raw, tool.label());
                 extract_copilot_fields(&parsed)
+            }
+            Tool::FactoryDroid => {
+                let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
+                extract_factory_droid_fields(&parsed)
             }
             Tool::OpenCode => {
                 let parsed = parse_json_or_jsonc_with_debug(&raw, tool.label());
@@ -1094,6 +1102,81 @@ fn extract_copilot_fields(val: &serde_json::Value) -> Vec<FieldEntry> {
     fields
 }
 
+fn extract_factory_droid_fields(val: &serde_json::Value) -> Vec<FieldEntry> {
+    let session_defaults = val
+        .get("sessionDefaultSettings")
+        .and_then(|v| v.as_object());
+
+    let model = session_defaults
+        .and_then(|s| s.get("model"))
+        .and_then(|v| v.as_str())
+        .or_else(|| val.get("model").and_then(|v| v.as_str()))
+        .unwrap_or("")
+        .to_string();
+
+    let reasoning = session_defaults
+        .and_then(|s| s.get("reasoningEffort"))
+        .and_then(|v| v.as_str())
+        .or_else(|| val.get("reasoningEffort").and_then(|v| v.as_str()))
+        .unwrap_or("")
+        .to_string();
+    let autonomy = session_defaults
+        .and_then(|s| s.get("autonomyMode").or_else(|| s.get("autonomyLevel")))
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            val.get("autonomyMode")
+                .or_else(|| val.get("autonomyLevel"))
+                .and_then(|v| v.as_str())
+        })
+        .unwrap_or("")
+        .to_string();
+
+    vec![
+        FieldEntry {
+            key: "Model".into(),
+            value: if model.is_empty() {
+                "opus".into()
+            } else {
+                model
+            },
+            options: vec![],
+            editable: true,
+        },
+        FieldEntry {
+            key: "Reasoning Effort".into(),
+            value: if reasoning.is_empty() {
+                "off".into()
+            } else {
+                reasoning
+            },
+            options: vec![
+                "off".into(),
+                "none".into(),
+                "low".into(),
+                "medium".into(),
+                "high".into(),
+            ],
+            editable: true,
+        },
+        FieldEntry {
+            key: "Autonomy Level".into(),
+            value: if autonomy.is_empty() {
+                "normal".into()
+            } else {
+                autonomy
+            },
+            options: vec![
+                "normal".into(),
+                "spec".into(),
+                "auto-low".into(),
+                "auto-medium".into(),
+                "auto-high".into(),
+            ],
+            editable: true,
+        },
+    ]
+}
+
 fn extract_opencode_fields(val: &serde_json::Value) -> Vec<FieldEntry> {
     let primary_model = json_str(val, "model");
 
@@ -1569,6 +1652,18 @@ impl App {
         }
     }
 
+    fn move_select_up(&mut self) {
+        if self.select_index > 0 {
+            self.select_index -= 1;
+        }
+    }
+
+    fn move_select_down(&mut self) {
+        if self.select_index + 1 < self.select_options.len() {
+            self.select_index += 1;
+        }
+    }
+
     fn start_edit(&mut self) {
         let tool = &self.tools[self.tool_index];
         if !tool.installed || tool.fields.is_empty() {
@@ -1589,6 +1684,7 @@ impl App {
                     Tool::Gemini => Some("gemini auth login"),
                     Tool::Codex => Some("codex auth login"),
                     Tool::Copilot => Some("gh auth login"),
+                    Tool::FactoryDroid => Some("droid"),
                     Tool::ClaudeCode => Some("claude auth login"),
                     Tool::OpenClaw => None,
                 };
@@ -1649,8 +1745,10 @@ impl App {
         self.selecting = false;
         self.focus = Focus::ToolList;
 
-        let tool = &mut self.tools[self.tool_index];
-        if self.field_index >= tool.fields.len() {
+        if self.tool_index >= self.tools.len() {
+            return;
+        }
+        if self.field_index >= self.tools[self.tool_index].fields.len() {
             return;
         }
         if self.select_index >= self.select_options.len() {
@@ -1658,15 +1756,21 @@ impl App {
         }
 
         let new_val = self.select_options[self.select_index].clone();
-        if new_val == tool.fields[self.field_index].value {
+        let tool_kind = self.tools[self.tool_index].tool;
+        let field_key = self.tools[self.tool_index].fields[self.field_index]
+            .key
+            .clone();
+        let old_val = self.tools[self.tool_index].fields[self.field_index]
+            .value
+            .clone();
+
+        if new_val == old_val {
             return;
         }
 
-        tool.fields[self.field_index].value = new_val.clone();
-
-        let field_key = tool.fields[self.field_index].key.clone();
+        self.tools[self.tool_index].fields[self.field_index].value = new_val.clone();
         let status_val = status_value_for_display(&field_key, &new_val);
-        match save_field(tool.tool, &field_key, &new_val) {
+        match save_field(tool_kind, &field_key, &new_val) {
             Ok(()) => self.status_msg = Some(format!("Saved {} → {}", field_key, status_val)),
             Err(e) => self.status_msg = Some(format!("Save failed: {}", e)),
         }
@@ -1843,6 +1947,34 @@ fn save_field(tool: Tool, field_key: &str, new_val: &str) -> anyhow::Result<()> 
                 }
             } else {
                 return Ok(());
+            }
+        }
+        Tool::FactoryDroid => {
+            let obj = parsed.as_object_mut().context("root is not object")?;
+
+            let target_key = match field_key {
+                "Model" => Some("model"),
+                "Reasoning Effort" => Some("reasoningEffort"),
+                "Autonomy Level" => Some("autonomyMode"),
+                _ => None,
+            };
+            let Some(target_key) = target_key else {
+                return Ok(());
+            };
+
+            let session_defaults = obj
+                .entry("sessionDefaultSettings")
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+                .context("sessionDefaultSettings is not an object")?;
+
+            if new_val == "—" || new_val.is_empty() {
+                session_defaults.remove(target_key);
+            } else {
+                session_defaults.insert(
+                    target_key.to_string(),
+                    serde_json::Value::String(new_val.to_string()),
+                );
             }
         }
         Tool::ClaudeCode => {
@@ -2195,16 +2327,8 @@ fn run_loop(
                     match key.code {
                         KeyCode::Enter => app.confirm_select(),
                         KeyCode::Esc => app.cancel_select(),
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            if app.select_index > 0 {
-                                app.select_index -= 1;
-                            }
-                        }
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            if app.select_index + 1 < app.select_options.len() {
-                                app.select_index += 1;
-                            }
-                        }
+                        KeyCode::Up | KeyCode::Char('k') => app.move_select_up(),
+                        KeyCode::Down | KeyCode::Char('j') => app.move_select_down(),
                         _ => {}
                     }
                     continue;

@@ -84,7 +84,7 @@ Run `kaku` in your terminal to see all available commands such as `kaku update`,
 Kaku includes a built-in assistant for command-line error recovery and a unified settings UI for external AI coding tools.
 
 - **Kaku Assistant**: Automatically analyzes failed commands and prepares a safe command suggestion.
-- **AI Tools Config**: Manage settings for tools like Claude Code, Codex, Gemini CLI, Copilot CLI, OpenCode, and OpenClaw.
+- **AI Tools Config**: Manage settings for tools like Claude Code, Codex, Gemini CLI, Copilot CLI, Factory Droid, OpenCode, and OpenClaw.
 
 Open AI settings with `kaku ai`, then configure **Kaku Assistant** (enable, model, base URL, API key) and your external AI tools in one place.
 

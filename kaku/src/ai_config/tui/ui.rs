@@ -265,7 +265,18 @@ fn render_selector(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let field = &tool.fields[app.field_index];
 
     let option_count = app.select_options.len() as u16;
-    let popup_width = 60u16.min(area.width.saturating_sub(4));
+    let max_popup_width = area.width.saturating_sub(4);
+    let min_popup_width = 60u16.min(max_popup_width);
+    let longest_option_width = app
+        .select_options
+        .iter()
+        .map(|opt| opt.chars().count() as u16)
+        .max()
+        .unwrap_or(0);
+    let popup_width = std::cmp::max(
+        min_popup_width,
+        longest_option_width.saturating_add(6).min(max_popup_width),
+    );
     let popup_height = (option_count + 2).min(area.height.saturating_sub(4));
     let popup = Rect::new(
         (area.width.saturating_sub(popup_width)) / 2,
