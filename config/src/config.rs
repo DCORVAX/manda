@@ -226,6 +226,18 @@ pub struct Config {
     /// info!)
     pub default_cwd: Option<PathBuf>,
 
+    /// When true, new windows inherit the cwd from the active pane if possible.
+    #[dynamic(default = "default_true")]
+    pub window_inherit_working_directory: bool,
+
+    /// When true, new tabs inherit the cwd from the active pane if possible.
+    #[dynamic(default = "default_true")]
+    pub tab_inherit_working_directory: bool,
+
+    /// When true, new split panes inherit the cwd from the source pane if possible.
+    #[dynamic(default = "default_true")]
+    pub split_pane_inherit_working_directory: bool,
+
     #[dynamic(default = "default_pane_encoding")]
     pub default_encoding: PaneEncoding,
 

@@ -131,6 +131,14 @@ Achieved through aggressive stripping of unused features, lazy loading of color 
 
    Kaku enables copy on select by default; to disable automatic clipboard copy and copy toast after selection, add `config.copy_on_select = false` to `~/.config/kaku/kaku.lua`.
 
+5. **Can I control working directory inheritance separately for new window, tab, and split?**
+
+   Yes. Use these options in `~/.config/kaku/kaku.lua`:
+   `config.window_inherit_working_directory`
+   `config.tab_inherit_working_directory`
+   `config.split_pane_inherit_working_directory`
+   All are enabled by default.
+
 ## Contributors
 
 Big thanks to all contributors who helped build Kaku. Go follow them! ❤️

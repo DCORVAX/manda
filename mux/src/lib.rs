@@ -1166,29 +1166,36 @@ impl Mux {
         pane: Option<Arc<dyn Pane>>,
         target_domain: DomainId,
         policy: CachePolicy,
+        inherit_working_directory: bool,
     ) -> Option<String> {
-        command_dir.or_else(|| {
-            match pane {
-                Some(pane) if pane.domain_id() == target_domain => pane
-                    .get_current_working_dir(policy)
-                    .and_then(|url| {
-                        let raw_bytes: Vec<u8> = percent_decode_str(url.path()).collect();
-                        Some(decode_bytes_to_string(pane.get_encoding(), &raw_bytes))
-                    })
-                    .map(|path| {
-                        // On Windows the file URI can produce a path like:
-                        // `/C:\Users` which is valid in a file URI, but the leading slash
-                        // is not liked by the windows file APIs, so we strip it off here.
-                        let bytes = path.as_bytes();
-                        if bytes.len() > 2 && bytes[0] == b'/' && bytes[2] == b':' {
-                            path[1..].to_owned()
-                        } else {
-                            path
-                        }
-                    }),
-                _ => None,
-            }
-        })
+        if command_dir.is_some() {
+            return command_dir;
+        }
+
+        if !inherit_working_directory {
+            return None;
+        }
+
+        match pane {
+            Some(pane) if pane.domain_id() == target_domain => pane
+                .get_current_working_dir(policy)
+                .and_then(|url| {
+                    let raw_bytes: Vec<u8> = percent_decode_str(url.path()).collect();
+                    Some(decode_bytes_to_string(pane.get_encoding(), &raw_bytes))
+                })
+                .map(|path| {
+                    // On Windows the file URI can produce a path like:
+                    // `/C:\Users` which is valid in a file URI, but the leading slash
+                    // is not liked by the windows file APIs, so we strip it off here.
+                    let bytes = path.as_bytes();
+                    if bytes.len() > 2 && bytes[0] == b'/' && bytes[2] == b':' {
+                        path[1..].to_owned()
+                    } else {
+                        path
+                    }
+                }),
+            _ => None,
+        }
     }
 
     pub async fn split_pane(
@@ -1215,6 +1222,7 @@ impl Mux {
             .get_pane(pane_id)
             .ok_or_else(|| anyhow!("pane_id {} is invalid", pane_id))?;
         let term_config = current_pane.get_config();
+        let config = configuration();
 
         let source = match source {
             SplitSource::Spawn {
@@ -1227,6 +1235,7 @@ impl Mux {
                     Some(Arc::clone(&current_pane)),
                     domain.domain_id(),
                     CachePolicy::FetchImmediate,
+                    config.split_pane_inherit_working_directory,
                 ),
             },
             other => other,
@@ -1326,6 +1335,13 @@ impl Mux {
         let domain = self
             .resolve_spawn_tab_domain(current_pane_id, &domain)
             .context("resolve_spawn_tab_domain")?;
+        let is_new_window = window_id.is_none();
+        let config = configuration();
+        let inherit_working_directory = if is_new_window {
+            config.window_inherit_working_directory
+        } else {
+            config.tab_inherit_working_directory
+        };
 
         let mut window_builder;
         let term_config;
@@ -1377,6 +1393,7 @@ impl Mux {
             },
             domain.domain_id(),
             CachePolicy::FetchImmediate,
+            inherit_working_directory,
         );
 
         let tab = domain
