@@ -99,6 +99,16 @@ mod imp {
             &mut report,
         )?;
         remove_file_if_exists(
+            config_home().join(".kaku_config_version"),
+            "removed legacy Kaku config version marker",
+            &mut report,
+        )?;
+        remove_file_if_exists(
+            config_home().join(".kaku_window_geometry"),
+            "removed legacy Kaku window geometry marker",
+            &mut report,
+        )?;
+        remove_file_if_exists(
             config_home().join("lazygit_state.json"),
             "removed Lazygit hint state",
             &mut report,

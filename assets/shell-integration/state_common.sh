@@ -49,7 +49,10 @@ persist_config_version() {
 
 	printf "{\n  \"config_version\": %s%s\n}\n" "$target_version" "$geometry_json" >"$STATE_FILE"
 
-	rm -f "$LEGACY_VERSION_FILE" "$LEGACY_GEOMETRY_FILE"
+	# Keep a legacy version marker for users still loading older bundled kaku.lua.
+	# This avoids repeated first-run onboarding after upgrades.
+	printf '%s\n' "$target_version" >"$LEGACY_VERSION_FILE"
+	rm -f "$LEGACY_GEOMETRY_FILE"
 }
 
 detect_login_shell() {
