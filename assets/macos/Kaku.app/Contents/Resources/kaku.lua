@@ -41,7 +41,7 @@ local fullscreen_uniform_padding = {
   left = '40px',
   right = '40px',
   top = '70px',
-  bottom = '30px',
+  bottom = '0px',
 }
 
 -- Per-window resize debounce state.
@@ -1349,6 +1349,7 @@ local function launch_yazi(window, pane)
   end)
   if not ok then
     show_yazi_toast(window, pane, "kaku-toast-yazi-dispatch-failed")
+    return
   end
 end
 
@@ -1775,7 +1776,7 @@ config.window_padding = {
   left = '40px',
   right = '40px',
   top = '70px',
-  bottom = '30px',
+  bottom = '0px',
 }
 
 config.initial_cols = 110

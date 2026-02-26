@@ -930,7 +930,7 @@ EOF
 echo -e "  ${GREEN}✓${NC} ${BOLD}Script${NC}      Generated kaku.zsh init script"
 
 # 4. Configure .zshrc
-SOURCE_LINE="[[ \"\${TERM:-}\" == \"kaku\" && -f \"\$HOME/.config/kaku/zsh/kaku.zsh\" ]] && source \"\$HOME/.config/kaku/zsh/kaku.zsh\" # Kaku Shell Integration"
+SOURCE_LINE="[[ -f \"\\$HOME/.config/kaku/zsh/kaku.zsh\" ]] && source \"\\$HOME/.config/kaku/zsh/kaku.zsh\" # Kaku Shell Integration"
 
 # Migrate legacy inline block from older versions to the single source-line model.
 cleanup_legacy_inline_block() {
