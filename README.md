@@ -127,23 +127,19 @@ Achieved through aggressive stripping of unused features, lazy loading of color 
 
 ## FAQ
 
-1. **Why is the Homebrew cask named `kakuku` instead of `kaku`?**
-
-   The name `kaku` conflicts with another package in Homebrew's official repository (an unmaintained music player). `kakuku` is a cute variation that's easy to remember.
-
-2. **Is there a Windows or Linux version?**
+1. **Is there a Windows or Linux version?**
 
    Not at the moment. Kaku is currently macOS-only while we focus on polishing the macOS experience. Windows and Linux versions may come later once the macOS version is mature.
 
-3. **Can Kaku use transparent windows on macOS?**
+2. **Can Kaku use transparent windows on macOS?**
 
    Yes. You can set `window_background_opacity` and optionally `macos_window_background_blur` in `~/.config/kaku/kaku.lua`. Transparent mode now keeps top/right/bottom padding regions visually consistent to avoid transparent gaps.
 
-4. **How do I turn off copy on select?**
+3. **How do I turn off copy on select?**
 
    Kaku enables copy on select by default; to disable automatic clipboard copy and copy toast after selection, add `config.copy_on_select = false` to `~/.config/kaku/kaku.lua`.
 
-5. **Can I control working directory inheritance separately for new window, tab, and split?**
+4. **Can I control working directory inheritance separately for new window, tab, and split?**
 
    Yes. Use these options in `~/.config/kaku/kaku.lua`:
    `config.window_inherit_working_directory`
@@ -151,13 +147,18 @@ Achieved through aggressive stripping of unused features, lazy loading of color 
    `config.split_pane_inherit_working_directory`
    All are enabled by default.
 
-6. **Are font size adjustments (`Cmd + +/-`) permanent?**
+5. **The `kaku` command is missing. How can I recover it and troubleshoot with Kaku Doctor?**
 
-   Yes. Unlike other terminals where shortcuts only temporarily scale the font, Kaku automatically saves your adjusted font size and restores it across restarts.
+   Open Kaku Doctor from the Shell menu first. This diagnostic path can still run when your shell command entry is missing and will tell you what to repair.
 
-7. **How can I customize the split pane aesthetics?**
+   Then run this command in a terminal to restore the shell entry:
 
-   Kaku features a natively refactored split pane design that eliminates text crowding. You can precisely control the split line gaps and thickness using `config.split_pane_gap` and `config.split_thickness` in your `~/.config/kaku/kaku.lua`.
+   ```bash
+   /Applications/Kaku.app/Contents/MacOS/kaku init --update-only
+   exec zsh -l
+   ```
+
+   Finally run `kaku doctor` in your terminal to verify everything is healthy.
 
 ## Contributors
 
