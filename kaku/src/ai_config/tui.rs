@@ -837,8 +837,12 @@ fn fetch_models_dev_json() -> Option<serde_json::Value> {
     let v: serde_json::Value = serde_json::from_str(&raw)
         .map_err(|e| log::debug!("failed to parse models.dev json: {}", e))
         .ok()?;
-    let _ = config::create_user_owned_dirs(&cache_dir);
-    let _ = std::fs::write(&cache_path, &raw);
+    if let Err(e) = config::create_user_owned_dirs(&cache_dir) {
+        log::debug!("Failed to create cache directory: {}", e);
+    }
+    if let Err(e) = std::fs::write(&cache_path, &raw) {
+        log::debug!("Failed to write models cache: {}", e);
+    }
     Some(v)
 }
 
@@ -2076,15 +2080,26 @@ impl App {
         self.focus = Focus::ToolList;
     }
 
-    fn open_config(&self) {
+    fn open_config(&mut self) {
         let tool = &self.tools[self.tool_index];
         let path = tool.tool.config_path();
         if !path.exists() {
             return;
         }
-        let _ = std::process::Command::new("/usr/bin/open")
+        match std::process::Command::new("/usr/bin/open")
             .arg(&path)
-            .status();
+            .status()
+        {
+            Ok(status) if status.success() => {}
+            Ok(_) => {
+                log::debug!("open command returned non-zero status");
+                self.status_msg = Some("Failed to open config file".into());
+            }
+            Err(e) => {
+                log::debug!("Failed to open config file: {}", e);
+                self.status_msg = Some(format!("Failed to open: {}", e));
+            }
+        }
     }
 
     fn refresh_models(&mut self) {
@@ -2093,7 +2108,9 @@ impl App {
             .join(".cache")
             .join("kaku")
             .join("models.json");
-        let _ = std::fs::remove_file(&cache_path);
+        if let Err(e) = std::fs::remove_file(&cache_path) {
+            log::trace!("Could not remove models cache: {}", e);
+        }
 
         match fetch_models_dev_json() {
             Some(_) => {

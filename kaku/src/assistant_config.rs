@@ -56,14 +56,18 @@ pub fn ensure_assistant_toml_exists() -> anyhow::Result<PathBuf> {
 
     ensure_required_keys(&path)?;
 
-    // Clean up deprecated config files silently
+    // Best-effort cleanup for deprecated config files
     let ai_toml = parent.join("ai.toml");
     if ai_toml.exists() {
-        let _ = std::fs::remove_file(ai_toml);
+        if let Err(e) = std::fs::remove_file(&ai_toml) {
+            log::debug!("Failed to remove deprecated ai.toml: {}", e);
+        }
     }
     let auto_toml = parent.join("auto.toml");
     if auto_toml.exists() {
-        let _ = std::fs::remove_file(auto_toml);
+        if let Err(e) = std::fs::remove_file(&auto_toml) {
+            log::debug!("Failed to remove deprecated auto.toml: {}", e);
+        }
     }
 
     Ok(path)
