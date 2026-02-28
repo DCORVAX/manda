@@ -757,24 +757,29 @@ impl TermWindow {
     fn close_requested(&mut self, _window: &Window) {
         #[cfg(target_os = "macos")]
         {
-            // Match the user's configured Cmd+W action for the native close button.
-            let assignment = self
-                .input_map
-                .lookup_key(&KeyCode::Char('w'), Modifiers::SUPER, None)
-                .map(|entry| entry.action);
+            let mux = Mux::get();
 
-            if let Some(assignment) = assignment {
-                if let Some(pane) = self.get_active_pane_or_overlay() {
-                    if let Err(err) = self.perform_key_assignment(&pane, &assignment) {
-                        log::error!(
-                            "Failed to perform Cmd+W assignment from close button: {err:#}"
-                        );
-                    }
-                } else {
-                    self.close_current_tab(true);
-                }
+            // Check if this is a TermWizTerminal window (e.g., config error dialog)
+            // These windows should be closed directly, not hidden
+            let is_termwiz_window = mux
+                .get_active_tab_for_window(self.mux_window_id)
+                .and_then(|tab| {
+                    tab.iter_panes_ignoring_zoom()
+                        .first()
+                        .map(|p| p.pane.domain_id())
+                })
+                .and_then(|domain_id| mux.get_domain(domain_id))
+                .map(|domain| domain.domain_name() == "TermWizTerminalDomain")
+                .unwrap_or(false);
+
+            if is_termwiz_window {
+                // For TermWiz windows (config error dialogs), close the window
+                mux.kill_window(self.mux_window_id);
+                _window.close();
+                front_end().forget_known_window(_window);
             } else {
-                self.close_current_tab(true);
+                // For normal terminal windows, just hide the window
+                _window.hide();
             }
         }
 

@@ -2568,6 +2568,18 @@ fn is_non_menu_virtual_key(vkey: u16) -> bool {
     is_navigation_virtual_key(vkey) || is_function_virtual_key(vkey)
 }
 
+fn should_intercept_special_shortcut(chars: &str, modifiers: Modifiers, virtual_key: u16) -> bool {
+    let command_period = virtual_key == kVK_ANSI_Period && modifiers == Modifiers::SUPER;
+    let command_shift_comma =
+        virtual_key == kVK_ANSI_Comma && modifiers == (Modifiers::SUPER | Modifiers::SHIFT);
+
+    command_period
+        || command_shift_comma
+        || (chars == "\u{1b}" && modifiers == Modifiers::CTRL)
+        || (chars == "\t" && modifiers == Modifiers::CTRL)
+        || (chars == "\x19"/* Shift-Tab: See issue #1902 */)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2638,6 +2650,36 @@ mod tests {
                 key
             );
         }
+    }
+
+    #[test]
+    fn special_shortcut_matching_uses_stable_symbol_vkeys() {
+        assert!(should_intercept_special_shortcut(
+            ".",
+            Modifiers::SUPER,
+            kVK_ANSI_Period,
+        ));
+        assert!(should_intercept_special_shortcut(
+            ",",
+            Modifiers::SUPER | Modifiers::SHIFT,
+            kVK_ANSI_Comma,
+        ));
+        assert!(should_intercept_special_shortcut(
+            "<",
+            Modifiers::SUPER | Modifiers::SHIFT,
+            kVK_ANSI_Comma,
+        ));
+
+        assert!(!should_intercept_special_shortcut(
+            ",",
+            Modifiers::SUPER,
+            kVK_ANSI_Comma,
+        ));
+        assert!(!should_intercept_special_shortcut(
+            ">",
+            Modifiers::SUPER | Modifiers::SHIFT,
+            kVK_ANSI_Period,
+        ));
     }
 }
 
@@ -3824,11 +3866,7 @@ impl WindowView {
             virtual_key,
         );
 
-        let special_shortcut = (chars == "." && modifiers == Modifiers::SUPER)
-            || (chars == "<" && modifiers == (Modifiers::SUPER | Modifiers::SHIFT))
-            || (chars == "\u{1b}" && modifiers == Modifiers::CTRL)
-            || (chars == "\t" && modifiers == Modifiers::CTRL)
-            || (chars == "\x19"/* Shift-Tab: See issue #1902 */);
+        let special_shortcut = should_intercept_special_shortcut(chars, modifiers, virtual_key);
 
         let command_non_menu_key =
             modifiers.contains(Modifiers::SUPER) && is_non_menu_virtual_key(virtual_key);
