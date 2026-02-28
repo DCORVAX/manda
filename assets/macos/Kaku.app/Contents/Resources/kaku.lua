@@ -1747,6 +1747,31 @@ wezterm.on('user-var-changed', function(window, pane, name, value)
     return
   end
 
+  if name == "kaku_user_typing" then
+    if not pane then
+      return
+    end
+
+    local pane_id_ok, pane_id_value = pcall(function()
+      return pane:pane_id()
+    end)
+    if not pane_id_ok or not pane_id_value then
+      return
+    end
+
+    local pane_id = tostring(pane_id_value)
+    local pane_state = ai_fix_state_by_pane[pane_id]
+    if not pane_state or not pane_state.inflight then
+      return
+    end
+
+    pane_state.inflight = false
+    pane_state.pending_job_id = nil
+    clear_ai_fix_suggestion_state(pane_state)
+    ai_debug_log("user-var-changed user typing cancelled ai fix pane_id=" .. pane_id)
+    return
+  end
+
   if name ~= "kaku_last_exit_code" then
     return
   end
@@ -2481,7 +2506,7 @@ wezterm.on('gui-startup', function(cmd)
   runtime_cwd_warmup_until_secs = now_secs() + runtime_cwd_startup_grace_secs
 
   local home = os.getenv("HOME")
-  local current_version = 11  -- Update this when config changes
+  local current_version = 12  -- Update this when config changes
 
   local state_file = home .. "/.config/kaku/state.json"
   local is_first_run = false

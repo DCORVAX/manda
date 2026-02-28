@@ -800,6 +800,28 @@ if [[ \${precmd_functions[(Ie)_kaku_ai_precmd]} -eq 0 ]]; then
     precmd_functions=(_kaku_ai_precmd "\${precmd_functions[@]}")
 fi
 
+# Cancel AI suggestions when user starts typing (before pressing Enter).
+# This prevents AI notices from appearing after the user has already begun
+# entering a new command, avoiding interruption.
+typeset -g _kaku_ai_cancel_sent=0
+
+_kaku_cancel_ai_on_typing() {
+    if [[ "\$_kaku_ai_cancel_sent" == "0" && -n "\$BUFFER" ]]; then
+        _kaku_set_user_var "kaku_user_typing" "1"
+        _kaku_ai_cancel_sent=1
+    fi
+}
+
+_kaku_reset_ai_cancel_flag() {
+    _kaku_ai_cancel_sent=0
+}
+
+autoload -Uz add-zle-hook-widget 2>/dev/null
+if (( \$+functions[add-zle-hook-widget] )); then
+    add-zle-hook-widget line-pre-redraw _kaku_cancel_ai_on_typing
+    add-zle-hook-widget line-init _kaku_reset_ai_cancel_flag
+fi
+
 # Auto-set TERM to xterm-256color for SSH connections when running under kaku,
 # since remote hosts typically lack the kaku terminfo entry.
 # Also auto-detect 1Password SSH agent and add IdentitiesOnly=yes to prevent
