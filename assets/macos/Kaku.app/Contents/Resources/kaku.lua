@@ -1913,10 +1913,14 @@ wezterm.on('format-tab-title', function(tab, tabs, _, effective_config, hover, m
     evict_stale_cache(live_pane_ids)
   end
 
-  local parent, current = tab_path_parts(tab)
-  local text = current
-  if parent ~= '' and current ~= '' then
-    text = parent .. '/' .. current
+  -- Use user-set tab title if available
+  local text = tab.tab_title or ''
+  if text == '' then
+    local parent, current = tab_path_parts(tab)
+    text = current
+    if parent ~= '' and current ~= '' then
+      text = parent .. '/' .. current
+    end
   end
 
   -- Guard active_pane nil before accessing .title / .is_zoomed
