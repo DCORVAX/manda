@@ -4300,28 +4300,12 @@ impl WindowView {
         _this: &mut Object,
         _sel: Sel,
         window: id,
-        screen: id,
+        _default_frame: NSRect,
     ) -> NSRect {
-        let visible_frame: NSRect = unsafe { msg_send![screen, visibleFrame] };
-        log::trace!(
-            "window_will_use_standard_frame: screen visible_frame = ({}, {}, {}, {})",
-            visible_frame.origin.x,
-            visible_frame.origin.y,
-            visible_frame.size.width,
-            visible_frame.size.height
-        );
-        // Adjust for the title bar height so content area fills the visible frame.
-        let frame = unsafe { NSWindow::frame(window) };
-        let content_frame: NSRect =
-            unsafe { msg_send![window, contentRectForFrameRect: frame] };
-        let title_bar_height = frame.size.height - content_frame.size.height;
-        NSRect::new(
-            visible_frame.origin,
-            NSSize::new(
-                visible_frame.size.width,
-                visible_frame.size.height + title_bar_height,
-            ),
-        )
+        unsafe {
+            let screen: id = msg_send![window, screen];
+            msg_send![screen, visibleFrame]
+        }
     }
 
     extern "C" fn update_layer(_view: &mut Object, _sel: Sel) {
@@ -4653,9 +4637,9 @@ impl WindowView {
                 Self::did_resize as extern "C" fn(&mut Object, Sel, id),
             );
             cls.add_method(
-                sel!(windowWillUseStandardFrame:onScreen:),
+                sel!(windowWillUseStandardFrame:defaultFrame:),
                 Self::window_will_use_standard_frame
-                    as extern "C" fn(&mut Object, Sel, id, id) -> NSRect,
+                    as extern "C" fn(&mut Object, Sel, id, NSRect) -> NSRect,
             );
             cls.add_method(
                 sel!(windowDidMove:),
