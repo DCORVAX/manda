@@ -2269,10 +2269,10 @@ config.use_cap_height_to_scale_fallback_fonts = false
 config.custom_block_glyphs = true
 config.unicode_version = 14
 
-local _, in_app_bundle = wezterm.executable_dir:gsub('MacOS/?$', 'Resources')
-if in_app_bundle > 0 then
-  config.term = 'kaku'
-end
+-- Do NOT set config.term = 'kaku' here.
+-- Remote servers lack the 'kaku' terminfo entry, causing SSH issues like
+-- broken backspace/delete keys. Let the default 'xterm-256color' apply.
+-- See: https://github.com/tw93/Kaku/issues/130
 
 -- ===== Cursor =====
 config.default_cursor_style = 'BlinkingBar'
