@@ -8,7 +8,9 @@ use anyhow::{anyhow, Context, Error};
 use config::keyassignment::{PaneEncoding, SpawnTabDomain};
 use config::{configuration, ExitBehavior, GuiPosition};
 use domain::{Domain, DomainId, DomainState, SplitSource};
-use filedescriptor::{poll, pollfd, socketpair, AsRawSocketDescriptor, FileDescriptor, POLLIN, POLLHUP};
+use filedescriptor::{
+    poll, pollfd, socketpair, AsRawSocketDescriptor, FileDescriptor, POLLHUP, POLLIN,
+};
 #[cfg(unix)]
 use libc::{c_int, SOL_SOCKET, SO_RCVBUF, SO_SNDBUF};
 use log::error;

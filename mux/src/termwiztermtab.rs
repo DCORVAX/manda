@@ -8,8 +8,6 @@ use crate::pane::{
     alloc_pane_id, CachePolicy, CloseReason, ForEachPaneLogicalLine, LogicalLine, Pane, PaneId,
     PaneReader, WithPaneLines,
 };
-#[cfg(unix)]
-use std::os::unix::io::AsRawFd;
 use crate::renderable::*;
 use crate::tab::Tab;
 use crate::window::WindowId;
@@ -24,6 +22,8 @@ use portable_pty::*;
 use rangeset::RangeSet;
 use std::io::{BufWriter, Write};
 use std::ops::Range;
+#[cfg(unix)]
+use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
 use std::time::Duration;
 use termwiz::input::{InputEvent, KeyEvent, Modifiers, MouseEvent as TermWizMouseEvent};
