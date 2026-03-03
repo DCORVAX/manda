@@ -5,7 +5,6 @@ use lazy_static::lazy_static;
 use mlua::Lua;
 use ordered_float::NotNan;
 use parking_lot::RwLock;
-use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
@@ -265,14 +264,26 @@ impl ColorSchemeRegistry {
     }
 }
 
+/// Latest-wins pipe for Lua context.
+/// Only keeps the most recent Lua context, discarding older ones.
 struct LuaPipe {
-    sender: Sender<mlua::Lua>,
-    receiver: Receiver<mlua::Lua>,
+    latest: Mutex<Option<mlua::Lua>>,
 }
 impl LuaPipe {
     pub fn new() -> Self {
-        let (sender, receiver) = smol::channel::unbounded();
-        Self { sender, receiver }
+        Self {
+            latest: Mutex::new(None),
+        }
+    }
+
+    /// Store a new Lua context, replacing any previous one.
+    pub fn send(&self, lua: mlua::Lua) {
+        *self.latest.lock().unwrap() = Some(lua);
+    }
+
+    /// Take the latest Lua context if available.
+    pub fn try_recv(&self) -> Option<mlua::Lua> {
+        self.latest.lock().unwrap().take()
     }
 }
 
@@ -305,7 +316,7 @@ impl LuaConfigState {
     /// config loader until we end up with the most
     /// recent one being referenced by LUA_CONFIG.
     fn update_to_latest(&mut self) {
-        while let Ok(lua) = LUA_PIPE.receiver.try_recv() {
+        if let Some(lua) = LUA_PIPE.try_recv() {
             self.lua.replace(Rc::new(lua));
         }
     }
@@ -336,7 +347,7 @@ impl Drop for ConfigSubscription {
 
 pub fn subscribe_to_config_reload<F>(subscriber: F) -> ConfigSubscription
 where
-    F: Fn() -> bool + 'static + Send,
+    F: Fn() -> bool + 'static + Send + Sync,
 {
     ConfigSubscription(CONFIG.subscribe(subscriber))
 }
@@ -916,7 +927,7 @@ struct ConfigInner {
     watcher: Option<notify::RecommendedWatcher>,
     defer_watchers_until_enabled: bool,
     pending_watch_paths: Vec<PathBuf>,
-    subscribers: HashMap<usize, Box<dyn Fn() -> bool + Send>>,
+    subscribers: HashMap<usize, Arc<dyn Fn() -> bool + Send + Sync>>,
 }
 
 impl ConfigInner {
@@ -935,11 +946,11 @@ impl ConfigInner {
 
     fn subscribe<F>(&mut self, subscriber: F) -> usize
     where
-        F: Fn() -> bool + 'static + Send,
+        F: Fn() -> bool + 'static + Send + Sync,
     {
         static SUB_ID: AtomicUsize = AtomicUsize::new(0);
         let sub_id = SUB_ID.fetch_add(1, Ordering::Relaxed);
-        self.subscribers.insert(sub_id, Box::new(subscriber));
+        self.subscribers.insert(sub_id, Arc::new(subscriber));
         sub_id
     }
 
@@ -947,8 +958,18 @@ impl ConfigInner {
         self.subscribers.remove(&sub_id);
     }
 
-    fn notify(&mut self) {
-        self.subscribers.retain(|_, notify| notify());
+    /// Collect subscriber IDs and cloned callbacks for notification outside the lock.
+    fn collect_subscribers_for_notify(&self) -> Vec<(usize, Arc<dyn Fn() -> bool + Send + Sync>)> {
+        self.subscribers
+            .iter()
+            .map(|(k, v)| (*k, Arc::clone(v)))
+            .collect()
+    }
+
+    fn remove_subscribers(&mut self, to_remove: &[usize]) {
+        for sub_id in to_remove {
+            self.subscribers.remove(sub_id);
+        }
     }
 
     fn watch_path(&mut self, path: PathBuf) {
@@ -1020,7 +1041,11 @@ impl ConfigInner {
     /// configuration.
     /// On failure, retain the existing configuration but
     /// replace any captured error message.
-    fn apply_loaded(&mut self, loaded: LoadedConfig) {
+    /// Returns subscribers to notify (caller should invoke outside the lock).
+    fn apply_loaded(
+        &mut self,
+        loaded: LoadedConfig,
+    ) -> Vec<(usize, Arc<dyn Fn() -> bool + Send + Sync>)> {
         let LoadedConfig {
             config,
             file_name,
@@ -1055,7 +1080,7 @@ impl ConfigInner {
                 // even though we are (probably) resolving this from a background
                 // reloading thread.
                 if let Some(lua) = lua {
-                    LUA_PIPE.sender.try_send(lua).ok();
+                    LUA_PIPE.send(lua);
                 }
                 log::debug!("Reloaded configuration! generation={}", self.generation);
             }
@@ -1069,7 +1094,9 @@ impl ConfigInner {
             }
         }
 
-        self.notify();
+        // Collect subscribers for notification outside the lock
+        let subscribers = self.collect_subscribers_for_notify();
+
         self.pending_watch_paths.clear();
         if self.config.automatically_reload_config {
             if self.defer_watchers_until_enabled {
@@ -1080,6 +1107,8 @@ impl ConfigInner {
                 }
             }
         }
+
+        subscribers
     }
 
     fn defer_watchers_until_enabled(&mut self) {
@@ -1165,7 +1194,7 @@ impl Configuration {
     /// Subscribe to config reload events
     fn subscribe<F>(&self, subscriber: F) -> usize
     where
-        F: Fn() -> bool + 'static + Send,
+        F: Fn() -> bool + 'static + Send + Sync,
     {
         let mut inner = self.inner.lock().unwrap();
         inner.subscribe(subscriber)
@@ -1224,11 +1253,27 @@ impl Configuration {
         if self.reload_epoch.load(Ordering::Relaxed) != reload_id {
             return;
         }
-        let mut inner = self.inner.lock().unwrap();
-        if self.reload_epoch.load(Ordering::Relaxed) != reload_id {
-            return;
+
+        // Apply config and collect subscribers while holding the lock
+        let subscribers = {
+            let mut inner = self.inner.lock().unwrap();
+            if self.reload_epoch.load(Ordering::Relaxed) != reload_id {
+                return;
+            }
+            inner.apply_loaded(loaded)
+        };
+
+        // Notify subscribers outside the lock to avoid deadlock/reentrancy
+        let to_remove: Vec<usize> = subscribers
+            .into_iter()
+            .filter_map(|(sub_id, notify)| if !notify() { Some(sub_id) } else { None })
+            .collect();
+
+        // Remove unsubscribed callbacks
+        if !to_remove.is_empty() {
+            let mut inner = self.inner.lock().unwrap();
+            inner.remove_subscribers(&to_remove);
         }
-        inner.apply_loaded(loaded);
     }
 
     /// Returns a copy of any captured error message.
