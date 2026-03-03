@@ -3021,15 +3021,7 @@ wezterm.on('gui-startup', function(cmd)
 
   -- Normal startup
   if not cmd then
-    -- macOS may deliver external "open path" events slightly after gui-startup.
-    -- Defer default spawn briefly so we don't create an extra "~/" tab first.
-    wezterm.time.call_after(0.8, function()
-      local ok_windows, windows = pcall(wezterm.mux.all_windows)
-      if ok_windows and type(windows) == "table" and #windows > 0 then
-        return
-      end
-      wezterm.mux.spawn_window {}
-    end)
+    wezterm.mux.spawn_window {}
   end
 end)
 
