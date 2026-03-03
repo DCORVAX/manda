@@ -97,8 +97,9 @@ lazy_static::lazy_static! {
 const OPEN_UNTITLED_SPAWN_DEBOUNCE: Duration = Duration::from_millis(1200);
 const OPEN_UNTITLED_DEFER_SPAWN_DELAY: Duration = Duration::from_millis(350);
 // Guard against startup races: when launched with an explicit file/folder to open,
-// macOS may still emit applicationOpenUntitledFile and cause an extra "~/” tab.
-const OPEN_UNTITLED_AFTER_SERVICE_OPEN_GUARD: Duration = Duration::from_secs(5);
+// macOS may still emit applicationOpenUntitledFile and cause an extra “~/” tab.
+// Use 2 seconds to balance startup race protection vs. user intent for new windows.
+const OPEN_UNTITLED_AFTER_SERVICE_OPEN_GUARD: Duration = Duration::from_secs(2);
 static OPEN_UNTITLED_SPAWN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn note_service_open_request() {
