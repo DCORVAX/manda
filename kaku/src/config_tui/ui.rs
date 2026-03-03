@@ -18,7 +18,7 @@ pub(super) fn ui(frame: &mut ratatui::Frame, app: &mut App) {
     frame.render_widget(Block::default().style(Style::default().bg(bg())), area);
 
     let chunks = Layout::vertical([
-        Constraint::Length(1), // header
+        Constraint::Length(2), // header
         Constraint::Fill(1),   // content
     ])
     .split(area);
@@ -42,7 +42,7 @@ fn render_header(frame: &mut ratatui::Frame, area: Rect) {
         Span::styled(" · ", Style::default().fg(muted())),
         Span::styled("Settings", Style::default().fg(text_fg())),
     ]);
-    frame.render_widget(Paragraph::new(vec![line]), area);
+    frame.render_widget(Paragraph::new(vec![line, Line::from("")]), area);
 }
 
 fn render_fields(frame: &mut ratatui::Frame, area: Rect, app: &App) {
