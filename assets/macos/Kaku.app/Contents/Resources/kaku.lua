@@ -1863,7 +1863,7 @@ end
 
 -- ===== Kaku Palette =====
 local KAKU_BLACK = '#15141b'
-local KAKU_ANSI_BLACK = '#110f18'
+local KAKU_ANSI_BLACK = '#878596'
 local KAKU_WHITE = '#edecee'
 local KAKU_GRAY = '#6d6d6d'
 local KAKU_PURPLE = '#a277ff'
@@ -2177,39 +2177,96 @@ wezterm.on('update-right-status', function(window, pane)
 end)
 
 -- ===== Font =====
-config.font = wezterm.font_with_fallback({
-  { family = 'JetBrains Mono', weight = 'Regular' },
-  { family = 'PingFang SC', weight = 'Regular' },
-  'Apple Color Emoji',
-})
+-- Use slightly heavier font weight for light theme to improve readability.
+-- Light theme: Medium base, DemiBold for bold.
+-- Dark theme: Regular base, Medium for bold.
+local function build_font_config(is_light)
+  local base_weight = is_light and 'Medium' or 'Regular'
+  local bold_weight = is_light and 'DemiBold' or 'Medium'
 
-config.font_rules = {
-  -- Prevent thin weight: use Regular instead of Light for Half intensity
-  {
-    intensity = 'Half',
-    font = wezterm.font_with_fallback({
-      { family = 'JetBrains Mono', weight = 'Regular' },
-      { family = 'PingFang SC', weight = 'Regular' },
-    }),
-  },
-  -- Normal italic: disable real italics (keep upright)
-  {
-    intensity = 'Normal',
-    italic = true,
-    font = wezterm.font_with_fallback({
-      { family = 'JetBrains Mono', weight = 'Regular', italic = false },
-      { family = 'PingFang SC', weight = 'Regular' },
-    }),
-  },
-  -- Bold: use Medium weight
-  {
-    intensity = 'Bold',
-    font = wezterm.font_with_fallback({
-      { family = 'JetBrains Mono', weight = 'Medium' },
-      { family = 'PingFang SC', weight = 'Medium' },
-    }),
-  },
-}
+  local font = wezterm.font_with_fallback({
+    { family = 'JetBrains Mono', weight = base_weight },
+    { family = 'PingFang SC', weight = base_weight },
+    'Apple Color Emoji',
+  })
+
+  local font_rules = {
+    -- Prevent thin weight: use base weight instead of Light for Half intensity
+    {
+      intensity = 'Half',
+      font = wezterm.font_with_fallback({
+        { family = 'JetBrains Mono', weight = base_weight },
+        { family = 'PingFang SC', weight = base_weight },
+      }),
+    },
+    -- Normal italic: disable real italics (keep upright)
+    {
+      intensity = 'Normal',
+      italic = true,
+      font = wezterm.font_with_fallback({
+        { family = 'JetBrains Mono', weight = base_weight, italic = false },
+        { family = 'PingFang SC', weight = base_weight },
+      }),
+    },
+    -- Bold: use heavier weight
+    {
+      intensity = 'Bold',
+      font = wezterm.font_with_fallback({
+        { family = 'JetBrains Mono', weight = bold_weight },
+        { family = 'PingFang SC', weight = bold_weight },
+      }),
+    },
+  }
+
+  return font, font_rules
+end
+
+-- Check user config to determine initial theme for font weight
+local function is_user_light_theme()
+  local user_config_path = kaku_user_config_path()
+  if not user_config_path then
+    return false
+  end
+  local file = io.open(user_config_path, 'r')
+  if not file then
+    return false
+  end
+  for line in file:lines() do
+    local trimmed = line:match('^%s*(.-)%s*$')
+    if trimmed and not trimmed:match('^%-%-') then
+      if trimmed:match("^config%.color_scheme%s*=%s*['\"]Kaku Light['\"]") then
+        file:close()
+        return true
+      end
+    end
+  end
+  file:close()
+  return false
+end
+
+-- Set initial font config based on user's theme setting
+config.font, config.font_rules = build_font_config(is_user_light_theme())
+
+-- Track last font theme per window to avoid redundant overrides
+local window_font_theme = setmetatable({}, { __mode = 'k' })
+
+-- Dynamically switch font weight when theme changes
+wezterm.on('window-config-reloaded', function(window, pane)
+  local overrides = window:get_config_overrides() or {}
+  local scheme = overrides.color_scheme or config.color_scheme or 'Kaku Dark'
+  local is_light = scheme == 'Kaku Light'
+
+  -- Skip if font theme hasn't changed
+  if window_font_theme[window] == is_light then
+    return
+  end
+  window_font_theme[window] = is_light
+
+  local font, font_rules = build_font_config(is_light)
+  overrides.font = font
+  overrides.font_rules = font_rules
+  window:set_config_overrides(overrides)
+end)
 
 config.bold_brightens_ansi_colors = false
 
@@ -2379,38 +2436,27 @@ local kaku_light = {
 
   ansi = {
     '#100F0F', -- black
-    '#AF3029', -- red
-    '#4D7A23', -- green (darker for better contrast)
-    '#9D7800', -- yellow
-    '#2058A0', -- blue (for directory names)
-    '#8B2660', -- magenta (slightly darker)
-    '#0D6258', -- cyan (darker for light bg)
-    '#878580', -- white (Flexoki tx-2, good contrast)
+    '#AF3029', -- red-600
+    '#66800B', -- green-600
+    '#AD8301', -- yellow-600
+    '#205EA6', -- blue-600
+    '#A02F6F', -- magenta-600
+    '#24837B', -- cyan-600
+    '#575653', -- base-700
   },
 
   brights = {
-    '#B7B5AC', -- bright black (comments, softer gray)
-    '#D14D41', -- bright red
-    '#879A39', -- bright green
-    '#DAA520', -- bright yellow
-    '#4385BE', -- bright blue
-    '#CE5D97', -- bright magenta
-    '#3AA99F', -- bright cyan
-    '#6F6E69', -- bright white (Flexoki tx-3)
+    '#6F6E69', -- base-600 (comments)
+    '#C03E35', -- red-500
+    '#768D21', -- green-500
+    '#BE9207', -- yellow-500
+    '#3171B2', -- blue-500
+    '#B74583', -- magenta-500
+    '#2F968D', -- cyan-500
+    '#403E3C', -- base-800
   },
 
   split = '#B8B7AD',
-
-  -- Override 256-color grayscale ramp (232-255) for light theme
-  -- Dark grays become light grays so quote blocks look natural
-  indexed = {
-    [232] = '#F2F0E5', [233] = '#ECEADF', [234] = '#E6E4D9', [235] = '#E0DED3',
-    [236] = '#DAD8CD', [237] = '#D4D2C7', [238] = '#CECCC1', [239] = '#C8C6BB',
-    [240] = '#C2C0B5', [241] = '#BCBAAF', [242] = '#B6B4A9', [243] = '#B0AEA3',
-    [244] = '#AAA89D', [245] = '#A4A297', [246] = '#9E9C91', [247] = '#98968B',
-    [248] = '#929085', [249] = '#8C8A7F', [250] = '#868479', [251] = '#807E73',
-    [252] = '#7A786D', [253] = '#747267', [254] = '#6E6C61', [255] = '#68665B',
-  },
 
   tab_bar = {
     background = '#FFFCF0',
