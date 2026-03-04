@@ -1149,10 +1149,12 @@ impl Config {
 
     /// Compute the bytecode cache path for a given config source file.
     fn bytecode_cache_path(source: &Path) -> PathBuf {
-        // Use a hash of the source path to avoid collisions
+        // Use a stable hash of the source path to avoid collisions.
+        // SipHasher24 is version-stable, unlike DefaultHasher.
         let hash = {
+            use siphasher::sip::SipHasher24;
             use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            let mut hasher = SipHasher24::new();
             source.hash(&mut hasher);
             hasher.finish()
         };
@@ -1161,8 +1163,9 @@ impl Config {
 
     /// Hash the content of a source file for cache validation.
     fn source_content_hash(content: &[u8]) -> u64 {
+        use siphasher::sip::SipHasher24;
         use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = SipHasher24::new();
         content.hash(&mut hasher);
         hasher.finish()
     }
