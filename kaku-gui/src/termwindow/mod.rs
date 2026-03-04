@@ -743,6 +743,7 @@ pub struct TermWindow {
     webgpu: Option<Rc<WebGpuState>>,
     config_subscription: Option<config::ConfigSubscription>,
     skip_config_reload_generation: Option<usize>,
+    pending_config_reload_after_resize: bool,
     silent_reload_queued: bool,
 
     /// Toast notification: (start_time, message, lifetime)
@@ -1055,6 +1056,7 @@ impl TermWindow {
             fps: 0.,
             config_subscription: None,
             skip_config_reload_generation: None,
+            pending_config_reload_after_resize: false,
             silent_reload_queued: false,
             os_parameters: None,
             gl: None,
@@ -2206,6 +2208,7 @@ impl TermWindow {
         // when dragging the window. The reload will be processed after resize completes.
         if self.live_resizing {
             log::trace!("Skipping config reload during live resizing");
+            self.pending_config_reload_after_resize = true;
             return;
         }
 
@@ -2214,6 +2217,7 @@ impl TermWindow {
 
     fn config_was_reloaded_silently(&mut self) {
         if self.live_resizing {
+            self.pending_config_reload_after_resize = true;
             return;
         }
         self.config_was_reloaded_impl();

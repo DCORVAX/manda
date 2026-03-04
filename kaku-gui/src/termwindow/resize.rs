@@ -78,6 +78,10 @@ impl super::TermWindow {
             modal.reconfigure(self);
         }
         if !live_resizing {
+            if self.pending_config_reload_after_resize {
+                self.pending_config_reload_after_resize = false;
+                self.schedule_silent_config_reload(window);
+            }
             self.emit_window_event("window-resized", None);
         }
     }

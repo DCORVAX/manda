@@ -100,6 +100,8 @@ const OPEN_UNTITLED_DEFER_SPAWN_DELAY: Duration = Duration::from_millis(350);
 // macOS may still emit applicationOpenUntitledFile and cause an extra “~/” tab.
 // Use 2 seconds to balance startup race protection vs. user intent for new windows.
 const OPEN_UNTITLED_AFTER_SERVICE_OPEN_GUARD: Duration = Duration::from_secs(2);
+const SCREEN_WAKE_RETRY_DELAY: Duration = Duration::from_millis(100);
+const SCREEN_WAKE_MAX_RETRIES: usize = 5;
 static OPEN_UNTITLED_SPAWN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn note_service_open_request() {
@@ -464,14 +466,31 @@ extern "C" fn application_did_finish_launching(this: &mut Object, _sel: Sel, _no
 /// prevent crashes from stale surfaces when AppKit tries to flush the backing layer.
 extern "C" fn screens_did_wake(_self: &mut Object, _sel: Sel, _notification: *mut Object) {
     log::debug!("NSWorkspaceScreensDidWakeNotification received, updating OpenGL contexts");
-    if let Some(conn) = Connection::get() {
-        let windows = conn.windows.borrow();
-        for window in windows.values() {
+    fn update_all_window_contexts_after_wake(remaining_retries: usize) {
+        let Some(conn) = Connection::get() else {
+            return;
+        };
+
+        let windows: Vec<_> = conn.windows.borrow().values().cloned().collect();
+        let mut busy_windows = false;
+        for window in windows {
             if let Ok(mut inner) = window.try_borrow_mut() {
                 inner.update_opengl_context_after_wake();
+            } else {
+                busy_windows = true;
             }
         }
+
+        if busy_windows && remaining_retries > 0 {
+            promise::spawn::spawn_into_main_thread(async move {
+                async_io::Timer::after(SCREEN_WAKE_RETRY_DELAY).await;
+                update_all_window_contexts_after_wake(remaining_retries - 1);
+            })
+            .detach();
+        }
     }
+
+    update_all_window_contexts_after_wake(SCREEN_WAKE_MAX_RETRIES);
 }
 
 extern "C" fn application_open_untitled_file(
@@ -643,16 +662,22 @@ fn dispatch_or_queue_service_open(path: String, prefer_existing_window: bool) {
     note_service_open_request();
 
     if let Some(conn) = Connection::get() {
-        let event = if prefer_existing_window {
-            ApplicationEvent::OpenCommandScriptInTab(path)
-        } else {
-            ApplicationEvent::OpenCommandScript(path)
-        };
-        conn.dispatch_app_event(event);
-        return;
+        if crate::connection::app_event_handler_ready() {
+            let event = if prefer_existing_window {
+                ApplicationEvent::OpenCommandScriptInTab(path)
+            } else {
+                ApplicationEvent::OpenCommandScript(path)
+            };
+            conn.dispatch_app_event(event);
+            return;
+        }
     }
 
-    log::debug!("service request queued until GUI connection is ready");
+    if Connection::get().is_some() {
+        log::debug!("service request queued until app event handler is ready");
+    } else {
+        log::debug!("service request queued until GUI connection is ready");
+    }
     PENDING_SERVICE_OPENS
         .lock()
         .unwrap()
@@ -661,11 +686,17 @@ fn dispatch_or_queue_service_open(path: String, prefer_existing_window: bool) {
 
 fn dispatch_or_queue_tty_activation(tty: String) {
     if let Some(conn) = Connection::get() {
-        conn.dispatch_app_event(ApplicationEvent::ActivatePaneForTty(tty));
-        return;
+        if crate::connection::app_event_handler_ready() {
+            conn.dispatch_app_event(ApplicationEvent::ActivatePaneForTty(tty));
+            return;
+        }
     }
 
-    log::debug!("tty activation queued until GUI connection is ready");
+    if Connection::get().is_some() {
+        log::debug!("tty activation queued until app event handler is ready");
+    } else {
+        log::debug!("tty activation queued until GUI connection is ready");
+    }
     PENDING_TTY_ACTIVATIONS.lock().unwrap().push(tty);
 }
 

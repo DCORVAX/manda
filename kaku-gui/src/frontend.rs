@@ -4,7 +4,7 @@ use crate::termwindow::TermWindowNotif;
 use crate::TermWindow;
 use ::window::*;
 use anyhow::{Context, Error};
-use config::keyassignment::{KeyAssignment, SpawnCommand};
+use config::keyassignment::{KeyAssignment, SpawnCommand, SpawnTabDomain};
 use config::{ConfigSubscription, NotificationHandling};
 use mux::client::ClientId;
 use mux::window::WindowId as MuxWindowId;
@@ -142,6 +142,7 @@ pub fn open_kaku_config() {
         let term_config = Arc::new(config::TermConfig::with_config(config));
         crate::spawn::spawn_command_impl(
             &SpawnCommand {
+                domain: SpawnTabDomain::DomainName("local".to_string()),
                 args: Some(vec![kaku_bin, "config".to_string()]),
                 ..Default::default()
             },
@@ -242,6 +243,8 @@ impl GuiFrontEnd {
     pub fn try_new() -> anyhow::Result<Rc<GuiFrontEnd>> {
         let connection = Connection::init()?;
         connection.set_event_handler(Self::app_event_handler);
+        connection.flush_pending_service_events();
+        ::window::connection::mark_app_event_handler_ready();
         connection.flush_pending_service_events();
 
         let mux = Mux::get();

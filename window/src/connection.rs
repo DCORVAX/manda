@@ -5,6 +5,7 @@ use config::keyassignment::KeyAssignment;
 use config::DimensionContext;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 thread_local! {
@@ -14,8 +15,24 @@ thread_local! {
 fn nop_event_handler(_event: ApplicationEvent) {}
 
 static EVENT_HANDLER: Mutex<fn(ApplicationEvent)> = Mutex::new(nop_event_handler);
+static APP_EVENT_HANDLER_READY: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn app_event_handler_ready() -> bool {
+    APP_EVENT_HANDLER_READY.load(Ordering::Acquire)
+}
+
+pub fn mark_app_event_handler_ready() {
+    APP_EVENT_HANDLER_READY.store(true, Ordering::Release);
+}
 
 pub fn shutdown() {
+    {
+        let mut handler = EVENT_HANDLER
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        *handler = nop_event_handler;
+    }
+    APP_EVENT_HANDLER_READY.store(false, Ordering::Release);
     CONN.with(|m| drop(m.borrow_mut().take()));
 }
 
