@@ -790,8 +790,8 @@ local function is_shell_foreground(pane)
     return false
   end
 
-  -- Strip leading dash for login shells (e.g., -zsh -> zsh)
-  local name = proc:lower():gsub("^%-", "")
+  -- Normalize full executable paths (e.g., /bin/zsh) and login shell names (e.g., -zsh).
+  local name = basename(proc:lower()):gsub("^%-", "")
   local shells = { zsh = true, bash = true, fish = true, sh = true, dash = true, ksh = true, tcsh = true, csh = true }
   return shells[name] == true
 end

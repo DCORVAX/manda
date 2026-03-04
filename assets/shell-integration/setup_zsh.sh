@@ -746,7 +746,9 @@ _kaku_set_user_var() {
     local name="\$1"
     local value="\$2"
 
-    if [[ "\$TERM" != "kaku" ]]; then
+    # Kaku defaults TERM to xterm-256color for SSH compatibility.
+    # Use WEZTERM_PANE presence to detect Kaku/WezTerm panes reliably.
+    if [[ "\$TERM" != "kaku" && -z "\${WEZTERM_PANE:-}" ]]; then
         return
     fi
 
