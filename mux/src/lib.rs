@@ -662,11 +662,7 @@ impl Mux {
     }
 
     pub fn iter_clients(&self) -> Vec<ClientInfo> {
-        self.clients
-            .read()
-            .values()
-            .map(|info| info.clone())
-            .collect()
+        self.clients.read().values().cloned().collect()
     }
 
     /// Returns a list of the unique workspace names known to the mux.
@@ -941,7 +937,7 @@ impl Mux {
             dead.store(true, Ordering::Release);
         }
 
-        if let Some(pane) = self.panes.write().remove(&pane_id).clone() {
+        if let Some(pane) = self.panes.write().remove(&pane_id) {
             log::debug!("killing pane {}", pane_id);
             pane.kill();
             self.notify(MuxNotification::PaneRemoved(pane_id));
