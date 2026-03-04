@@ -3833,8 +3833,7 @@ impl TermWindow {
                 let parts: Vec<&str> = path.rsplitn(2, ':').collect();
                 match parts.as_slice() {
                     [line_str, file_path]
-                        if !line_str.is_empty()
-                            && line_str.chars().all(|c| c.is_ascii_digit()) =>
+                        if !line_str.is_empty() && line_str.chars().all(|c| c.is_ascii_digit()) =>
                     {
                         (file_path.to_string(), line_str.parse().ok(), None)
                     }
