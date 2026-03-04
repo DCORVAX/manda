@@ -173,7 +173,7 @@ fn run_kaku_subcommand_in_shell_new_window(subcommand: &str) {
 
     promise::spawn::spawn_into_main_thread(async move {
         use crate::spawn::SpawnWhere;
-        use config::keyassignment::SpawnCommand;
+        use config::keyassignment::{SpawnCommand, SpawnTabDomain};
         use std::sync::Arc;
 
         let config = fast_config_snapshot();
@@ -182,6 +182,7 @@ fn run_kaku_subcommand_in_shell_new_window(subcommand: &str) {
         let term_config = Arc::new(config::TermConfig::with_config(config));
 
         let spawn_cmd = SpawnCommand {
+            domain: SpawnTabDomain::DomainName("local".to_string()),
             args: Some(vec![shell, "-l".to_string(), "-c".to_string(), command_str]),
             ..Default::default()
         };
