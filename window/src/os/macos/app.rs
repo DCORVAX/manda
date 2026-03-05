@@ -19,6 +19,7 @@ use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::ffi::c_void;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use url::Url;
@@ -100,9 +101,12 @@ const OPEN_UNTITLED_SPAWN_DEBOUNCE: Duration = Duration::from_millis(1200);
 const OPEN_UNTITLED_AFTER_SERVICE_OPEN_GUARD: Duration = Duration::from_secs(2);
 const DISPLAY_CHANGE_RETRY_DELAY: Duration = Duration::from_millis(100);
 const DISPLAY_CHANGE_MAX_RETRIES: usize = 5;
+static OPEN_UNTITLED_SPAWN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn note_service_open_request() {
     *LAST_SERVICE_OPEN_REQUEST.lock().unwrap() = Some(Instant::now());
+    // Cancel any pending deferred untitled spawn from applicationOpenUntitledFile.
+    OPEN_UNTITLED_SPAWN_SEQUENCE.fetch_add(1, Ordering::SeqCst);
 }
 
 fn should_suppress_open_untitled_spawn() -> bool {
@@ -116,6 +120,43 @@ fn should_suppress_open_untitled_spawn() -> bool {
         .unwrap()
         .map(|ts| now.duration_since(ts) < OPEN_UNTITLED_AFTER_SERVICE_OPEN_GUARD)
         .unwrap_or(false)
+}
+
+fn schedule_open_untitled_spawn() {
+    // Defer to the next main-thread turn (no fixed sleep), so a near-simultaneous
+    // service open request can cancel this spawn without adding startup latency
+    // for normal users.
+    let sequence = OPEN_UNTITLED_SPAWN_SEQUENCE.fetch_add(1, Ordering::SeqCst) + 1;
+    promise::spawn::spawn_into_main_thread(async move {
+        if OPEN_UNTITLED_SPAWN_SEQUENCE.load(Ordering::SeqCst) != sequence {
+            return;
+        }
+
+        if should_suppress_open_untitled_spawn() {
+            log::debug!(
+                "Skipping deferred applicationOpenUntitledFile spawn because a service \
+                 open request was received"
+            );
+            return;
+        }
+
+        let Some(conn) = Connection::get() else {
+            return;
+        };
+
+        let has_window = {
+            let windows = conn.windows.borrow();
+            windows.values().next().is_some()
+        };
+        if has_window {
+            return;
+        }
+
+        conn.dispatch_app_event(ApplicationEvent::PerformKeyAssignment(
+            KeyAssignment::SpawnWindow,
+        ));
+    })
+    .detach();
 }
 
 #[derive(Default)]
@@ -543,9 +584,7 @@ extern "C" fn application_open_untitled_file(
                             "Ignoring applicationOpenUntitledFile before app event handler is ready"
                         );
                     } else {
-                        conn.dispatch_app_event(ApplicationEvent::PerformKeyAssignment(
-                            KeyAssignment::SpawnWindow,
-                        ));
+                        schedule_open_untitled_spawn();
                     }
                 }
             }
