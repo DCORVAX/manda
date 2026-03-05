@@ -1542,7 +1542,7 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
         CloseCurrentTab { confirm: true } => CommandDef {
             brief: "Close Tab".into(),
             doc: "Close current tab".into(),
-            keys: vec![(Modifiers::SUPER, "w".into())],
+            keys: vec![(Modifiers::SUPER.union(Modifiers::SHIFT), "w".into())],
             args: &[ArgType::ActiveTab],
             menubar: &["Shell"],
             icon: None,
@@ -1560,7 +1560,7 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
         CloseCurrentPane { confirm: true } => CommandDef {
             brief: "Close Pane".into(),
             doc: "Close current pane".into(),
-            keys: vec![],
+            keys: vec![(Modifiers::SUPER, "w".into())],
             args: &[ArgType::ActivePane],
             menubar: &["Shell"],
             icon: None,
