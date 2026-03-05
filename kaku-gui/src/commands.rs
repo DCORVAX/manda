@@ -1575,6 +1575,14 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             menubar: &[],
             icon: None,
         },
+        ReopenLastClosedTab => CommandDef {
+            brief: "Reopen Last Closed Tab".into(),
+            doc: "Reopens the most recently closed tab, restoring its working directory.".into(),
+            keys: vec![(Modifiers::SUPER.union(Modifiers::SHIFT), "t".into())],
+            args: &[ArgType::ActiveWindow],
+            menubar: &["Shell"],
+            icon: None,
+        },
         ActivateWindow(n) => {
             let n = *n;
             let ordinal = english_ordinal(n as isize + 1);
@@ -2468,6 +2476,7 @@ fn compute_default_actions() -> Vec<KeyAssignment> {
         }),
         CloseCurrentTab { confirm: true },
         CloseCurrentPane { confirm: true },
+        ReopenLastClosedTab,
         DetachDomain(SpawnTabDomain::CurrentPaneDomain),
         ResetTerminal,
         // ----------------- Edit

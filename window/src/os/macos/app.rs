@@ -19,7 +19,6 @@ use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::ffi::c_void;
 use std::process::Command;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use url::Url;
@@ -95,19 +94,15 @@ lazy_static::lazy_static! {
 // macOS can emit applicationOpenUntitledFile twice while no window has
 // materialized yet; keep a wider debounce to avoid duplicate SpawnWindow work.
 const OPEN_UNTITLED_SPAWN_DEBOUNCE: Duration = Duration::from_millis(1200);
-const OPEN_UNTITLED_DEFER_SPAWN_DELAY: Duration = Duration::from_millis(350);
 // Guard against startup races: when launched with an explicit file/folder to open,
 // macOS may still emit applicationOpenUntitledFile and cause an extra “~/” tab.
 // Use 2 seconds to balance startup race protection vs. user intent for new windows.
 const OPEN_UNTITLED_AFTER_SERVICE_OPEN_GUARD: Duration = Duration::from_secs(2);
 const DISPLAY_CHANGE_RETRY_DELAY: Duration = Duration::from_millis(100);
 const DISPLAY_CHANGE_MAX_RETRIES: usize = 5;
-static OPEN_UNTITLED_SPAWN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn note_service_open_request() {
     *LAST_SERVICE_OPEN_REQUEST.lock().unwrap() = Some(Instant::now());
-    // Cancel any pending deferred untitled spawn from applicationOpenUntitledFile.
-    OPEN_UNTITLED_SPAWN_SEQUENCE.fetch_add(1, Ordering::SeqCst);
 }
 
 fn should_suppress_open_untitled_spawn() -> bool {
@@ -121,44 +116,6 @@ fn should_suppress_open_untitled_spawn() -> bool {
         .unwrap()
         .map(|ts| now.duration_since(ts) < OPEN_UNTITLED_AFTER_SERVICE_OPEN_GUARD)
         .unwrap_or(false)
-}
-
-fn schedule_open_untitled_spawn() {
-    let sequence = OPEN_UNTITLED_SPAWN_SEQUENCE.fetch_add(1, Ordering::SeqCst) + 1;
-    promise::spawn::spawn(async move {
-        async_io::Timer::after(OPEN_UNTITLED_DEFER_SPAWN_DELAY).await;
-        promise::spawn::spawn_into_main_thread(async move {
-            if OPEN_UNTITLED_SPAWN_SEQUENCE.load(Ordering::SeqCst) != sequence {
-                return;
-            }
-
-            if should_suppress_open_untitled_spawn() {
-                log::debug!(
-                    "Skipping deferred applicationOpenUntitledFile spawn because a service \
-                     open request was received"
-                );
-                return;
-            }
-
-            let Some(conn) = Connection::get() else {
-                return;
-            };
-
-            let has_window = {
-                let windows = conn.windows.borrow();
-                windows.values().next().is_some()
-            };
-            if has_window {
-                return;
-            }
-
-            conn.dispatch_app_event(ApplicationEvent::PerformKeyAssignment(
-                KeyAssignment::SpawnWindow,
-            ));
-        })
-        .detach();
-    })
-    .detach();
 }
 
 #[derive(Default)]
@@ -577,7 +534,19 @@ extern "C" fn application_open_untitled_file(
                 });
 
                 if should_spawn {
-                    schedule_open_untitled_spawn();
+                    if !crate::connection::app_event_handler_ready() {
+                        // During cold startup we rely on the normal startup pipeline
+                        // to create the first window. This avoids introducing a fixed
+                        // delay for every launch while still allowing service-open
+                        // requests to take over when present.
+                        log::debug!(
+                            "Ignoring applicationOpenUntitledFile before app event handler is ready"
+                        );
+                    } else {
+                        conn.dispatch_app_event(ApplicationEvent::PerformKeyAssignment(
+                            KeyAssignment::SpawnWindow,
+                        ));
+                    }
                 }
             }
         }

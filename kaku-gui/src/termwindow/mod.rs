@@ -748,6 +748,10 @@ pub struct TermWindow {
 
     /// Toast notification: (start_time, message, lifetime)
     toast: Option<(Instant, String, Duration)>,
+
+    /// Stack of working dirs from recently closed tabs, for ReopenLastClosedTab.
+    /// Most recently closed is at the back.
+    closed_tabs: std::collections::VecDeque<std::path::PathBuf>,
 }
 
 impl TermWindow {
@@ -1167,6 +1171,7 @@ impl TermWindow {
             opengl_info: None,
             toast: None,
             live_resizing: false,
+            closed_tabs: std::collections::VecDeque::new(),
         };
 
         let tw = Rc::new(RefCell::new(myself));
@@ -3333,6 +3338,16 @@ impl TermWindow {
             }
             CloseCurrentTab { confirm } => self.close_current_tab(*confirm),
             CloseCurrentPane { confirm } => self.close_current_pane(*confirm),
+            ReopenLastClosedTab => {
+                if let Some(cwd) = self.closed_tabs.pop_back() {
+                    let spawn = SpawnCommand {
+                        cwd: Some(cwd),
+                        domain: config::keyassignment::SpawnTabDomain::CurrentPaneDomain,
+                        ..SpawnCommand::default()
+                    };
+                    self.spawn_command(&spawn, SpawnWhere::NewTab);
+                }
+            }
             Nop | DisableDefaultAssignment => {}
             ReloadConfiguration => {}
             MoveTab(n) => self.move_tab(*n)?,
@@ -3970,7 +3985,12 @@ impl TermWindow {
         };
         let tab_id = tab.tab_id();
         let mux_window_id = self.mux_window_id;
+
         if confirm && !tab.can_close_without_prompting(CloseReason::Tab) {
+            // Tab has running processes; ask the user first.
+            // We do not record the cwd here: the user may cancel, and we cannot
+            // reliably hook the async confirmation result from this call site.
+            // In practice, tabs with active processes are rare to close with reopen-intent.
             let window = self.window.clone().unwrap();
             let (overlay, future) = start_overlay(self, &tab, move |tab_id, term| {
                 confirm_close_tab(tab_id, term, mux_window_id, window)
@@ -3978,7 +3998,26 @@ impl TermWindow {
             self.assign_overlay(tab_id, overlay);
             promise::spawn::spawn(future).detach();
         } else {
+            // No confirmation needed: record cwd and close immediately.
+            if let Some(pane) = tab.get_active_pane() {
+                if let Some(url) = pane.get_current_working_dir(mux::pane::CachePolicy::AllowStale)
+                {
+                    let cwd = std::path::PathBuf::from(url.path().to_string());
+                    if cwd.is_absolute() {
+                        self.push_closed_tab_cwd(cwd);
+                    }
+                }
+            }
             mux.remove_tab(tab_id);
+        }
+    }
+
+    /// Push a cwd onto the closed-tab history stack (max 10 entries).
+    fn push_closed_tab_cwd(&mut self, cwd: std::path::PathBuf) {
+        const MAX_CLOSED_TABS: usize = 10;
+        self.closed_tabs.push_back(cwd);
+        if self.closed_tabs.len() > MAX_CLOSED_TABS {
+            self.closed_tabs.pop_front();
         }
     }
 
