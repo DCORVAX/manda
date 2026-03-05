@@ -170,7 +170,19 @@ fn run_kaku_subcommand_in_shell_new_window(subcommand: &str) {
         .unwrap_or_else(|_| kaku_bin.clone());
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_string());
-    let command_str = format!("kaku {subcommand} || {fallback_bin} {subcommand}; printf '\\nPress Enter to close...\\n'; read dummy");
+    let shell_name = Path::new(&shell)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    let command_str = if shell_name == "fish" {
+        format!(
+            "kaku {subcommand}; or {fallback_bin} {subcommand}; printf '\\nPress Enter to close...\\n'; read -l dummy"
+        )
+    } else {
+        format!(
+            "kaku {subcommand} || {fallback_bin} {subcommand}; printf '\\nPress Enter to close...\\n'; read dummy"
+        )
+    };
 
     promise::spawn::spawn_into_main_thread(async move {
         use crate::spawn::SpawnWhere;

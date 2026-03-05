@@ -1112,16 +1112,26 @@ fn update_opencode_theme() {
     let themes_dir = opencode_dir.join("themes");
     let theme_file = themes_dir.join("kaku-match.json");
     let legacy_file = themes_dir.join("wezterm-match.json");
-    let tui_config = opencode_dir.join("tui.json");
+    let config_files = [
+        opencode_dir.join("opencode.jsonc"),
+        opencode_dir.join("opencode.json"),
+        opencode_dir.join("tui.json"),
+    ];
 
-    // Migrate old users: remove legacy file and update tui.json
+    // Migrate old users: remove legacy theme file.
     if legacy_file.exists() {
         let _ = std::fs::remove_file(&legacy_file);
-        // Update tui.json to use new theme name
-        if tui_config.exists() {
-            if let Ok(content) = std::fs::read_to_string(&tui_config) {
-                let updated = content.replace("\"wezterm-match\"", "\"kaku-match\"");
-                let _ = std::fs::write(&tui_config, updated);
+    }
+
+    // Update any known OpenCode config files to use the new theme name.
+    for config_file in &config_files {
+        if !config_file.exists() {
+            continue;
+        }
+        if let Ok(content) = std::fs::read_to_string(config_file) {
+            let updated = content.replace("\"wezterm-match\"", "\"kaku-match\"");
+            if updated != content {
+                let _ = std::fs::write(config_file, updated);
             }
         }
     }

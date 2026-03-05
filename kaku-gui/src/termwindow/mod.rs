@@ -3877,7 +3877,14 @@ impl TermWindow {
     }
 
     fn resolve_file_path(&self, pane: &Arc<dyn Pane>, uri: &str) -> Option<PathBuf> {
-        let path_str = uri.strip_prefix("file://").unwrap_or(uri);
+        let decoded_uri_path = url::Url::parse(uri)
+            .ok()
+            .and_then(|url| url.to_file_path().ok())
+            .map(|path| path.to_string_lossy().into_owned());
+
+        let path_str = decoded_uri_path
+            .as_deref()
+            .unwrap_or_else(|| uri.strip_prefix("file://").unwrap_or(uri));
         let (base_path, _line, _col) = Self::parse_file_location(path_str);
 
         if base_path.starts_with('/') {
@@ -4000,9 +4007,10 @@ impl TermWindow {
         } else {
             // No confirmation needed: record cwd and close immediately.
             if let Some(pane) = tab.get_active_pane() {
-                if let Some(url) = pane.get_current_working_dir(mux::pane::CachePolicy::AllowStale)
+                if let Some(cwd) = pane
+                    .get_current_working_dir(mux::pane::CachePolicy::AllowStale)
+                    .and_then(|url| url.to_file_path().ok())
                 {
-                    let cwd = std::path::PathBuf::from(url.path().to_string());
                     if cwd.is_absolute() {
                         self.push_closed_tab_cwd(cwd);
                     }
