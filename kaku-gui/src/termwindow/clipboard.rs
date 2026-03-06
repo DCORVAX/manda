@@ -148,7 +148,7 @@ impl TermWindow {
             return;
         }
         self.selection_copy_disabled_hint_shown = true;
-        self.show_toast_for("Selected. Auto copy is off".to_string(), 2200);
+        self.show_toast_for("Auto copy disabled. Use Cmd+C to copy.".to_string(), 2200);
     }
 
     pub fn paste_from_clipboard(&mut self, pane: &Arc<dyn Pane>, clipboard: ClipboardPasteSource) {

@@ -91,6 +91,19 @@ use crate::spawn::SpawnWhere;
 use prevcursor::PrevCursorPos;
 
 const ATLAS_SIZE: usize = 128;
+const VSCODE_OPEN_CANDIDATES: &[&str] = &[
+    "code",
+    "/usr/local/bin/code",
+    "/opt/homebrew/bin/code",
+    "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
+];
+
+#[derive(Clone, Debug)]
+struct FileLinkTarget {
+    path: PathBuf,
+    line: Option<usize>,
+    col: Option<usize>,
+}
 
 fn decode_hex_event_payload(payload: &str) -> Option<String> {
     if payload.is_empty() || payload.len() % 2 != 0 {
@@ -189,6 +202,8 @@ lazy_static::lazy_static! {
     static ref WINDOW_CLASS: Mutex<String> = Mutex::new(wezterm_gui_subcommands::DEFAULT_WINDOW_CLASS.to_owned());
     static ref POSITION: Mutex<Option<GuiPosition>> = Mutex::new(None);
     static ref RENDER_METRICS_CACHE: Mutex<Option<RenderMetricsCacheEntry>> = Mutex::new(None);
+    static ref CLOSED_TAB_HISTORY: Mutex<std::collections::VecDeque<PathBuf>> =
+        Mutex::new(std::collections::VecDeque::new());
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -749,10 +764,6 @@ pub struct TermWindow {
     /// Toast notification: (start_time, message, lifetime)
     toast: Option<(Instant, String, Duration)>,
     selection_copy_disabled_hint_shown: bool,
-
-    /// Stack of working dirs from recently closed tabs, for ReopenLastClosedTab.
-    /// Most recently closed is at the back.
-    closed_tabs: std::collections::VecDeque<std::path::PathBuf>,
 }
 
 impl TermWindow {
@@ -1173,7 +1184,6 @@ impl TermWindow {
             toast: None,
             selection_copy_disabled_hint_shown: false,
             live_resizing: false,
-            closed_tabs: std::collections::VecDeque::new(),
         };
 
         let tw = Rc::new(RefCell::new(myself));
@@ -2371,7 +2381,7 @@ impl TermWindow {
 
         // Sync Dock badge in case bell_dock_badge was toggled.
         // Passing 0 re-evaluates badge state without changing the count.
-        front_end().adjust_unread_bell_count(0);
+        front_end().sync_unread_bell_badge();
     }
 
     fn invalidate_modal(&mut self) {
@@ -3341,7 +3351,7 @@ impl TermWindow {
             CloseCurrentTab { confirm } => self.close_current_tab(*confirm),
             CloseCurrentPane { confirm } => self.close_current_pane(*confirm),
             ReopenLastClosedTab => {
-                if let Some(cwd) = self.closed_tabs.pop_back() {
+                if let Some(cwd) = Self::pop_closed_tab_cwd() {
                     let spawn = SpawnCommand {
                         cwd: Some(cwd),
                         domain: config::keyassignment::SpawnTabDomain::CurrentPaneDomain,
@@ -3825,7 +3835,7 @@ impl TermWindow {
         if let Some(link) = self.current_highlight.as_ref().cloned() {
             let uri = link.uri().to_string();
             let is_file_uri = uri.starts_with("file://");
-            let resolved_path = if is_file_uri {
+            let resolved_target = if is_file_uri {
                 self.resolve_file_path(pane, &uri)
             } else {
                 None
@@ -3839,7 +3849,7 @@ impl TermWindow {
                 window: GuiWin,
                 pane: MuxPane,
                 link: String,
-                resolved_path: Option<PathBuf>,
+                resolved_target: Option<FileLinkTarget>,
             ) -> anyhow::Result<()> {
                 let default_click = match lua {
                     Some(lua) => {
@@ -3854,18 +3864,29 @@ impl TermWindow {
                     None => true,
                 };
                 if default_click {
-                    if let Some(path) = resolved_path {
-                        if path.exists() {
-                            log::info!("Opening file path: {:?}", path);
+                    if let Some(target) = resolved_target {
+                        if target.path.exists() {
+                            log::info!(
+                                "Opening file path: {:?} line={:?} col={:?}",
+                                target.path,
+                                target.line,
+                                target.col
+                            );
                             std::thread::spawn(move || {
+                                if target.path.is_file()
+                                    && TermWindow::try_open_file_in_vscode(&target).unwrap_or(false)
+                                {
+                                    return;
+                                }
+
                                 let mut cmd = std::process::Command::new("/usr/bin/open");
-                                if path.is_file() {
+                                if target.path.is_file() {
                                     cmd.arg("-R");
                                 }
-                                cmd.arg(&path).status().ok();
+                                cmd.arg(&target.path).status().ok();
                             });
                         } else {
-                            log::warn!("File does not exist: {:?}", path);
+                            log::warn!("File does not exist: {:?}", target.path);
                         }
                     } else {
                         log::info!("clicking {}", link);
@@ -3876,13 +3897,13 @@ impl TermWindow {
             }
 
             promise::spawn::spawn(config::with_lua_config_on_main_thread(move |lua| {
-                open_uri(lua, window, pane, uri, resolved_path)
+                open_uri(lua, window, pane, uri, resolved_target)
             }))
             .detach();
         }
     }
 
-    fn resolve_file_path(&self, pane: &Arc<dyn Pane>, uri: &str) -> Option<PathBuf> {
+    fn resolve_file_path(&self, pane: &Arc<dyn Pane>, uri: &str) -> Option<FileLinkTarget> {
         let decoded_uri_path = url::Url::parse(uri)
             .ok()
             .and_then(|url| url.to_file_path().ok())
@@ -3891,9 +3912,9 @@ impl TermWindow {
         let path_str = decoded_uri_path
             .as_deref()
             .unwrap_or_else(|| uri.strip_prefix("file://").unwrap_or(uri));
-        let (base_path, _line, _col) = Self::parse_file_location(path_str);
+        let (base_path, line, col) = Self::parse_file_location(path_str);
 
-        if base_path.starts_with('/') {
+        let path = if base_path.starts_with('/') {
             Some(PathBuf::from(&base_path))
         } else if base_path.starts_with("~/") {
             dirs_next::home_dir().map(|home| home.join(&base_path[2..]))
@@ -3901,7 +3922,37 @@ impl TermWindow {
             pane.get_current_working_dir(CachePolicy::AllowStale)
                 .and_then(|url| url.to_file_path().ok())
                 .map(|cwd| cwd.join(&base_path))
+        }?;
+
+        Some(FileLinkTarget { path, line, col })
+    }
+
+    fn try_open_file_in_vscode(target: &FileLinkTarget) -> anyhow::Result<bool> {
+        let Some(line) = target.line else {
+            return Ok(false);
+        };
+
+        let mut location = format!("{}:{line}", target.path.display());
+        if let Some(col) = target.col {
+            location.push(':');
+            location.push_str(&col.to_string());
         }
+
+        for candidate in VSCODE_OPEN_CANDIDATES {
+            let result = std::process::Command::new(candidate)
+                .arg("-g")
+                .arg(&location)
+                .status();
+
+            match result {
+                Ok(status) if status.success() => return Ok(true),
+                Ok(_) => return Ok(false),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(err) => return Err(err.into()),
+            }
+        }
+
+        Ok(false)
     }
 
     fn parse_file_location(path: &str) -> (String, Option<usize>, Option<usize>) {
@@ -4018,7 +4069,7 @@ impl TermWindow {
                     .and_then(|url| url.to_file_path().ok())
                 {
                     if cwd.is_absolute() {
-                        self.push_closed_tab_cwd(cwd);
+                        Self::push_closed_tab_cwd(cwd);
                     }
                 }
             }
@@ -4026,13 +4077,18 @@ impl TermWindow {
         }
     }
 
-    /// Push a cwd onto the closed-tab history stack (max 10 entries).
-    fn push_closed_tab_cwd(&mut self, cwd: std::path::PathBuf) {
+    /// Push a cwd onto the shared closed-tab history stack (max 10 entries).
+    fn push_closed_tab_cwd(cwd: PathBuf) {
         const MAX_CLOSED_TABS: usize = 10;
-        self.closed_tabs.push_back(cwd);
-        if self.closed_tabs.len() > MAX_CLOSED_TABS {
-            self.closed_tabs.pop_front();
+        let mut closed_tabs = CLOSED_TAB_HISTORY.lock().unwrap();
+        closed_tabs.push_back(cwd);
+        if closed_tabs.len() > MAX_CLOSED_TABS {
+            closed_tabs.pop_front();
         }
+    }
+
+    fn pop_closed_tab_cwd() -> Option<PathBuf> {
+        CLOSED_TAB_HISTORY.lock().unwrap().pop_back()
     }
 
     pub fn pane_state(&self, pane_id: PaneId) -> RefMut<'_, PaneState> {
@@ -4405,5 +4461,21 @@ mod tests {
             "SOME_OTHER_USER_VAR",
             true
         ));
+    }
+
+    #[test]
+    fn parse_file_location_extracts_line_and_column() {
+        let (path, line, col) = TermWindow::parse_file_location("/tmp/demo.rs:12:34");
+        assert_eq!(path, "/tmp/demo.rs");
+        assert_eq!(line, Some(12));
+        assert_eq!(col, Some(34));
+    }
+
+    #[test]
+    fn parse_file_location_leaves_plain_paths_unchanged() {
+        let (path, line, col) = TermWindow::parse_file_location("/tmp/demo.rs");
+        assert_eq!(path, "/tmp/demo.rs");
+        assert_eq!(line, None);
+        assert_eq!(col, None);
     }
 }

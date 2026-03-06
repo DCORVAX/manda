@@ -2672,7 +2672,9 @@ fn is_command_alnum_shortcut(modifiers: Modifiers, virtual_key: u16) -> bool {
     // because macOS NSMenu keyEquivalent matching can return the wrong character.
     let must_have = Modifiers::SUPER;
     let must_not = Modifiers::ALT | Modifiers::CTRL | Modifiers::LEFT_ALT | Modifiers::RIGHT_ALT;
-    modifiers.contains(must_have) && !modifiers.intersects(must_not) && is_alnum_virtual_key(virtual_key)
+    modifiers.contains(must_have)
+        && !modifiers.intersects(must_not)
+        && is_alnum_virtual_key(virtual_key)
 }
 
 fn should_intercept_special_shortcut(chars: &str, modifiers: Modifiers, virtual_key: u16) -> bool {
@@ -2842,10 +2844,7 @@ mod tests {
             kVK_ANSI_W,
         ));
         // Non-alnum key → false
-        assert!(!is_command_alnum_shortcut(
-            Modifiers::SUPER,
-            kVK_ANSI_Grave,
-        ));
+        assert!(!is_command_alnum_shortcut(Modifiers::SUPER, kVK_ANSI_Grave,));
     }
 
     #[test]

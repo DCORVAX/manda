@@ -838,6 +838,15 @@ impl GuiFrontEnd {
         }
     }
 
+    fn update_unread_bell_badge(&self, current: usize) {
+        // Always update badge: show count if enabled, clear otherwise
+        if config::configuration().bell_dock_badge && current > 0 {
+            self.connection.set_dock_badge(Some(&current.to_string()));
+        } else {
+            self.connection.set_dock_badge(None);
+        }
+    }
+
     /// Adjust the global unread bell count and update Dock badge.
     /// Pass positive value to increment, negative to decrement.
     pub fn adjust_unread_bell_count(&self, delta: isize) {
@@ -850,12 +859,13 @@ impl GuiFrontEnd {
         let current = *count;
         drop(count);
 
-        // Always update badge: show count if enabled, clear otherwise
-        if config::configuration().bell_dock_badge && current > 0 {
-            self.connection.set_dock_badge(Some(&current.to_string()));
-        } else {
-            self.connection.set_dock_badge(None);
-        }
+        self.update_unread_bell_badge(current);
+    }
+
+    /// Re-evaluate Dock badge visibility using the current unread count.
+    pub fn sync_unread_bell_badge(&self) {
+        let current = *self.unread_bell_count.borrow();
+        self.update_unread_bell_badge(current);
     }
 
     pub fn is_switching_workspace(&self) -> bool {

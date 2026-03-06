@@ -1,6 +1,23 @@
+use config::{configuration, ConfigHandle};
 use ratatui::style::Color;
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
+use wezterm_term::color::{ColorPalette, SrgbaTuple};
 
+#[derive(Clone, Copy)]
+pub struct ThemePalette {
+    pub primary: SrgbaTuple,
+    pub secondary: SrgbaTuple,
+    pub accent: SrgbaTuple,
+    pub error: SrgbaTuple,
+    pub info: SrgbaTuple,
+    pub text: SrgbaTuple,
+    pub muted: SrgbaTuple,
+    pub bg: SrgbaTuple,
+    pub panel: SrgbaTuple,
+    pub is_light: bool,
+}
+
+#[derive(Clone, Copy)]
 struct Theme {
     primary: Color,
     secondary: Color,
@@ -12,101 +29,162 @@ struct Theme {
     panel: Color,
 }
 
-fn parse_hex(hex: &str) -> Color {
-    let hex = hex.trim_start_matches('#');
-    if hex.len() < 6 {
-        return Color::Rgb(0, 0, 0);
+static THEME_CACHE: Mutex<Option<(usize, Theme)>> = Mutex::new(None);
+
+fn opaque(color: SrgbaTuple) -> SrgbaTuple {
+    SrgbaTuple(color.0, color.1, color.2, 1.0)
+}
+
+fn blend(base: SrgbaTuple, overlay: SrgbaTuple, amount: f32) -> SrgbaTuple {
+    let amount = amount.clamp(0.0, 1.0);
+    SrgbaTuple(
+        base.0 + (overlay.0 - base.0) * amount,
+        base.1 + (overlay.1 - base.1) * amount,
+        base.2 + (overlay.2 - base.2) * amount,
+        1.0,
+    )
+}
+
+fn luminance(color: SrgbaTuple) -> f32 {
+    0.299 * color.0 + 0.587 * color.1 + 0.114 * color.2
+}
+
+fn is_light_color(color: SrgbaTuple) -> bool {
+    luminance(color) > 0.5
+}
+
+fn color_distance(a: SrgbaTuple, b: SrgbaTuple) -> f32 {
+    let dr = a.0 - b.0;
+    let dg = a.1 - b.1;
+    let db = a.2 - b.2;
+    (dr * dr + dg * dg + db * db).sqrt()
+}
+
+fn has_enough_separation(bg: SrgbaTuple, color: SrgbaTuple) -> bool {
+    color_distance(bg, color) >= 0.18 || (luminance(bg) - luminance(color)).abs() >= 0.12
+}
+
+fn pick_visible(bg: SrgbaTuple, candidates: &[SrgbaTuple]) -> SrgbaTuple {
+    for candidate in candidates {
+        let candidate = opaque(*candidate);
+        if has_enough_separation(bg, candidate) {
+            return candidate;
+        }
     }
 
-    let r = hex
-        .get(0..2)
-        .and_then(|s| u8::from_str_radix(s, 16).ok())
-        .unwrap_or(0);
-    let g = hex
-        .get(2..4)
-        .and_then(|s| u8::from_str_radix(s, 16).ok())
-        .unwrap_or(0);
-    let b = hex
-        .get(4..6)
-        .and_then(|s| u8::from_str_radix(s, 16).ok())
-        .unwrap_or(0);
+    let fallback = opaque(candidates[0]);
+    blend(bg, fallback, if is_light_color(bg) { 0.55 } else { 0.45 })
+}
+
+fn pick_muted(bg: SrgbaTuple, text: SrgbaTuple, candidate: SrgbaTuple) -> SrgbaTuple {
+    let candidate = opaque(candidate);
+    if has_enough_separation(bg, candidate) {
+        candidate
+    } else {
+        blend(bg, text, if is_light_color(bg) { 0.42 } else { 0.5 })
+    }
+}
+
+fn to_color(color: SrgbaTuple) -> Color {
+    let (r, g, b, _) = color.to_srgb_u8();
     Color::Rgb(r, g, b)
 }
 
-fn detect_light_theme_from_config() -> bool {
-    let config_path = config::user_config_path();
+fn palette_from_config(config: &ConfigHandle) -> ThemePalette {
+    let palette: ColorPalette = config.resolved_palette.clone().into();
+    let bg = opaque(palette.background);
+    let text = opaque(palette.foreground);
+    let is_light = is_light_color(bg);
 
-    let content = match std::fs::read_to_string(&config_path) {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
+    let primary = pick_visible(
+        bg,
+        &[palette.colors.0[13], palette.colors.0[5], palette.cursor_bg],
+    );
+    let secondary = pick_visible(
+        bg,
+        &[
+            palette.colors.0[10],
+            palette.colors.0[6],
+            palette.colors.0[2],
+        ],
+    );
+    let accent = pick_visible(
+        bg,
+        &[
+            palette.colors.0[11],
+            palette.colors.0[3],
+            palette.cursor_border,
+        ],
+    );
+    let error = pick_visible(
+        bg,
+        &[
+            palette.colors.0[9],
+            palette.colors.0[1],
+            palette.cursor_border,
+        ],
+    );
+    let info = pick_visible(
+        bg,
+        &[palette.colors.0[12], palette.colors.0[4], palette.cursor_bg],
+    );
+    let muted = pick_muted(bg, text, palette.colors.0[8]);
+    let panel = blend(bg, text, if is_light { 0.05 } else { 0.08 });
 
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("--") {
-            continue;
-        }
-        if trimmed.starts_with("config.color_scheme") {
-            if let Some(eq_pos) = trimmed.find('=') {
-                let value = trimmed[eq_pos + 1..]
-                    .trim()
-                    .trim_matches('\'')
-                    .trim_matches('"');
-                return value == "Kaku Light";
-            }
-        }
+    ThemePalette {
+        primary,
+        secondary,
+        accent,
+        error,
+        info,
+        text,
+        muted,
+        bg,
+        panel,
+        is_light,
     }
-    false
 }
 
-// Cache the theme detection result for the process lifetime.
-static LIGHT_THEME_CACHE: Mutex<Option<bool>> = Mutex::new(None);
+fn theme_from_config(config: &ConfigHandle) -> Theme {
+    let palette = palette_from_config(config);
 
-pub fn is_light_theme() -> bool {
-    let cached = *LIGHT_THEME_CACHE.lock().unwrap();
-    if let Some(v) = cached {
-        return v;
+    Theme {
+        primary: to_color(palette.primary),
+        secondary: to_color(palette.secondary),
+        accent: to_color(palette.accent),
+        error: to_color(palette.error),
+        text: to_color(palette.text),
+        muted: to_color(palette.muted),
+        bg: to_color(palette.bg),
+        panel: to_color(palette.panel),
     }
-    let v = detect_light_theme_from_config();
-    *LIGHT_THEME_CACHE.lock().unwrap() = Some(v);
-    v
 }
 
-/// Clear the cached theme detection result so that the next call to
-/// `is_light_theme()` re-reads the config file.
+fn current_theme() -> Theme {
+    let config = configuration();
+    let generation = config.generation();
+
+    let mut cached = THEME_CACHE.lock().unwrap();
+    if let Some((cached_generation, theme)) = *cached {
+        if cached_generation == generation {
+            return theme;
+        }
+    }
+
+    let theme = theme_from_config(&config);
+    *cached = Some((generation, theme));
+    theme
+}
+
+pub fn current_theme_palette() -> ThemePalette {
+    let config = configuration();
+    palette_from_config(&config)
+}
+
+/// Clear the cached theme detection result so that the next call re-reads
+/// the resolved palette from the current configuration.
 pub fn clear_theme_cache() {
-    *LIGHT_THEME_CACHE.lock().unwrap() = None;
-}
-
-// Parse each theme exactly once; color accessors borrow these statics.
-static DARK_THEME: LazyLock<Theme> = LazyLock::new(|| Theme {
-    primary: parse_hex("#a277ff"),
-    secondary: parse_hex("#61ffca"),
-    accent: parse_hex("#ffca85"),
-    error: parse_hex("#ff6767"),
-    text: parse_hex("#edecee"),
-    muted: parse_hex("#6d6d6d"),
-    bg: parse_hex("#15141b"),
-    panel: parse_hex("#1f1d28"),
-});
-
-static LIGHT_THEME: LazyLock<Theme> = LazyLock::new(|| Theme {
-    primary: parse_hex("#5E3DB3"),
-    secondary: parse_hex("#24837B"),
-    accent: parse_hex("#9A7400"),
-    error: parse_hex("#AF3029"),
-    text: parse_hex("#403E3C"),
-    muted: parse_hex("#7A7872"),
-    bg: parse_hex("#FFFCF0"),
-    panel: parse_hex("#FAF7EA"),
-});
-
-fn current_theme() -> &'static Theme {
-    if is_light_theme() {
-        &LIGHT_THEME
-    } else {
-        &DARK_THEME
-    }
+    *THEME_CACHE.lock().unwrap() = None;
 }
 
 pub fn purple() -> Color {

@@ -40,7 +40,9 @@ pub fn run() -> anyhow::Result<()> {
 
         // Update OpenCode theme if Kaku theme changed
         if theme_changed {
-            // Clear the cached theme detection so opencode_theme_json() picks up the new setting
+            // Refresh this process so the exported OpenCode theme is derived
+            // from the just-saved palette rather than the stale pre-edit config.
+            config::reload();
             crate::ai_config::theme::clear_theme_cache();
             update_opencode_theme();
 
@@ -1146,7 +1148,7 @@ fn update_opencode_theme() {
     }
 
     let theme_content = crate::ai_config::opencode_theme_json();
-    if let Err(e) = std::fs::write(&theme_file, theme_content) {
+    if let Err(e) = std::fs::write(&theme_file, theme_content.as_bytes()) {
         eprintln!(
             "\x1b[33mWarning: Failed to update OpenCode theme: {}\x1b[0m",
             e
