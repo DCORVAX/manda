@@ -2,7 +2,6 @@ use crossterm::event::{Event, KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::Frame;
 
-use crate::tui_core::components::list_editor::ListEditor;
 use crate::tui_core::components::select_box::SelectBox;
 use crate::tui_core::components::text_input::TextInput;
 use crate::tui_core::components::toggle::Toggle;
@@ -12,7 +11,6 @@ pub enum FormFieldWidget {
     TextInput(TextInput),
     Toggle(Toggle),
     SelectBox(SelectBox),
-    ListEditor(ListEditor),
 }
 
 impl Widget for FormFieldWidget {
@@ -21,7 +19,6 @@ impl Widget for FormFieldWidget {
             FormFieldWidget::TextInput(w) => w.render(frame, area),
             FormFieldWidget::Toggle(w) => w.render(frame, area),
             FormFieldWidget::SelectBox(w) => w.render(frame, area),
-            FormFieldWidget::ListEditor(w) => w.render(frame, area),
         }
     }
 
@@ -30,14 +27,11 @@ impl Widget for FormFieldWidget {
             FormFieldWidget::TextInput(w) => w.handle_event(event),
             FormFieldWidget::Toggle(w) => w.handle_event(event),
             FormFieldWidget::SelectBox(w) => w.handle_event(event),
-            FormFieldWidget::ListEditor(w) => w.handle_event(event),
         }
     }
 }
 
 pub struct FormField<T> {
-    pub key: String,
-    pub label: String,
     pub widget: FormFieldWidget,
     pub data: T,
 }
@@ -64,7 +58,6 @@ impl<T> FormApp<T> {
                 FormFieldWidget::TextInput(w) => w.is_focused = is_focused,
                 FormFieldWidget::Toggle(w) => w.is_focused = is_focused,
                 FormFieldWidget::SelectBox(w) => w.is_focused = is_focused,
-                FormFieldWidget::ListEditor(w) => w.is_focused = is_focused,
             }
         }
     }

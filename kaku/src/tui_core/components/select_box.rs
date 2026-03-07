@@ -30,15 +30,6 @@ impl SelectBox {
         }
     }
 
-    pub fn focus(&mut self) {
-        self.is_focused = true;
-    }
-
-    pub fn blur(&mut self) {
-        self.is_focused = false;
-        self.is_expanded = false;
-    }
-
     pub fn toggle_expand(&mut self) {
         self.is_expanded = !self.is_expanded;
     }

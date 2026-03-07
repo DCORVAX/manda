@@ -22,14 +22,6 @@ impl Toggle {
         }
     }
 
-    pub fn focus(&mut self) {
-        self.is_focused = true;
-    }
-
-    pub fn blur(&mut self) {
-        self.is_focused = false;
-    }
-
     pub fn toggle(&mut self) {
         self.is_on = !self.is_on;
     }

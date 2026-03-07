@@ -122,12 +122,7 @@ impl App {
                     )
                 };
 
-                FormField {
-                    key: f.lua_key.to_string(),
-                    label: f.key.to_string(),
-                    widget,
-                    data: f,
-                }
+                FormField { widget, data: f }
             })
             .collect();
 
@@ -657,7 +652,6 @@ impl App {
                         w.list_state.select(Some(idx));
                     }
                 }
-                FormFieldWidget::ListEditor(_) => {}
             }
         }
     }
@@ -688,7 +682,6 @@ impl App {
                         field.data.value = opt.clone();
                     }
                 }
-                FormFieldWidget::ListEditor(_) => {}
             }
         }
     }

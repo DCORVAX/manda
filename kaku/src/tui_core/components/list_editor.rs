@@ -16,26 +16,6 @@ pub struct ListEditor {
 }
 
 impl ListEditor {
-    pub fn new(items: Vec<String>, label: impl Into<String>) -> Self {
-        let mut list_state = ListState::default();
-        list_state.select(Some(0));
-        Self {
-            items,
-            selected_index: 0,
-            is_focused: false,
-            label: label.into(),
-            list_state,
-        }
-    }
-
-    pub fn focus(&mut self) {
-        self.is_focused = true;
-    }
-
-    pub fn blur(&mut self) {
-        self.is_focused = false;
-    }
-
     pub fn select_next(&mut self) {
         if self.selected_index < self.items.len().saturating_sub(1) {
             self.selected_index += 1;
@@ -48,12 +28,6 @@ impl ListEditor {
             self.selected_index -= 1;
             self.list_state.select(Some(self.selected_index));
         }
-    }
-
-    pub fn add_item(&mut self, item: String) {
-        self.items.push(item);
-        self.selected_index = self.items.len() - 1;
-        self.list_state.select(Some(self.selected_index));
     }
 
     pub fn remove_item(&mut self) {

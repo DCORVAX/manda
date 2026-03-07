@@ -2,7 +2,9 @@ mod app;
 mod state;
 mod ui;
 
+use crate::tui_core::EventResult;
 use anyhow::Context;
+pub use app::App;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -11,16 +13,6 @@ use crossterm::ExecutableCommand;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io;
-use std::path::PathBuf;
-
-use crate::tui_core::components::select_box::SelectBox;
-use crate::tui_core::components::text_input::TextInput;
-use crate::tui_core::components::toggle::Toggle;
-use crate::tui_core::form::{FormApp, FormField, FormFieldWidget};
-use crate::tui_core::EventResult;
-pub use app::App;
-use config;
-use state::ConfigField;
 
 pub fn run() -> anyhow::Result<()> {
     enable_raw_mode().context("enable raw mode")?;

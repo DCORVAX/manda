@@ -17,6 +17,7 @@ mod config_cmd;
 mod config_tui;
 mod doctor;
 mod init;
+mod kaku_theme;
 mod reset;
 mod tui_core;
 mod update;
@@ -320,11 +321,17 @@ fn run() -> anyhow::Result<()> {
             Ok(())
         }
         SubCommand::Update(cmd) => cmd.run(),
-        SubCommand::Config(cmd) => cmd.run(),
+        SubCommand::Config(cmd) => {
+            init_config(&opts)?;
+            cmd.run()
+        }
         SubCommand::Init(cmd) => cmd.run(),
         SubCommand::Doctor(cmd) => cmd.run(),
         SubCommand::Reset(cmd) => cmd.run(),
-        SubCommand::Ai(cmd) => cmd.run(),
+        SubCommand::Ai(cmd) => {
+            init_config(&opts)?;
+            cmd.run()
+        }
     }
 }
 

@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 
 use super::App;
-use crate::tui_core::theme::{bg, muted, purple, text_fg};
+use crate::tui_core::theme::{bg, muted, primary, text_fg};
 use crate::tui_core::Widget;
 
 pub(super) fn ui(frame: &mut ratatui::Frame, app: &mut App) {
@@ -34,7 +34,7 @@ fn render_header(frame: &mut ratatui::Frame, area: Rect) {
     let line = Line::from(vec![
         Span::styled(
             "  Kaku",
-            Style::default().fg(purple()).add_modifier(Modifier::BOLD),
+            Style::default().fg(primary()).add_modifier(Modifier::BOLD),
         ),
         Span::styled(" · ", Style::default().fg(muted())),
         Span::styled("Settings", Style::default().fg(text_fg())),

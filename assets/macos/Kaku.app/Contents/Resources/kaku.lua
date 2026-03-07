@@ -1931,7 +1931,7 @@ end
 
 -- ===== Kaku Palette =====
 local KAKU_BLACK = '#15141b'
-local KAKU_ANSI_BLACK = '#878596'
+local KAKU_ANSI_BLACK = '#110f18'
 local KAKU_WHITE = '#edecee'
 local KAKU_GRAY = '#6d6d6d'
 local KAKU_PURPLE = '#a277ff'
@@ -1942,7 +1942,7 @@ local KAKU_SURFACE_ACTIVE = '#29263c'
 local KAKU_GREEN = '#61ffca'
 local KAKU_ORANGE = '#ffca85'
 local KAKU_PINK = '#f694ff'
-local KAKU_BLUE = '#a277ff'
+local KAKU_BLUE = '#5fa8ff'
 local KAKU_BRIGHT_BLUE = '#8cc2ff'
 local KAKU_RED = '#ff6767'
 

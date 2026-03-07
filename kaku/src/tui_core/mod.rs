@@ -10,7 +10,6 @@ pub enum EventResult {
     Ignored,
     Consumed,
     Changed,
-    Exit,
 }
 
 pub trait Widget {

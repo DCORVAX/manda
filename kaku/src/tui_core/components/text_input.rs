@@ -30,14 +30,6 @@ impl TextInput {
         self
     }
 
-    pub fn focus(&mut self) {
-        self.is_focused = true;
-    }
-
-    pub fn blur(&mut self) {
-        self.is_focused = false;
-    }
-
     pub fn insert_char(&mut self, c: char) {
         let byte_idx = self.char_index_to_byte_index(self.cursor_position);
         self.text.insert(byte_idx, c);
