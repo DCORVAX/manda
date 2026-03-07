@@ -24,7 +24,6 @@ enum Tool {
     Gemini,
     Copilot,
     FactoryDroid,
-    OpenCode,
     OpenClaw,
 }
 
@@ -37,7 +36,6 @@ impl Tool {
             Tool::Gemini => "Gemini CLI",
             Tool::Copilot => "Copilot CLI",
             Tool::FactoryDroid => "Factory Droid",
-            Tool::OpenCode => "OpenCode",
             Tool::OpenClaw => "OpenClaw",
         }
     }
@@ -56,13 +54,6 @@ impl Tool {
             Tool::Gemini => home.join(".gemini").join("settings.json"),
             Tool::Copilot => home.join(".copilot").join("config.json"),
             Tool::FactoryDroid => home.join(".factory").join("settings.json"),
-            Tool::OpenCode => {
-                let jsonc_path = home.join(".config").join("opencode").join("opencode.jsonc");
-                if jsonc_path.exists() {
-                    return jsonc_path;
-                }
-                home.join(".config").join("opencode").join("opencode.json")
-            }
             Tool::OpenClaw => {
                 let new_path = home.join(".openclaw").join("openclaw.json");
                 if new_path.exists() {
@@ -78,14 +69,13 @@ impl Tool {
     }
 }
 
-const ALL_TOOLS: [Tool; 8] = [
+const ALL_TOOLS: [Tool; 7] = [
     Tool::KakuAssistant,
     Tool::ClaudeCode,
     Tool::Codex,
     Tool::Gemini,
     Tool::Copilot,
     Tool::FactoryDroid,
-    Tool::OpenCode,
     Tool::OpenClaw,
 ];
 
@@ -216,10 +206,6 @@ impl ToolState {
             Tool::FactoryDroid => {
                 let parsed = parse_json_with_debug(&raw, tool.label());
                 extract_factory_droid_fields(&parsed)
-            }
-            Tool::OpenCode => {
-                let parsed = parse_json_or_jsonc_with_debug(&raw, tool.label());
-                extract_opencode_fields(&parsed)
             }
             Tool::OpenClaw => {
                 let parsed = parse_json_or_jsonc_with_debug(&raw, tool.label());
@@ -705,53 +691,6 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
     write_kaku_assistant_config(&path, &updated)
 }
 
-/// Get OpenAI account email from JWT token in auth.json
-fn get_opencode_openai_account(entry: &serde_json::Value) -> Option<String> {
-    let token = entry.get("access")?.as_str()?;
-    let jwt_data = decode_jwt_payload_with_debug(token, "opencode openai account")?;
-
-    // OpenAI JWT payload contains email in custom claim
-    jwt_data
-        .get("https://api.openai.com/profile")?
-        .get("email")?
-        .as_str()
-        .map(|s| s.to_string())
-}
-
-/// Get Google account email by matching refresh token with antigravity-accounts.json
-fn get_opencode_google_account(entry: &serde_json::Value) -> Option<String> {
-    let refresh_token = entry.get("refresh")?.as_str()?;
-
-    // Extract project ID from refresh token (format: "token|project-id")
-    let project_id = if let Some(pos) = refresh_token.rfind('|') {
-        &refresh_token[pos + 1..]
-    } else {
-        return None;
-    };
-
-    let accounts_path = config::HOME_DIR
-        .join(".config")
-        .join("opencode")
-        .join("antigravity-accounts.json");
-
-    let parsed = read_json_file_with_debug(&accounts_path, "opencode google account")?;
-
-    // Find account with matching project ID
-    let accounts = parsed.get("accounts")?.as_array()?;
-    for account in accounts {
-        if account.get("projectId")?.as_str() == Some(project_id) {
-            return account.get("email")?.as_str().map(|s| s.to_string());
-        }
-    }
-
-    None
-}
-
-/// Get GitHub Copilot username from gh auth status
-fn get_opencode_github_copilot_account() -> Option<String> {
-    get_copilot_account()
-}
-
 /// Get Gemini account email from google_accounts.json
 fn get_gemini_account() -> Option<String> {
     let path = config::HOME_DIR
@@ -778,23 +717,6 @@ fn get_codex_account() -> Option<String> {
     jwt_data
         .get("https://api.openai.com/profile")?
         .get("email")?
-        .as_str()
-        .map(|s| s.to_string())
-}
-
-/// Get full API Key from auth.json for OpenCode provider
-fn get_opencode_api_key(provider_name: &str) -> Option<String> {
-    let auth_path = config::HOME_DIR
-        .join(".local")
-        .join("share")
-        .join("opencode")
-        .join("auth.json");
-
-    let parsed = read_json_file_with_debug(&auth_path, "opencode api key")?;
-
-    parsed
-        .get(provider_name)?
-        .get("key")?
         .as_str()
         .map(|s| s.to_string())
 }
@@ -1426,205 +1348,6 @@ fn save_factory_droid_field(
     Ok(())
 }
 
-fn extract_opencode_fields(val: &serde_json::Value) -> Vec<FieldEntry> {
-    let primary_model = json_str(val, "model");
-
-    // Collect model IDs from configured providers in opencode.json
-    let mut model_options: Vec<String> = val
-        .get("provider")
-        .and_then(|p| p.as_object())
-        .map(|providers| {
-            let mut ids = Vec::new();
-            for (name, prov) in providers {
-                if let Some(models) = prov.get("models").and_then(|m| m.as_object()) {
-                    for model_id in models.keys() {
-                        ids.push(format!("{}/{}", name, model_id));
-                    }
-                }
-            }
-            ids
-        })
-        .unwrap_or_default();
-
-    // Also discover models from authenticated providers in auth.json
-    if model_options.is_empty() {
-        let auth_path = config::HOME_DIR
-            .join(".local")
-            .join("share")
-            .join("opencode")
-            .join("auth.json");
-        if let Some(auth) = read_json_file_with_debug(&auth_path, "opencode auth providers") {
-            if let Some(obj) = auth.as_object() {
-                for auth_name in obj.keys() {
-                    // Map well-known aliases, otherwise use auth name directly
-                    let models_dev_id = match auth_name.as_str() {
-                        "github-copilot" => "anthropic",
-                        other => other,
-                    };
-                    for model in read_models_dev(models_dev_id) {
-                        let prefixed = format!("{}/{}", auth_name, model);
-                        if !model_options.contains(&prefixed) {
-                            model_options.push(prefixed);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let has_options = !model_options.is_empty();
-    let mut fields = vec![FieldEntry {
-        key: "Model".into(),
-        value: if primary_model.is_empty() {
-            "—".into()
-        } else {
-            primary_model
-        },
-        options: model_options,
-        editable: has_options,
-        ..Default::default()
-    }];
-
-    // Read auth.json for provider authentication status
-    let auth_path = config::HOME_DIR
-        .join(".local")
-        .join("share")
-        .join("opencode")
-        .join("auth.json");
-    if let Some(auth) = read_json_file_with_debug(&auth_path, "opencode auth status") {
-        if let Some(obj) = auth.as_object() {
-            // Sort: well-known providers first, then rest alphabetically
-            let priority = |name: &str| -> usize {
-                match name {
-                    n if n.contains("claude") || n.contains("anthropic") => 0,
-                    "openai" => 1,
-                    "google" => 2,
-                    "github-copilot" => 3,
-                    _ => 4,
-                }
-            };
-            let mut entries: Vec<_> = obj.iter().collect();
-            entries.sort_by(|(a, _), (b, _)| {
-                let pa = priority(a);
-                let pb = priority(b);
-                pa.cmp(&pb).then_with(|| a.cmp(b))
-            });
-
-            for (name, entry) in entries {
-                let auth_type = entry
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-
-                let status = match auth_type.as_str() {
-                    "api" => {
-                        let key = entry.get("key").and_then(|v| v.as_str()).unwrap_or("");
-                        format!("✓ {}", mask_key(key))
-                    }
-                    "oauth" => {
-                        let account = match name.as_str() {
-                            "openai" => get_opencode_openai_account(entry),
-                            "google" => get_opencode_google_account(entry),
-                            "github-copilot" => get_opencode_github_copilot_account(),
-                            _ => None,
-                        };
-                        format_auth_status(account, "oauth")
-                    }
-                    _ => auth_type.clone(),
-                };
-
-                fields.push(FieldEntry {
-                    key: name.clone(),
-                    value: status,
-                    options: vec![],
-                    editable: auth_type == "api", // API keys are editable, OAuth is not
-                });
-            }
-        }
-    }
-
-    // Dynamically enumerate providers from config
-    if let Some(providers) = val.get("provider").and_then(|p| p.as_object()) {
-        for (name, prov) in providers {
-            let opts = prov.get("options").unwrap_or(&serde_json::Value::Null);
-            let url = opts
-                .get("baseURL")
-                .or_else(|| opts.get("base_url"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let key = opts
-                .get("apiKey")
-                .or_else(|| opts.get("api_key"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let display_name = prov
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            // Collect model names from this provider
-            let models_display = prov
-                .get("models")
-                .and_then(|m| m.as_object())
-                .map(|obj| {
-                    obj.iter()
-                        .map(|(id, m)| {
-                            m.get("name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or(id)
-                                .to_string()
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or_default();
-
-            // Provider header
-            fields.push(FieldEntry {
-                key: name.clone(),
-                value: if display_name.is_empty() {
-                    "provider".into()
-                } else {
-                    display_name
-                },
-                options: vec![],
-                editable: false,
-            });
-
-            if !url.is_empty() {
-                fields.push(FieldEntry {
-                    key: format!("{} ▸ Base URL", name),
-                    value: url,
-                    options: vec![],
-                    ..Default::default()
-                });
-            }
-            if !key.is_empty() {
-                fields.push(FieldEntry {
-                    key: format!("{} ▸ API Key", name),
-                    value: mask_key(&key),
-                    options: vec![],
-                    ..Default::default()
-                });
-            }
-            if !models_display.is_empty() {
-                fields.push(FieldEntry {
-                    key: format!("{} ▸ Models", name),
-                    value: models_display,
-                    options: vec![],
-                    editable: false,
-                });
-            }
-        }
-    }
-
-    fields
-}
-
 fn extract_openclaw_fields(val: &serde_json::Value) -> Vec<FieldEntry> {
     let agents = val.get("agents").unwrap_or(&serde_json::Value::Null);
     let defaults = agents.get("defaults").unwrap_or(&serde_json::Value::Null);
@@ -2002,7 +1725,6 @@ impl App {
             {
                 let cmd = match tool.tool {
                     Tool::KakuAssistant => None,
-                    Tool::OpenCode => Some("opencode auth"),
                     Tool::Gemini => Some("gemini auth login"),
                     Tool::Codex => Some("codex auth login"),
                     Tool::Copilot => Some("gh auth login"),
@@ -2016,10 +1738,6 @@ impl App {
                 } else {
                     self.status_msg = Some("OpenClaw uses API keys, check config file".to_string());
                 }
-            } else if field.value.starts_with('✓') {
-                // OAuth provider in OpenCode auth.json (e.g., "openai", "google", "github-copilot")
-                let auth_cmd = format!("opencode auth add {}", field.key.as_str());
-                self.open_in_terminal(&auth_cmd);
             }
             return;
         }
@@ -2038,22 +1756,11 @@ impl App {
             return;
         }
 
-        // For API Key fields, load the full key from auth.json (OpenCode) or config
         let edit_buf = if field.value == "—" {
             // Empty placeholder
             String::new()
         } else if tool.tool == Tool::KakuAssistant && field.key == "API Key" {
             get_kaku_assistant_api_key().unwrap_or_else(String::new)
-        } else if field.key.contains("API Key") && !field.key.contains(" ▸ ") {
-            // OpenCode provider API Key from opencode.json - keep masked value behavior
-            String::new()
-        } else if tool.tool == Tool::OpenCode
-            && !field.key.contains(" ▸ ")
-            && field.editable
-            && field.value.starts_with("✓")
-        {
-            // OpenCode auth.json API Key - load full key (editable API type fields)
-            get_opencode_api_key(&field.key).unwrap_or_else(String::new)
         } else {
             field.value.clone()
         };
@@ -2347,100 +2054,6 @@ fn save_field(tool: Tool, field_key: &str, new_val: &str) -> anyhow::Result<()> 
                     }
                 }
             } else {
-                return Ok(());
-            }
-        }
-        Tool::OpenCode => {
-            let top_key = match field_key {
-                "Model" => Some("model"),
-                _ => None,
-            };
-
-            if let Some(tk) = top_key {
-                if let Some(obj) = parsed.as_object_mut() {
-                    if new_val == "—" || new_val.is_empty() {
-                        obj.remove(tk);
-                    } else {
-                        obj.insert(
-                            tk.to_string(),
-                            serde_json::Value::String(new_val.to_string()),
-                        );
-                    }
-                }
-            } else if let Some(sep_pos) = field_key.find(" ▸ ") {
-                // Provider sub-fields: "provider_name ▸ Base URL" / "provider_name ▸ API Key"
-                let provider_name = &field_key[..sep_pos];
-                let sub_field = &field_key[sep_pos + " ▸ ".len()..];
-                let json_field = match sub_field {
-                    "Base URL" => "baseURL",
-                    "API Key" => "apiKey",
-                    _ => return Ok(()),
-                };
-
-                let prov = parsed
-                    .as_object_mut()
-                    .context("root not object")?
-                    .entry("provider")
-                    .or_insert_with(|| serde_json::json!({}))
-                    .as_object_mut()
-                    .context("provider not object")?
-                    .entry(provider_name)
-                    .or_insert_with(|| serde_json::json!({}))
-                    .as_object_mut()
-                    .context("provider entry not object")?
-                    .entry("options")
-                    .or_insert_with(|| serde_json::json!({}));
-
-                if let Some(obj) = prov.as_object_mut() {
-                    if new_val == "—" || new_val.is_empty() {
-                        obj.remove(json_field);
-                    } else {
-                        obj.insert(
-                            json_field.to_string(),
-                            serde_json::Value::String(new_val.to_string()),
-                        );
-                    }
-                }
-            } else {
-                // Auth.json provider API keys (field_key is provider name like "kimi-for-coding")
-                let auth_path = config::HOME_DIR
-                    .join(".local")
-                    .join("share")
-                    .join("opencode")
-                    .join("auth.json");
-
-                if !auth_path.exists() {
-                    return Ok(());
-                }
-
-                let auth_raw = std::fs::read_to_string(&auth_path)
-                    .with_context(|| format!("read {}", auth_path.display()))?;
-                let mut auth_parsed: serde_json::Value = serde_json::from_str(&auth_raw)
-                    .with_context(|| format!("parse {}", auth_path.display()))?;
-
-                if let Some(auth_obj) = auth_parsed.as_object_mut() {
-                    if let Some(provider) = auth_obj.get_mut(field_key) {
-                        if let Some(provider_obj) = provider.as_object_mut() {
-                            // Check if this is an API type provider
-                            if provider_obj.get("type").and_then(|v| v.as_str()) == Some("api") {
-                                if new_val == "—" || new_val.is_empty() {
-                                    provider_obj.remove("key");
-                                } else {
-                                    provider_obj.insert(
-                                        "key".to_string(),
-                                        serde_json::Value::String(new_val.to_string()),
-                                    );
-                                }
-
-                                // Save to auth.json
-                                let output = serde_json::to_string_pretty(&auth_parsed)
-                                    .context("serialize auth.json")?;
-                                write_atomic(&auth_path, output.as_bytes())
-                                    .with_context(|| format!("write {}", auth_path.display()))?;
-                            }
-                        }
-                    }
-                }
                 return Ok(());
             }
         }

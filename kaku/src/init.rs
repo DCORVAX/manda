@@ -30,14 +30,10 @@ mod imp {
 #[cfg(target_os = "macos")]
 mod imp {
     use super::*;
-    use crate::utils::{is_jsonc_path, parse_json_or_jsonc, write_atomic};
     use std::os::unix::fs::PermissionsExt;
 
     pub fn run(update_only: bool) -> anyhow::Result<()> {
         ensure_user_config().context("ensure user config exists")?;
-        if !update_only {
-            maybe_setup_opencode_config().context("opencode config setup")?;
-        }
 
         install_kaku_wrapper().context("install kaku wrapper")?;
 
@@ -205,107 +201,6 @@ exit 127
 
     fn ensure_user_config() -> anyhow::Result<()> {
         config::ensure_user_config_exists().context("ensure user config exists")?;
-        Ok(())
-    }
-
-    fn prompt_yes_no(question: &str) -> bool {
-        use std::io::{BufRead, Write as _};
-        print!("{} [Y/n] ", question);
-        if let Err(err) = std::io::stdout().flush() {
-            eprintln!("warning: failed to flush stdout before prompt: {err}");
-        }
-        let stdin = std::io::stdin();
-        let mut line = String::new();
-        if stdin.lock().read_line(&mut line).is_err() {
-            return true;
-        }
-        let answer = line.trim();
-        if answer.is_empty() {
-            return true;
-        }
-        !matches!(answer, "n" | "N" | "no" | "No" | "NO")
-    }
-
-    fn maybe_setup_opencode_config() -> anyhow::Result<()> {
-        let opencode_dir = config::HOME_DIR.join(".config").join("opencode");
-        let opencode_json = opencode_dir.join("opencode.json");
-        let opencode_jsonc = opencode_dir.join("opencode.jsonc");
-        let themes_dir = opencode_dir.join("themes");
-
-        let has_json = opencode_json.exists();
-        let has_jsonc = opencode_jsonc.exists();
-
-        let opencode_config = if has_jsonc {
-            Some(opencode_jsonc.clone())
-        } else if has_json {
-            Some(opencode_json.clone())
-        } else {
-            None
-        };
-
-        if has_json && has_jsonc {
-            println!(
-                "Both OpenCode config files exist; using {}",
-                opencode_jsonc.display()
-            );
-        }
-
-        if opencode_config.is_some() {
-            if !prompt_yes_no("OpenCode config already exists. Overwrite with Kaku theme?") {
-                return Ok(());
-            }
-        } else if !prompt_yes_no("Set up OpenCode with Kaku-matching theme?") {
-            return Ok(());
-        }
-
-        config::create_user_owned_dirs(&opencode_dir)
-            .context("create opencode config directory")?;
-        config::create_user_owned_dirs(&themes_dir).context("create opencode themes directory")?;
-
-        let theme_content = crate::ai_config::opencode_theme_json();
-
-        // Clean up legacy theme file
-        let legacy_theme = themes_dir.join("wezterm-match.json");
-        if legacy_theme.exists() {
-            let _ = std::fs::remove_file(&legacy_theme);
-        }
-
-        let theme_file = themes_dir.join("kaku-match.json");
-        write_atomic(&theme_file, theme_content.as_bytes()).context("write opencode theme file")?;
-
-        let target_config = opencode_config.unwrap_or(opencode_json);
-
-        let config_content = if target_config.exists() {
-            let existing =
-                std::fs::read_to_string(&target_config).context("read opencode config file")?;
-            let mut json: serde_json::Value =
-                parse_json_or_jsonc(&existing).with_context(|| {
-                    format!("parse opencode config file: {}", target_config.display())
-                })?;
-            if let Some(obj) = json.as_object_mut() {
-                obj.insert(
-                    "theme".to_string(),
-                    serde_json::Value::String("kaku-match".to_string()),
-                );
-            }
-            serde_json::to_string_pretty(&json).unwrap_or_else(|_| existing)
-        } else {
-            r#"{
-  "theme": "kaku-match"
-}"#
-            .to_string()
-        };
-
-        if is_jsonc_path(&target_config) {
-            println!(
-                "Note: {} comments will be removed when Kaku rewrites this file.",
-                target_config.display()
-            );
-        }
-
-        write_atomic(&target_config, config_content.as_bytes())
-            .context("write opencode config file")?;
-        println!("OpenCode theme configured successfully.");
         Ok(())
     }
 }

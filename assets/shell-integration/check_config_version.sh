@@ -115,16 +115,6 @@ if [[ -f "$TOOLS_SCRIPT" ]]; then
 	fi
 fi
 
-if [[ ! -f "$HOME/.config/opencode/opencode.json" ]]; then
-	if [[ -f "$RESOURCE_DIR/install_opencode_theme.sh" ]]; then
-		read -p "Set up OpenCode with Kaku-matching theme? [Y/n] " -n 1 -r
-		echo
-		if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-			bash "$RESOURCE_DIR/install_opencode_theme.sh"
-		fi
-	fi
-fi
-
 persist_config_version
 
 echo ""

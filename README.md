@@ -19,7 +19,7 @@
 
 ## Features
 
-- **Zero Config**: Defaults with JetBrains Mono, opencode theme, macOS font rendering, and low-res font sizing.
+- **Zero Config**: Defaults with JetBrains Mono, macOS font rendering, and low-res font sizing.
 - **Theme-Aware Experience**: Built-in dark/light themes with tuned selection colors, font weight, and practical color overrides support.
 - **Curated Shell Suite**: Built-in zsh plugins with optional CLI tools for prompt, diff, and navigation workflows.
 - **Fast & Lightweight**: 40% smaller binary, instant startup, lazy loading, stripped-down GPU-accelerated core.
@@ -110,7 +110,7 @@ Run `kaku` in your terminal to see all available commands such as `kaku ai`, `ka
 Kaku includes a built-in assistant for command-line error recovery and a unified settings UI for external AI coding tools.
 
 - **Kaku Assistant**: Automatically analyzes failed commands and prepares a safe command suggestion.
-- **AI Tools Config**: Manage settings for tools like Claude Code, Codex, Gemini CLI, Copilot CLI, Factory Droid, OpenCode, and OpenClaw.
+- **AI Tools Config**: Manage settings for tools like Claude Code, Codex, Gemini CLI, Copilot CLI, Factory Droid, and OpenClaw.
 
 Open AI settings with `kaku ai`, then configure **Kaku Assistant** (enable, model, base URL, API key) and your external AI tools in one place.
 For enterprise gateway/proxy headers, edit `~/.config/kaku/assistant.toml` and set `custom_headers` there.
