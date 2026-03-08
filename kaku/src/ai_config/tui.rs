@@ -27,6 +27,7 @@ enum Tool {
     KakuAssistant,
     ClaudeCode,
     Codex,
+    Kimi,
     Gemini,
     Copilot,
     FactoryDroid,
@@ -39,6 +40,7 @@ impl Tool {
             Tool::KakuAssistant => "Kaku Assistant",
             Tool::ClaudeCode => "Claude Code",
             Tool::Codex => "Codex",
+            Tool::Kimi => "Kimi Code",
             Tool::Gemini => "Gemini CLI",
             Tool::Copilot => "Copilot CLI",
             Tool::FactoryDroid => "Factory Droid",
@@ -57,6 +59,7 @@ impl Tool {
             }),
             Tool::ClaudeCode => home.join(".claude").join("settings.json"),
             Tool::Codex => home.join(".codex").join("config.toml"),
+            Tool::Kimi => home.join(".kimi").join("config.toml"),
             Tool::Gemini => home.join(".gemini").join("settings.json"),
             Tool::Copilot => home.join(".copilot").join("config.json"),
             Tool::FactoryDroid => home.join(".factory").join("settings.json"),
@@ -75,10 +78,11 @@ impl Tool {
     }
 }
 
-const ALL_TOOLS: [Tool; 7] = [
+const ALL_TOOLS: [Tool; 8] = [
     Tool::KakuAssistant,
     Tool::ClaudeCode,
     Tool::Codex,
+    Tool::Kimi,
     Tool::Gemini,
     Tool::Copilot,
     Tool::FactoryDroid,
@@ -180,8 +184,15 @@ impl ToolState {
             tool.config_path()
         };
 
-        let extra_exists = matches!(tool, Tool::Codex)
-            && config::HOME_DIR.join(".codex").join("auth.json").exists();
+        let extra_exists = match tool {
+            Tool::Codex => config::HOME_DIR.join(".codex").join("auth.json").exists(),
+            Tool::Kimi => config::HOME_DIR
+                .join(".kimi")
+                .join("credentials")
+                .join("kimi-code.json")
+                .exists(),
+            _ => false,
+        };
 
         if tool != Tool::KakuAssistant && !path.exists() && !extra_exists {
             return ToolState {
@@ -228,6 +239,7 @@ impl ToolState {
                     .then(|| load_codex_usage_snapshot().and_then(|snapshot| snapshot.summary))
                     .flatten(),
             ),
+            Tool::Kimi => (extract_kimi_fields(&raw), None),
             Tool::Gemini => {
                 let parsed = parse_json_with_debug(&raw, tool.label());
                 (
@@ -1581,6 +1593,45 @@ fn get_claude_code_account() -> Option<String> {
     parsed.get("email")?.as_str().map(|s| s.to_string())
 }
 
+fn kimi_credentials_path() -> PathBuf {
+    config::HOME_DIR
+        .join(".kimi")
+        .join("credentials")
+        .join("kimi-code.json")
+}
+
+fn kimi_config_model_options(parsed: &toml::Value) -> Vec<String> {
+    parsed
+        .get("models")
+        .and_then(|value| value.as_table())
+        .map(|table| table.keys().cloned().collect::<Vec<_>>())
+        .filter(|models| !models.is_empty())
+        .unwrap_or_else(|| vec!["kimi-code/kimi-for-coding".into()])
+}
+
+fn read_kimi_auth_status() -> String {
+    let Some(auth) = read_json_file_with_debug(&kimi_credentials_path(), "kimi credentials") else {
+        return "✗ not signed in".into();
+    };
+
+    let has_token = auth
+        .get("access_token")
+        .and_then(|value| value.as_str())
+        .is_some_and(|value| !value.is_empty());
+    let expires_at = auth.get("expires_at").and_then(|value| value.as_f64());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_secs_f64())
+        .unwrap_or(0.0);
+
+    if has_token && expires_at.is_some_and(|expires_at| expires_at > now) {
+        "✓ oauth".into()
+    } else {
+        "✗ login required".into()
+    }
+}
+
 /// Format auth status, with account fallback to auth method
 fn format_auth_status(account: Option<String>, fallback_method: &str) -> String {
     match account {
@@ -1848,6 +1899,44 @@ fn extract_codex_fields(raw: &str) -> Vec<FieldEntry> {
     }
 
     fields
+}
+
+fn extract_kimi_fields(raw: &str) -> Vec<FieldEntry> {
+    let parsed = raw.parse::<toml::Value>().ok();
+    let model_options = parsed
+        .as_ref()
+        .map(kimi_config_model_options)
+        .unwrap_or_else(|| vec!["kimi-code/kimi-for-coding".into()]);
+    let model = parsed
+        .as_ref()
+        .and_then(|parsed| parsed.get("default_model"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let display_value = if model.is_empty() {
+        model_options
+            .first()
+            .map(|model| format!("{model} (default)"))
+            .unwrap_or_else(|| "kimi-code/kimi-for-coding".into())
+    } else {
+        model
+    };
+
+    vec![
+        FieldEntry {
+            key: "Model".into(),
+            value: display_value,
+            options: model_options,
+            ..Default::default()
+        },
+        FieldEntry {
+            key: "Auth".into(),
+            value: read_kimi_auth_status(),
+            options: vec![],
+            editable: false,
+        },
+    ]
 }
 
 /// Read model slugs from Codex's own cache, or from models.dev.
@@ -2693,6 +2782,7 @@ impl App {
                     Tool::KakuAssistant => None,
                     Tool::Gemini => Some("gemini auth login"),
                     Tool::Codex => Some("codex auth login"),
+                    Tool::Kimi => Some("kimi login"),
                     Tool::Copilot => Some("gh auth login"),
                     Tool::FactoryDroid => Some("droid"),
                     Tool::ClaudeCode => Some("claude auth login"),
@@ -2965,6 +3055,9 @@ fn save_field(tool: Tool, field_key: &str, new_val: &str) -> anyhow::Result<()> 
     if tool == Tool::Codex {
         return save_codex_field(field_key, new_val);
     }
+    if tool == Tool::Kimi {
+        return save_kimi_field(field_key, new_val);
+    }
 
     let path = tool.config_path();
     if !path.exists() {
@@ -3177,7 +3270,9 @@ fn save_field(tool: Tool, field_key: &str, new_val: &str) -> anyhow::Result<()> 
                 return Ok(());
             }
         }
-        Tool::Codex => unreachable!("Codex is handled before JSON parsing"),
+        Tool::Codex | Tool::Kimi => {
+            unreachable!("TOML-backed tools are handled before JSON parsing")
+        }
     }
 
     let output = serde_json::to_string_pretty(&parsed).context("serialize config")?;
@@ -3195,6 +3290,11 @@ fn save_field(tool: Tool, field_key: &str, new_val: &str) -> anyhow::Result<()> 
 fn save_codex_field(field_key: &str, new_val: &str) -> anyhow::Result<()> {
     let path = Tool::Codex.config_path();
     save_codex_field_at(&path, field_key, new_val)
+}
+
+fn save_kimi_field(field_key: &str, new_val: &str) -> anyhow::Result<()> {
+    let path = Tool::Kimi.config_path();
+    save_kimi_field_at(&path, field_key, new_val)
 }
 
 fn save_codex_field_at(path: &Path, field_key: &str, new_val: &str) -> anyhow::Result<()> {
@@ -3238,6 +3338,49 @@ fn save_codex_field_at(path: &Path, field_key: &str, new_val: &str) -> anyhow::R
 
     // Remove empty lines that resulted from deletion
     let output: Vec<&str> = lines.iter().map(|l| l.as_str()).collect();
+    let result = output.join("\n");
+    write_atomic(path, result.as_bytes()).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn save_kimi_field_at(path: &Path, field_key: &str, new_val: &str) -> anyhow::Result<()> {
+    let toml_key = match field_key {
+        "Model" => "default_model",
+        _ => return Ok(()),
+    };
+
+    let raw = if path.exists() {
+        std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?
+    } else {
+        String::new()
+    };
+
+    let mut lines: Vec<String> = raw.lines().map(|line| line.to_string()).collect();
+    let target = format!("{toml_key} = ");
+    let new_line = format!("{toml_key} = \"{new_val}\"");
+
+    let mut found = false;
+    for line in &mut lines {
+        if line.trim_start().starts_with(&target) {
+            if new_val == "—" || new_val.is_empty() {
+                *line = String::new();
+            } else {
+                *line = new_line.clone();
+            }
+            found = true;
+            break;
+        }
+    }
+
+    if !found && !new_val.is_empty() && new_val != "—" {
+        let insert_pos = lines
+            .iter()
+            .position(|line| line.trim_start().starts_with('['))
+            .unwrap_or(lines.len());
+        lines.insert(insert_pos, new_line);
+    }
+
+    let output: Vec<&str> = lines.iter().map(|line| line.as_str()).collect();
     let result = output.join("\n");
     write_atomic(path, result.as_bytes()).with_context(|| format!("write {}", path.display()))?;
     Ok(())
@@ -3377,7 +3520,7 @@ fn run_loop(
                 }
 
                 match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
+                    KeyCode::Esc => app.should_quit = true,
                     KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                         app.should_quit = true
                     }
@@ -3780,6 +3923,43 @@ attributes:
             .find(|field| field.key == "Model")
             .expect("model field");
         assert!(model.value == "default" || model.value.ends_with(" (default)"));
+    }
+
+    #[test]
+    fn kimi_extract_reads_model_and_auth_field() {
+        let fields = extract_kimi_fields(
+            r#"
+default_model = "kimi-code/kimi-for-coding"
+
+[models."kimi-code/kimi-for-coding"]
+provider = "managed:kimi-code"
+"#,
+        );
+        assert_eq!(fields[0].key, "Model");
+        assert_eq!(fields[0].value, "kimi-code/kimi-for-coding");
+        assert_eq!(fields[1].key, "Auth");
+    }
+
+    #[test]
+    fn kimi_save_round_trip_for_default_model() {
+        let path = std::env::temp_dir().join(format!(
+            "kaku-kimi-{}.toml",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("unix epoch")
+                .as_nanos()
+        ));
+        std::fs::write(
+            &path,
+            "default_model = \"kimi-code/kimi-for-coding\"\n[models.\"kimi-code/kimi-for-coding\"]\nprovider = \"managed:kimi-code\"\n",
+        )
+        .expect("write temp config");
+
+        save_kimi_field_at(&path, "Model", "kimi-code/new-model").expect("save model");
+        let updated = std::fs::read_to_string(&path).expect("read temp config");
+        assert!(updated.contains("default_model = \"kimi-code/new-model\""));
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

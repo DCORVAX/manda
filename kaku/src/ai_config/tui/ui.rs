@@ -274,7 +274,7 @@ fn render_status_bar(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             Span::styled("Edit", Style::default().fg(muted())),
             Span::styled(" | ", Style::default().fg(muted())),
             Span::styled(
-                " Esc/Q ",
+                " Esc ",
                 Style::default().fg(primary()).add_modifier(Modifier::BOLD),
             ),
             Span::styled("Back", Style::default().fg(muted())),
