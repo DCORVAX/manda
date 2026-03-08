@@ -1,4 +1,5 @@
 use crate::tabbar::TabBarItem;
+use crate::termwindow::tab_rename::TabRenameModal;
 use crate::termwindow::{
     GuiWin, MouseCapture, PositionedSplit, ScrollHit, TermWindowNotif, UIItem, UIItemType, TMB,
 };
@@ -48,9 +49,109 @@ fn mouse_dispatch_target(
 }
 
 impl super::TermWindow {
+    const TAB_DRAG_THRESHOLD: isize = 6;
+
     fn finish_mouse_release(&mut self, press: MousePress) {
         self.current_mouse_capture = None;
         self.current_mouse_buttons.retain(|p| p != &press);
+    }
+
+    fn start_tab_drag(&mut self, tab_idx: usize, start_event: MouseEvent) {
+        self.tab_drag_state = Some(super::TabDragState {
+            tab_idx,
+            start_event,
+            has_dragged: false,
+        });
+    }
+
+    fn last_tab_index(&self) -> Option<usize> {
+        let mux = Mux::get();
+        let window = mux.get_window(self.mux_window_id)?;
+        let len = window.len();
+        (len > 0).then_some(len - 1)
+    }
+
+    fn tab_ui_item(&self, tab_idx: usize) -> Option<UIItem> {
+        self.ui_items.iter().find_map(|item| match item.item_type {
+            UIItemType::TabBar(TabBarItem::Tab {
+                tab_idx: item_tab_idx,
+                ..
+            }) if item_tab_idx == tab_idx => Some(item.clone()),
+            _ => None,
+        })
+    }
+
+    fn drag_tab_target_idx(&self, current_tab_idx: usize, cursor_x: isize) -> Option<usize> {
+        if let Some(prev_idx) = current_tab_idx.checked_sub(1) {
+            if let Some(prev) = self.tab_ui_item(prev_idx) {
+                let prev_mid_x = prev.x as isize + prev.width as isize / 2;
+                if cursor_x < prev_mid_x {
+                    return Some(prev_idx);
+                }
+            }
+        }
+
+        if current_tab_idx < self.last_tab_index()? {
+            if let Some(next) = self.tab_ui_item(current_tab_idx + 1) {
+                let next_mid_x = next.x as isize + next.width as isize / 2;
+                if cursor_x > next_mid_x {
+                    return Some(current_tab_idx + 1);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn begin_tab_rename(&mut self, tab_idx: usize, item: UIItem) -> anyhow::Result<()> {
+        let mux = Mux::get();
+        let window = mux
+            .get_window(self.mux_window_id)
+            .ok_or_else(|| anyhow::anyhow!("no such window"))?;
+        let tab = window
+            .get_by_idx(tab_idx)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("no such tab index"))?;
+        drop(window);
+
+        let modal = TabRenameModal::new(self, tab.tab_id(), item)?;
+        self.set_modal(Rc::new(modal));
+        Ok(())
+    }
+
+    fn drag_tab(&mut self, event: &MouseEvent, context: &dyn WindowOps) -> bool {
+        let Some(mut state) = self.tab_drag_state.take() else {
+            return false;
+        };
+
+        if event.mouse_buttons != WMB::LEFT {
+            return false;
+        }
+
+        let delta_x = (event.coords.x - state.start_event.coords.x).abs();
+        let delta_y = (event.coords.y - state.start_event.coords.y).abs();
+        if !state.has_dragged && delta_x.max(delta_y) < Self::TAB_DRAG_THRESHOLD {
+            self.tab_drag_state = Some(state);
+            return true;
+        }
+
+        state.has_dragged = true;
+
+        let target_idx = self.drag_tab_target_idx(state.tab_idx, event.coords.x);
+
+        if let Some(target_idx) = target_idx {
+            if target_idx != state.tab_idx {
+                if let Err(err) = self.move_tab(target_idx) {
+                    log::debug!("move_tab({target_idx}) failed while dragging tab: {err:#}");
+                } else {
+                    state.tab_idx = target_idx;
+                    context.invalidate();
+                }
+            }
+        }
+
+        self.tab_drag_state = Some(state);
+        true
     }
 
     fn resolve_ui_item(&self, event: &MouseEvent) -> Option<UIItem> {
@@ -232,6 +333,10 @@ impl super::TermWindow {
                     self.finish_mouse_release(*press);
                     return;
                 }
+                if press == &MousePress::Left && self.tab_drag_state.take().is_some() {
+                    self.finish_mouse_release(*press);
+                    return;
+                }
             }
 
             WMEK::Press(ref press) => {
@@ -324,6 +429,9 @@ impl super::TermWindow {
 
                 if let Some((item, start_event)) = self.dragging.take() {
                     self.drag_ui_item(item, start_event, x, y, event, context);
+                    return;
+                }
+                if self.drag_tab(&event, context) {
                     return;
                 }
             }
@@ -597,9 +705,9 @@ impl super::TermWindow {
         context: &dyn WindowOps,
     ) {
         self.last_ui_item.replace(item.clone());
-        match item.item_type {
-            UIItemType::TabBar(item) => {
-                self.mouse_event_tab_bar(item, event, context);
+        match item.item_type.clone() {
+            UIItemType::TabBar(tab_bar_item) => {
+                self.mouse_event_tab_bar(tab_bar_item, item, event, context);
             }
             UIItemType::AboveScrollThumb => {
                 self.mouse_event_above_scroll_thumb(item, pane, event, context);
@@ -690,22 +798,34 @@ impl super::TermWindow {
     pub fn mouse_event_tab_bar(
         &mut self,
         item: TabBarItem,
+        ui_item: UIItem,
         event: MouseEvent,
         context: &dyn WindowOps,
     ) {
         match event.kind {
             WMEK::Press(MousePress::Left) => match item {
                 TabBarItem::Tab { tab_idx, active } => {
+                    if self.last_mouse_click.as_ref().map(|c| c.streak) == Some(2) {
+                        self.tab_drag_state = None;
+                        if let Err(err) = self.begin_tab_rename(tab_idx, ui_item) {
+                            log::debug!("begin_tab_rename({tab_idx}) failed: {err:#}");
+                        }
+                        context.set_cursor(Some(MouseCursor::Arrow));
+                        return;
+                    }
                     if !active {
                         if let Err(err) = self.activate_tab(tab_idx as isize) {
                             log::debug!("activate_tab({tab_idx}) failed: {err:#}");
                         }
                     }
+                    self.start_tab_drag(tab_idx, event.clone());
                 }
                 TabBarItem::NewTabButton { .. } => {
+                    self.tab_drag_state = None;
                     self.do_new_tab_button_click(MousePress::Left);
                 }
                 TabBarItem::None | TabBarItem::LeftStatus | TabBarItem::RightStatus => {
+                    self.tab_drag_state = None;
                     let maximized = self
                         .window_state
                         .intersects(WindowState::MAXIMIZED | WindowState::FULL_SCREEN);
@@ -730,6 +850,7 @@ impl super::TermWindow {
                     context.request_drag_move();
                 }
                 TabBarItem::WindowButton(button) => {
+                    self.tab_drag_state = None;
                     use window::IntegratedTitleButton as Button;
                     if let Some(ref window) = self.window {
                         match button {
@@ -751,9 +872,11 @@ impl super::TermWindow {
             },
             WMEK::Press(MousePress::Middle) => match item {
                 TabBarItem::Tab { tab_idx, .. } => {
+                    self.tab_drag_state = None;
                     self.close_specific_tab(tab_idx, true);
                 }
                 TabBarItem::NewTabButton { .. } => {
+                    self.tab_drag_state = None;
                     self.do_new_tab_button_click(MousePress::Middle);
                 }
                 TabBarItem::None
@@ -763,9 +886,11 @@ impl super::TermWindow {
             },
             WMEK::Press(MousePress::Right) => match item {
                 TabBarItem::Tab { .. } => {
+                    self.tab_drag_state = None;
                     self.show_tab_navigator();
                 }
                 TabBarItem::NewTabButton { .. } => {
+                    self.tab_drag_state = None;
                     self.do_new_tab_button_click(MousePress::Right);
                 }
                 TabBarItem::None

@@ -146,6 +146,9 @@ impl crate::TermWindow {
                             let win = window.clone();
                             window.notify(TermWindowNotif::Apply(Box::new(move |tw| {
                                 tw.scheduled_animation.borrow_mut().take();
+                                // Modal content is cached, so blinking carets and other
+                                // time-based modal elements must be explicitly reconfigured.
+                                tw.invalidate_modal();
                                 win.invalidate();
                             })));
                         })
@@ -417,7 +420,9 @@ impl crate::TermWindow {
                 active_pane_top_right = Some((x, y, is_top_pane));
             }
             if pos.is_active {
-                self.update_text_cursor(&pos);
+                if self.get_modal().is_none() {
+                    self.update_text_cursor(&pos);
+                }
                 if focused {
                     pos.pane.advise_focus();
                     mux::Mux::get().record_focus_for_current_identity(pos.pane.pane_id());

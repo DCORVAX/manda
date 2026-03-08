@@ -86,6 +86,7 @@ pub mod render;
 pub mod resize;
 mod selection;
 pub mod spawn;
+pub mod tab_rename;
 pub mod webgpu;
 use crate::spawn::SpawnWhere;
 use prevcursor::PrevCursorPos;
@@ -630,6 +631,13 @@ struct SplitDragState {
     tab_id: TabId,
 }
 
+/// State tracked during a live tab drag-reorder gesture.
+struct TabDragState {
+    tab_idx: usize,
+    start_event: MouseEvent,
+    has_dragged: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LineEditorSelectionDirection {
     Left,
@@ -731,6 +739,7 @@ pub struct TermWindow {
     ui_items: Vec<UIItem>,
     dragging: Option<(UIItem, MouseEvent)>,
     split_drag_state: Option<SplitDragState>,
+    tab_drag_state: Option<TabDragState>,
 
     modal: RefCell<Option<Rc<dyn Modal>>>,
 
@@ -863,6 +872,10 @@ impl TermWindow {
         self.focused = if focused { Some(Instant::now()) } else { None };
         self.quad_generation += 1;
         self.load_os_parameters();
+
+        if let Some(modal) = self.get_modal() {
+            modal.focus_changed(focused, self);
+        }
 
         if self.focused.is_none() {
             self.last_mouse_click = None;
@@ -1176,6 +1189,7 @@ impl TermWindow {
             ui_items: vec![],
             dragging: None,
             split_drag_state: None,
+            tab_drag_state: None,
             last_ui_item: None,
             is_click_to_focus_window: false,
             key_table_state: KeyTableState::default(),
