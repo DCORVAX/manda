@@ -745,7 +745,8 @@ impl App {
         config::ensure_user_config_exists()?;
 
         let config_path = self.config_path();
-        let mut content = std::fs::read_to_string(&config_path).unwrap_or_default();
+        let original_content = std::fs::read_to_string(&config_path).unwrap_or_default();
+        let mut content = original_content.clone();
         let assistant_enabled = self
             .fields
             .iter()
@@ -796,7 +797,17 @@ impl App {
         std::fs::rename(&temp_path, &real_path)?;
 
         if let Some(enabled) = assistant_enabled {
-            assistant_config::write_enabled(enabled)?;
+            if let Err(err) = assistant_config::write_enabled(enabled) {
+                if let Err(rollback_err) =
+                    crate::utils::write_atomic(&real_path, original_content.as_bytes())
+                {
+                    return Err(err.context(format!(
+                        "assistant setting save failed and Lua rollback also failed: {}",
+                        rollback_err
+                    )));
+                }
+                return Err(err);
+            }
         }
 
         Ok(())

@@ -884,13 +884,17 @@ fn fetch_claude_usage_json() -> Option<serde_json::Value> {
     }
 
     let access_token = read_claude_oauth_access_token()?;
-    let live = fetch_claude_usage_with_access_token(&access_token).or_else(|| {
-        let refreshed = refresh_claude_oauth_access_token()?;
-        fetch_claude_usage_with_access_token(&refreshed)
-    });
+    let live = fetch_claude_usage_with_access_token(&access_token)
+        .filter(|value| parse_claude_usage_error(value).is_none())
+        .or_else(|| {
+            let refreshed = refresh_claude_oauth_access_token()?;
+            fetch_claude_usage_with_access_token(&refreshed)
+        });
 
     if let Some(value) = live {
-        write_json_cache(&cache_path, &value);
+        if parse_claude_usage_error(&value).is_none() {
+            write_json_cache(&cache_path, &value);
+        }
         return Some(value);
     }
 
@@ -1900,13 +1904,17 @@ fn read_kimi_auth_status() -> String {
         .and_then(|value| value.as_str())
         .is_some_and(|value| !value.is_empty());
     let expires_at = auth.get("expires_at").and_then(|value| value.as_f64());
+    let has_refresh_token = auth
+        .get("refresh_token")
+        .and_then(|value| value.as_str())
+        .is_some_and(|value| !value.is_empty());
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .ok()
         .map(|duration| duration.as_secs_f64())
         .unwrap_or(0.0);
 
-    if has_token && expires_at.is_some_and(|expires_at| expires_at > now) {
+    if has_refresh_token || (has_token && expires_at.is_some_and(|expires_at| expires_at > now)) {
         "✓ oauth".into()
     } else {
         "✗ login required".into()
@@ -2057,7 +2065,7 @@ fn extract_claude_code_fields(val: &serde_json::Value) -> Vec<FieldEntry> {
         // Show the latest model name as default hint
         model_options
             .first()
-            .map(|m| format!("{} (default)", m))
+            .cloned()
             .unwrap_or_else(|| "default".into())
     } else {
         model
@@ -2151,7 +2159,7 @@ fn extract_codex_fields(raw: &str) -> Vec<FieldEntry> {
     if !has_model {
         let default_model = model_options
             .first()
-            .map(|model| format!("{model} (default)"))
+            .cloned()
             .unwrap_or_else(|| "default".into());
         fields.insert(
             0,
@@ -2198,7 +2206,7 @@ fn extract_kimi_fields(raw: &str) -> Vec<FieldEntry> {
     let display_value = if model.is_empty() {
         model_options
             .first()
-            .map(|model| format!("{model} (default)"))
+            .cloned()
             .unwrap_or_else(|| "kimi-code/kimi-for-coding".into())
     } else {
         model
@@ -2270,7 +2278,7 @@ fn extract_gemini_fields(val: &serde_json::Value) -> Vec<FieldEntry> {
     let display_value = if model.is_empty() {
         model_options
             .first()
-            .map(|m| format!("{} (default)", m))
+            .cloned()
             .unwrap_or_else(|| "default".into())
     } else {
         model
@@ -3254,14 +3262,6 @@ impl App {
     }
 
     fn refresh_models(&mut self) {
-        // Delete cache to force re-fetch
-        let cache_path = config::HOME_DIR
-            .join(".cache")
-            .join("kaku")
-            .join("models.json");
-        if let Err(e) = std::fs::remove_file(&cache_path) {
-            log::trace!("Could not remove models cache: {}", e);
-        }
         let codex_usage_cache = codex_usage_cache_path();
         if let Err(e) = std::fs::remove_file(&codex_usage_cache) {
             log::trace!("Could not remove codex usage cache: {}", e);
@@ -3279,25 +3279,23 @@ impl App {
             log::trace!("Could not remove kimi usage cache: {}", e);
         }
 
-        match fetch_models_dev_json() {
-            Some(_) => {
-                let show_assistant = kaku_assistant_visible();
-                self.tools = Self::load_tools(show_assistant);
-                self.tool_index = self
-                    .tools
-                    .iter()
-                    .position(|tool| !tool.fields.is_empty())
-                    .unwrap_or(0);
-                self.field_index = 0;
-                self.restart_usage_loading();
-                self.set_status("AI settings refreshed");
-                self.sync_transient_errors();
-            }
-            None => {
-                self.set_status("Refresh failed (network error)");
-                self.set_error("Models refresh failed. Check network or proxy.");
-            }
+        let models_refreshed = fetch_models_dev_json().is_some();
+        let show_assistant = kaku_assistant_visible();
+        self.tools = Self::load_tools(show_assistant);
+        self.tool_index = self
+            .tools
+            .iter()
+            .position(|tool| !tool.fields.is_empty())
+            .unwrap_or(0);
+        self.field_index = 0;
+        self.restart_usage_loading();
+        if models_refreshed {
+            self.set_status("AI settings refreshed");
+        } else {
+            self.set_status("Usage refreshed");
+            self.set_error("Models refresh failed. Kept local model cache.");
         }
+        self.sync_transient_errors();
     }
 
     /// Open a shell command in a new Kaku tab (preferred) or fall back to Terminal.app.
@@ -4090,7 +4088,7 @@ mod tests {
         let fields = vec![
             FieldEntry {
                 key: "Model".into(),
-                value: "gpt-5 (default)".into(),
+                value: "gpt-5".into(),
                 options: vec![],
                 editable: true,
             },
@@ -4169,6 +4167,24 @@ mod tests {
     }
 
     #[test]
+    fn parse_claude_usage_error_detects_auth_failure() {
+        let parsed = serde_json::json!({
+            "type": "error",
+            "error": {
+                "type": "authentication_error",
+                "details": {
+                    "error_code": "token_expired"
+                }
+            }
+        });
+
+        assert_eq!(
+            parse_claude_usage_error(&parsed).as_deref(),
+            Some("Re-auth required")
+        );
+    }
+
+    #[test]
     fn parse_claude_keychain_account_extracts_account_name() {
         let raw = r#"
 keychain: "/Users/tw93/Library/Keychains/login.keychain-db"
@@ -4220,7 +4236,8 @@ attributes:
             .iter()
             .find(|field| field.key == "Model")
             .expect("model field");
-        assert!(model.value == "default" || model.value.ends_with(" (default)"));
+        assert!(!model.value.is_empty());
+        assert!(!model.value.ends_with(" (default)"));
     }
 
     #[test]
@@ -4289,6 +4306,29 @@ provider = "managed:kimi-code"
         let summary = snapshot.summary.expect("summary");
         assert!(summary.starts_with("5h remain 94% · reset "));
         assert!(summary.contains("  |  7d remain 67% · reset "));
+    }
+
+    #[test]
+    fn kimi_auth_status_accepts_refreshable_session() {
+        let auth = serde_json::json!({
+            "access_token": "",
+            "refresh_token": "refresh-token",
+            "expires_at": 0.0
+        });
+        let path = kimi_credentials_path();
+        let parent = path.parent().expect("credentials dir");
+        std::fs::create_dir_all(parent).expect("create credentials dir");
+        let previous = std::fs::read_to_string(&path).ok();
+        std::fs::write(&path, serde_json::to_vec(&auth).expect("serialize auth"))
+            .expect("write credentials");
+
+        assert_eq!(read_kimi_auth_status(), "✓ oauth");
+
+        if let Some(previous) = previous {
+            std::fs::write(&path, previous).expect("restore credentials");
+        } else {
+            let _ = std::fs::remove_file(&path);
+        }
     }
 
     #[test]
