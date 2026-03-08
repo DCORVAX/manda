@@ -704,8 +704,7 @@ pub fn effective_vertical_padding(
 ) -> (usize, usize) {
     let base_top = config.window_padding.top.evaluate_as_pixels(context) as usize;
     let base_bottom = config.window_padding.bottom.evaluate_as_pixels(context) as usize;
-    let default_top = ConfigHandle::default_config()
-        .window_padding
+    let default_top = config::WindowPadding::default()
         .top
         .evaluate_as_pixels(context) as usize;
 

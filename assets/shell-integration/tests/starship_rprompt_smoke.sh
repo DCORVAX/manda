@@ -50,18 +50,23 @@ KAKU_SKIP_TOOL_BOOTSTRAP=1 \
 KAKU_SKIP_TERMINFO_BOOTSTRAP=1 \
 bash "$REPO_ROOT/assets/shell-integration/setup_zsh.sh" --update-only >/dev/null
 
-TERM=xterm-256color \
-PATH="$tmp_dir/bin:$PATH" \
-HOME="$HOME" \
-ZDOTDIR="$ZDOTDIR" \
-output="$(
-zsh -f -c '
+output=""
+if ! output="$(
+  TERM=xterm-256color \
+  PATH="$tmp_dir/bin:$PATH" \
+  HOME="$HOME" \
+  ZDOTDIR="$ZDOTDIR" \
+  zsh -f -c '
 source "$HOME/.config/kaku/zsh/kaku.zsh"
 RPROMPT='\''$(starship prompt --right)'\''
 _kaku_fix_starship_rprompt
 print -r -- "__KAKU_RPROMPT__:$RPROMPT"
 ' 2>&1
-)"
+)"; then
+  echo "zsh exited non-zero during starship rprompt smoke test:" >&2
+  echo "$output" >&2
+  exit 1
+fi
 
 case "$output" in
   *__KAKU_RPROMPT__:* ) ;;

@@ -358,6 +358,16 @@ if command -v starship &> /dev/null; then
     # When Zsh receives SIGINT during prompt evaluation, it aborts the command
     # substitution and prints the literal \$(starship...) string. Pre-evaluating
     # the right prompt in precmd avoids this entirely.
+    _kaku_render_starship_rprompt() {
+        command starship prompt --right \
+            --terminal-width="\${COLUMNS:-}" \
+            --keymap="\${KEYMAP:-}" \
+            --status="\${STARSHIP_CMD_STATUS:-}" \
+            --pipestatus="\${STARSHIP_PIPE_STATUS[*]:-}" \
+            --cmd-duration="\${STARSHIP_DURATION:-}" \
+            --jobs="\${STARSHIP_JOBS_COUNT:-0}" 2>/dev/null
+    }
+
     _kaku_fix_starship_rprompt() {
         # Check if RPROMPT currently holds a dynamic starship command
         if [[ "\${RPROMPT:-}" == *'\$('*'starship'*'prompt --right'* ]]; then
@@ -371,10 +381,14 @@ if command -v starship &> /dev/null; then
         # If the user sets RPROMPT="foo", we leave it alone.
         if [[ -n "\${_kaku_starship_rprompt_cmd:-}" ]]; then
             if [[ "\${RPROMPT:-}" == "\${_kaku_starship_rprompt_cmd}" ]] || [[ "\${RPROMPT:-}" == "\${_kaku_last_injected_rprompt:-}" ]]; then
-                local cmd="\${_kaku_starship_rprompt_cmd#\\$\\(}"
-                cmd="\${cmd%\\)}"
                 local evaled
-                evaled="\$(eval "\$cmd" 2>/dev/null)"
+                if [[ "\${_kaku_starship_rprompt_cmd}" == *starship*'prompt --right'* ]]; then
+                    evaled="\$(_kaku_render_starship_rprompt)"
+                else
+                    local cmd="\${_kaku_starship_rprompt_cmd#\\$\\(}"
+                    cmd="\${cmd%\\)}"
+                    evaled="\$(eval "\$cmd" 2>/dev/null)"
+                fi
                 RPROMPT="\$evaled"
                 _kaku_last_injected_rprompt="\$evaled"
             fi
