@@ -3020,8 +3020,8 @@ wezterm.on('gui-startup', function(cmd)
       end
     end
 
-    wezterm.log_error("Failed to resolve bundled config version; falling back to v13")
-    return 13
+    wezterm.log_error("Failed to resolve bundled config version; falling back to v14")
+    return 14
   end
 
   local current_version = read_current_config_version()

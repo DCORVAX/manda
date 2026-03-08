@@ -371,8 +371,8 @@ if command -v starship &> /dev/null; then
         # If the user sets RPROMPT="foo", we leave it alone.
         if [[ -n "\${_kaku_starship_rprompt_cmd:-}" ]]; then
             if [[ "\${RPROMPT:-}" == "\${_kaku_starship_rprompt_cmd}" ]] || [[ "\${RPROMPT:-}" == "\${_kaku_last_injected_rprompt:-}" ]]; then
-                local cmd="\${_kaku_starship_rprompt_cmd#'\$('}"
-                cmd="\${cmd%')'}"
+                local cmd="\${_kaku_starship_rprompt_cmd#\\$\\(}"
+                cmd="\${cmd%\\)}"
                 local evaled
                 evaled="\$(eval "\$cmd" 2>/dev/null)"
                 RPROMPT="\$evaled"
