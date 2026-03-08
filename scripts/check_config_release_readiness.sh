@@ -10,6 +10,17 @@ CHECK_SCRIPT="assets/shell-integration/check_config_version.sh"
 FIRST_RUN_SCRIPT="assets/shell-integration/first_run.sh"
 KAKU_LUA="assets/macos/Kaku.app/Contents/Resources/kaku.lua"
 
+file_contains_literal() {
+	local needle="$1"
+	local file="$2"
+
+	if command -v rg >/dev/null 2>&1; then
+		rg -Fq -- "$needle" "$file"
+	else
+		grep -Fq -- "$needle" "$file"
+	fi
+}
+
 if [[ ! -f "$VERSION_FILE" ]]; then
 	echo "Missing config version file: $VERSION_FILE" >&2
 	exit 1
@@ -38,13 +49,13 @@ if ! awk -F '\t' '
 fi
 
 for script in "$CHECK_SCRIPT" "$FIRST_RUN_SCRIPT"; do
-	if ! rg -q 'read_bundled_config_version "\$SCRIPT_DIR"' "$script"; then
+	if ! file_contains_literal 'read_bundled_config_version "$SCRIPT_DIR"' "$script"; then
 		echo "Expected $script to read config_version.txt via read_bundled_config_version" >&2
 		exit 1
 	fi
 done
 
-if ! rg -q 'config_version\.txt' "$KAKU_LUA"; then
+if ! file_contains_literal 'config_version.txt' "$KAKU_LUA"; then
 	echo "Expected $KAKU_LUA to read config_version.txt" >&2
 	exit 1
 fi
