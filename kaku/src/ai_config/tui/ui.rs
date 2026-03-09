@@ -1,17 +1,27 @@
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 
 use super::{App, Tool};
 use crate::tui_core::theme::{accent, bg, muted, panel, primary, red, success, text_fg};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MainLayoutMode {
+    HeaderOnly,
+    HeaderAndFooter,
+    Expanded,
+    Compact,
+}
 
 pub(super) fn loading_ui(frame: &mut ratatui::Frame) {
     let full = frame.area();
     if full.width < 2 || full.height < 2 {
         return;
     }
-    let area = Rect::new(full.x, full.y, full.width - 1, full.height - 1);
+    // Keep one column on the right to avoid edge-wrap artifacts, while using
+    // full height so the status bar can stick to the bottom.
+    let area = Rect::new(full.x, full.y, full.width - 1, full.height);
 
     frame.render_widget(Clear, area);
     frame.render_widget(Block::default().style(Style::default().bg(bg())), area);
@@ -25,42 +35,74 @@ pub(super) fn ui(frame: &mut ratatui::Frame, app: &mut App) {
     if full.width < 2 || full.height < 2 {
         return;
     }
-    // In non-alternate-screen mode, avoid touching the bottom-right cell,
-    // which can trigger terminal autowrap/scroll artifacts on redraw.
-    let area = Rect::new(full.x, full.y, full.width - 1, full.height - 1);
+    // Keep one column on the right to avoid edge-wrap artifacts, while using
+    // full height so the status bar can stick to the bottom.
+    let area = Rect::new(full.x, full.y, full.width - 1, full.height);
 
     // Clear frame content first to avoid stale glyph artifacts when redrawing
     // in non-alternate-screen mode.
     frame.render_widget(Clear, area);
     frame.render_widget(Block::default().style(Style::default().bg(bg())), area);
 
-    let remaining_height = area.height.saturating_sub(2);
     let rendered_tool_rows = app.rendered_tool_row_count() as u16;
-    let chunks = if rendered_tool_rows + 1 <= remaining_height {
-        Layout::vertical([
-            Constraint::Length(2),                  // logo header
-            Constraint::Length(rendered_tool_rows), // tool list
-            Constraint::Length(1),                  // status bar
-            Constraint::Fill(1),                    // trailing empty space
-        ])
-        .split(area)
-    } else {
-        Layout::vertical([
-            Constraint::Length(2), // logo header
-            Constraint::Fill(1),   // tool list
-            Constraint::Length(1), // status bar
-        ])
-        .split(area)
-    };
+    match resolve_main_layout(area.height, rendered_tool_rows) {
+        MainLayoutMode::HeaderOnly => {
+            let chunks = Layout::vertical([Constraint::Length(2)]).split(area);
+            render_header(frame, chunks[0], None);
+        }
+        MainLayoutMode::HeaderAndFooter => {
+            let chunks =
+                Layout::vertical([Constraint::Length(2), Constraint::Length(1)]).split(area);
+            render_header(frame, chunks[0], None);
+            render_status_bar(frame, chunks[1], app);
+        }
+        MainLayoutMode::Expanded => {
+            let chunks = Layout::vertical([
+                Constraint::Length(2),                  // logo header
+                Constraint::Length(rendered_tool_rows), // tool list
+                Constraint::Fill(1),                    // flexible gap above status
+                Constraint::Length(1),                  // spacer above status
+                Constraint::Length(1),                  // status bar (stick to bottom)
+            ])
+            .split(area);
 
-    render_header(frame, chunks[0], None);
-    render_tools(frame, chunks[1], app);
-    render_status_bar(frame, chunks[2], app);
+            render_header(frame, chunks[0], None);
+            render_tools(frame, chunks[1], app);
+            render_status_bar(frame, chunks[4], app);
+        }
+        MainLayoutMode::Compact => {
+            let chunks = Layout::vertical([
+                Constraint::Length(2), // logo header
+                Constraint::Fill(1),   // tool list
+                Constraint::Length(1), // spacer above status
+                Constraint::Length(1), // status bar (stick to bottom)
+            ])
+            .split(area);
+
+            render_header(frame, chunks[0], None);
+            render_tools(frame, chunks[1], app);
+            render_status_bar(frame, chunks[3], app);
+        }
+    }
 
     if app.is_selecting() {
         render_selector(frame, area, app);
     } else if app.is_editing() {
         render_editor(frame, area, app);
+    }
+    render_toast(frame, area, app);
+}
+
+fn resolve_main_layout(area_height: u16, content_rows: u16) -> MainLayoutMode {
+    let remaining_height = area_height.saturating_sub(2);
+    if remaining_height == 0 {
+        MainLayoutMode::HeaderOnly
+    } else if remaining_height == 1 {
+        MainLayoutMode::HeaderAndFooter
+    } else if content_rows + 2 <= remaining_height {
+        MainLayoutMode::Expanded
+    } else {
+        MainLayoutMode::Compact
     }
 }
 
@@ -260,6 +302,14 @@ fn render_status_bar(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             Span::styled(msg.as_str(), Style::default().fg(text_fg())),
         ])
     } else {
+        render_status_hint(area.width)
+    };
+
+    frame.render_widget(Paragraph::new(status), area);
+}
+
+fn render_status_hint(width: u16) -> Line<'static> {
+    if width >= 52 {
         Line::from(vec![
             Span::styled(
                 " ↑↓ ",
@@ -285,9 +335,76 @@ fn render_status_bar(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             ),
             Span::styled("Refresh", Style::default().fg(muted())),
         ])
-    };
+    } else if width >= 34 {
+        Line::from(vec![
+            Span::styled(
+                " ↑↓ ",
+                Style::default().fg(primary()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Move", Style::default().fg(muted())),
+            Span::styled(" · ", Style::default().fg(muted())),
+            Span::styled(
+                " Enter ",
+                Style::default().fg(primary()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Edit", Style::default().fg(muted())),
+            Span::styled(" · ", Style::default().fg(muted())),
+            Span::styled(
+                " Esc ",
+                Style::default().fg(primary()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Back", Style::default().fg(muted())),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled(
+                " ↑↓ ",
+                Style::default().fg(primary()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Move", Style::default().fg(muted())),
+            Span::styled(" · ", Style::default().fg(muted())),
+            Span::styled(
+                " Enter ",
+                Style::default().fg(primary()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Edit", Style::default().fg(muted())),
+        ])
+    }
+}
 
-    frame.render_widget(Paragraph::new(status), area);
+fn render_toast(frame: &mut ratatui::Frame, area: Rect, app: &App) {
+    let Some(message) = app.toast_message() else {
+        return;
+    };
+    if area.width < 24 || area.height < 6 {
+        return;
+    }
+
+    let width = ((message.chars().count() as u16) + 6)
+        .min(area.width.saturating_sub(2))
+        .max(28);
+    let height = 3;
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width + 1),
+        area.y + area.height.saturating_sub(height + 2),
+        width,
+        height,
+    );
+
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(primary()))
+        .style(Style::default().bg(panel()));
+    let inner = block.inner(popup).inner(Margin::new(1, 0));
+    frame.render_widget(block, popup);
+    frame.render_widget(
+        Paragraph::new(message)
+            .style(Style::default().fg(text_fg()))
+            .wrap(Wrap { trim: true }),
+        inner,
+    );
 }
 
 pub(super) fn render_editor(frame: &mut ratatui::Frame, area: Rect, app: &App) {
@@ -437,4 +554,26 @@ fn render_selector(frame: &mut ratatui::Frame, area: Rect, app: &App) {
 
     let list = List::new(items).highlight_style(Style::default());
     frame.render_stateful_widget(list, inner, &mut state);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_main_layout, MainLayoutMode};
+
+    #[test]
+    fn keeps_spacer_in_compact_layout() {
+        assert_eq!(resolve_main_layout(10, 9), MainLayoutMode::Compact);
+    }
+
+    #[test]
+    fn requires_room_for_status_and_spacer_before_expanding() {
+        assert_eq!(resolve_main_layout(10, 6), MainLayoutMode::Expanded);
+        assert_eq!(resolve_main_layout(10, 7), MainLayoutMode::Compact);
+    }
+
+    #[test]
+    fn handles_tiny_terminal_heights() {
+        assert_eq!(resolve_main_layout(2, 1), MainLayoutMode::HeaderOnly);
+        assert_eq!(resolve_main_layout(3, 1), MainLayoutMode::HeaderAndFooter);
+    }
 }

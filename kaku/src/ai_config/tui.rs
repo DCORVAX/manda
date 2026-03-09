@@ -12,7 +12,8 @@ use crossterm::terminal::{
 use crossterm::ExecutableCommand;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::ffi::OsStr;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -29,6 +30,7 @@ enum Tool {
     ClaudeCode,
     Codex,
     Kimi,
+    Antigravity,
     Gemini,
     Copilot,
     FactoryDroid,
@@ -42,6 +44,7 @@ impl Tool {
             Tool::ClaudeCode => "Claude Code",
             Tool::Codex => "Codex",
             Tool::Kimi => "Kimi Code",
+            Tool::Antigravity => "Antigravity",
             Tool::Gemini => "Gemini CLI",
             Tool::Copilot => "Copilot CLI",
             Tool::FactoryDroid => "Factory Droid",
@@ -61,6 +64,12 @@ impl Tool {
             Tool::ClaudeCode => home.join(".claude").join("settings.json"),
             Tool::Codex => home.join(".codex").join("config.toml"),
             Tool::Kimi => home.join(".kimi").join("config.toml"),
+            Tool::Antigravity => home
+                .join("Library")
+                .join("Application Support")
+                .join("Antigravity")
+                .join("User")
+                .join("settings.json"),
             Tool::Gemini => home.join(".gemini").join("settings.json"),
             Tool::Copilot => home.join(".copilot").join("config.json"),
             Tool::FactoryDroid => home.join(".factory").join("settings.json"),
@@ -79,11 +88,12 @@ impl Tool {
     }
 }
 
-const ALL_TOOLS: [Tool; 8] = [
+const ALL_TOOLS: [Tool; 9] = [
     Tool::KakuAssistant,
     Tool::ClaudeCode,
     Tool::Codex,
     Tool::Kimi,
+    Tool::Antigravity,
     Tool::Gemini,
     Tool::Copilot,
     Tool::FactoryDroid,
@@ -105,6 +115,14 @@ const CLAUDE_OAUTH_TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token
 const KIMI_OAUTH_CLIENT_ID: &str = "17e5f671-d194-4dfb-9706-5516cb48c098";
 const KIMI_OAUTH_TOKEN_URL: &str = "https://auth.kimi.com/api/oauth/token";
 const KIMI_DEFAULT_BASE_URL: &str = "https://api.kimi.com/coding/v1";
+const ANTIGRAVITY_LSP_PROCESS_NAME: &str = "language_server_macos";
+const ANTIGRAVITY_CSRF_HEADER: &str = "x-codeium-csrf-token";
+const ANTIGRAVITY_GET_USER_STATUS_PATH: &str =
+    "/exa.language_server_pb.LanguageServerService/GetUserStatus";
+const ANTIGRAVITY_GET_COMMAND_MODEL_CONFIGS_PATH: &str =
+    "/exa.language_server_pb.LanguageServerService/GetCommandModelConfigs";
+const ANTIGRAVITY_GET_UNLEASH_DATA_PATH: &str =
+    "/exa.language_server_pb.LanguageServerService/GetUnleashData";
 
 static UI_ERRORS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 
@@ -136,6 +154,7 @@ fn pop_ui_error() -> Option<String> {
     }
 }
 
+#[derive(Clone)]
 struct FieldEntry {
     key: String,
     value: String,
@@ -198,6 +217,15 @@ impl ToolState {
             _ => false,
         };
 
+        if tool == Tool::Antigravity && !antigravity_app_bundle_path().exists() {
+            return ToolState {
+                tool,
+                installed: false,
+                fields: Vec::new(),
+                summary: None,
+            };
+        }
+
         if tool != Tool::KakuAssistant && !path.exists() && !extra_exists {
             return ToolState {
                 tool,
@@ -249,6 +277,17 @@ impl ToolState {
                     .then(|| load_kimi_usage_snapshot().and_then(|snapshot| snapshot.summary))
                     .flatten(),
             ),
+            Tool::Antigravity => {
+                let snapshot = if eager_remote_usage {
+                    load_antigravity_usage_snapshot()
+                } else {
+                    Some(load_cached_antigravity_usage_snapshot())
+                };
+                (
+                    extract_antigravity_fields(snapshot.as_ref()),
+                    snapshot.and_then(|snapshot| snapshot.summary),
+                )
+            }
             Tool::Gemini => {
                 let parsed = parse_json_with_debug(&raw, tool.label());
                 (
@@ -347,6 +386,14 @@ fn summarize_tool_fields(
             .or_else(|| Some("Quota unavailable".into()));
     }
 
+    if tool == Tool::Antigravity {
+        return usage_summary.map(str::to_string).or_else(|| {
+            field_value(fields, "Model")
+                .map(|_| "Open Antigravity to sync quota".to_string())
+                .or_else(|| Some("Open Antigravity to load quota".into()))
+        });
+    }
+
     if tool == Tool::Gemini {
         if let Some(summary) = usage_summary {
             return Some(summary.to_string());
@@ -395,10 +442,30 @@ struct KimiUsageSnapshot {
     summary: Option<String>,
 }
 
+struct AntigravityUsageSnapshot {
+    summary: Option<String>,
+    selected_model_label: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct AntigravityQuotaWindow {
+    model_id: Option<String>,
+    label: String,
+    remaining_fraction: f64,
+    reset_at: Option<String>,
+}
+
+struct AntigravityProcessInfo {
+    pid: u32,
+    csrf_token: String,
+    extension_server_port: Option<u16>,
+}
+
 #[derive(Clone)]
 struct UsageSummaryUpdate {
     tool: Tool,
     summary: Option<String>,
+    fields: Option<Vec<FieldEntry>>,
 }
 
 fn codex_usage_cache_path() -> PathBuf {
@@ -427,6 +494,27 @@ fn kimi_usage_cache_path() -> PathBuf {
         .join(".cache")
         .join("kaku")
         .join("kimi_usage.json")
+}
+
+fn antigravity_usage_cache_path() -> PathBuf {
+    config::HOME_DIR
+        .join(".cache")
+        .join("kaku")
+        .join("antigravity_usage.json")
+}
+
+fn antigravity_app_bundle_path() -> PathBuf {
+    PathBuf::from("/Applications/Antigravity.app")
+}
+
+fn antigravity_state_db_path() -> PathBuf {
+    config::HOME_DIR
+        .join("Library")
+        .join("Application Support")
+        .join("Antigravity")
+        .join("User")
+        .join("globalStorage")
+        .join("state.vscdb")
 }
 
 fn read_codex_auth_info() -> Option<(String, String)> {
@@ -460,6 +548,878 @@ fn read_codex_auth_info() -> Option<(String, String)> {
         })?;
 
     Some((access_token, account_id))
+}
+
+fn read_sqlite_value_with_debug(path: &Path, query: &str, context: &str) -> Option<String> {
+    if !path.exists() {
+        log::debug!("{context}: sqlite db missing at {}", path.display());
+        return None;
+    }
+
+    let output = std::process::Command::new("/usr/bin/sqlite3")
+        .arg(path)
+        .arg(query)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        log::debug!(
+            "{context}: sqlite query failed with status {}: {}",
+            output.status,
+            stderr.trim()
+        );
+        return None;
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|err| log::debug!("{context}: sqlite query returned non-utf8: {}", err))
+        .ok()?;
+    let value = stdout.trim();
+    (!value.is_empty()).then(|| value.to_string())
+}
+
+fn decode_base64_standard_with_debug(raw: &str, context: &str) -> Option<Vec<u8>> {
+    use base64::Engine;
+
+    base64::engine::general_purpose::STANDARD
+        .decode(raw)
+        .map_err(|err| log::debug!("{context}: base64 decode failed: {}", err))
+        .ok()
+}
+
+fn read_protobuf_varint(bytes: &[u8], idx: &mut usize) -> Option<u64> {
+    let mut shift = 0;
+    let mut value = 0u64;
+    while *idx < bytes.len() {
+        let byte = bytes[*idx];
+        *idx += 1;
+        value |= u64::from(byte & 0x7f) << shift;
+        if byte & 0x80 == 0 {
+            return Some(value);
+        }
+        shift += 7;
+        if shift > 63 {
+            return None;
+        }
+    }
+    None
+}
+
+fn read_protobuf_bytes<'a>(bytes: &'a [u8], idx: &mut usize) -> Option<&'a [u8]> {
+    let len = usize::try_from(read_protobuf_varint(bytes, idx)?).ok()?;
+    let start = *idx;
+    let end = start.checked_add(len)?;
+    let slice = bytes.get(start..end)?;
+    *idx = end;
+    Some(slice)
+}
+
+fn skip_protobuf_field(bytes: &[u8], idx: &mut usize, wire_type: u64) -> Option<()> {
+    match wire_type {
+        0 => {
+            let _ = read_protobuf_varint(bytes, idx)?;
+        }
+        1 => {
+            *idx = idx.checked_add(8)?;
+        }
+        2 => {
+            let _ = read_protobuf_bytes(bytes, idx)?;
+        }
+        5 => {
+            *idx = idx.checked_add(4)?;
+        }
+        _ => return None,
+    }
+    Some(())
+}
+
+fn parse_antigravity_state_value_container(bytes: &[u8]) -> Option<String> {
+    let mut idx = 0;
+    while idx < bytes.len() {
+        let tag = read_protobuf_varint(bytes, &mut idx)?;
+        let field_number = tag >> 3;
+        let wire_type = tag & 0x7;
+        if field_number == 1 && wire_type == 2 {
+            let value = read_protobuf_bytes(bytes, &mut idx)?;
+            return String::from_utf8(value.to_vec()).ok();
+        }
+        skip_protobuf_field(bytes, &mut idx, wire_type)?;
+    }
+    None
+}
+
+fn parse_antigravity_state_entry(bytes: &[u8]) -> Option<(String, String)> {
+    let mut idx = 0;
+    let mut key = None;
+    let mut value = None;
+    while idx < bytes.len() {
+        let tag = read_protobuf_varint(bytes, &mut idx)?;
+        let field_number = tag >> 3;
+        let wire_type = tag & 0x7;
+        match (field_number, wire_type) {
+            (1, 2) => {
+                let raw_key = read_protobuf_bytes(bytes, &mut idx)?;
+                key = String::from_utf8(raw_key.to_vec()).ok();
+            }
+            (2, 2) => {
+                let nested = read_protobuf_bytes(bytes, &mut idx)?;
+                value = parse_antigravity_state_value_container(nested);
+            }
+            _ => skip_protobuf_field(bytes, &mut idx, wire_type)?,
+        }
+    }
+    Some((key?, value?))
+}
+
+fn parse_antigravity_unified_state(raw: &str) -> Option<Vec<(String, String)>> {
+    let decoded = decode_base64_standard_with_debug(raw, "antigravity unified state")?;
+    let mut idx = 0;
+    let mut entries = Vec::new();
+    while idx < decoded.len() {
+        let tag = read_protobuf_varint(&decoded, &mut idx)?;
+        let field_number = tag >> 3;
+        let wire_type = tag & 0x7;
+        match (field_number, wire_type) {
+            (1, 2) => {
+                let entry = read_protobuf_bytes(&decoded, &mut idx)?;
+                if let Some(parsed) = parse_antigravity_state_entry(entry) {
+                    entries.push(parsed);
+                }
+            }
+            _ => skip_protobuf_field(&decoded, &mut idx, wire_type)?,
+        }
+    }
+    Some(entries)
+}
+
+fn decode_antigravity_int32_value(raw: &str) -> Option<i32> {
+    let decoded = decode_base64_standard_with_debug(raw, "antigravity int32 state")?;
+    let mut idx = 0;
+    while idx < decoded.len() {
+        let tag = read_protobuf_varint(&decoded, &mut idx)?;
+        let field_number = tag >> 3;
+        let wire_type = tag & 0x7;
+        match (field_number, wire_type) {
+            (2, 0) => {
+                let value = read_protobuf_varint(&decoded, &mut idx)?;
+                return i32::try_from(value).ok();
+            }
+            _ => skip_protobuf_field(&decoded, &mut idx, wire_type)?,
+        }
+    }
+    None
+}
+
+fn read_antigravity_storage_value(key: &str, context: &str) -> Option<String> {
+    let escaped_key = key.replace('\'', "''");
+    let query = format!("select value from ItemTable where key='{escaped_key}';");
+    read_sqlite_value_with_debug(&antigravity_state_db_path(), &query, context)
+}
+
+fn read_antigravity_auth_status() -> Option<serde_json::Value> {
+    let raw = read_antigravity_storage_value("antigravityAuthStatus", "antigravity auth status")?;
+    serde_json::from_str(&raw)
+        .map_err(|err| log::debug!("antigravity auth status JSON parse failed: {}", err))
+        .ok()
+}
+
+#[cfg(test)]
+fn extract_antigravity_printable_strings(bytes: &[u8]) -> Vec<String> {
+    let mut current = Vec::new();
+    let mut strings = Vec::new();
+    for byte in bytes {
+        if byte.is_ascii_graphic() || *byte == b' ' {
+            current.push(*byte);
+        } else if current.len() >= 6 {
+            strings.push(String::from_utf8_lossy(&current).trim().to_string());
+            current.clear();
+        } else {
+            current.clear();
+        }
+    }
+    if current.len() >= 6 {
+        strings.push(String::from_utf8_lossy(&current).trim().to_string());
+    }
+    strings
+}
+
+#[cfg(test)]
+fn extract_antigravity_plan_name(raw: &str) -> Option<String> {
+    let decoded = decode_base64_standard_with_debug(raw, "antigravity user status")?;
+    extract_antigravity_printable_strings(&decoded)
+        .into_iter()
+        .find(|candidate| candidate.starts_with("Google AI "))
+}
+
+fn antigravity_arg_value<'a>(args: &'a [&'a str], key: &str) -> Option<&'a str> {
+    args.iter()
+        .position(|arg| *arg == key)
+        .and_then(|idx| args.get(idx + 1).copied())
+}
+
+fn parse_antigravity_process_info_line(line: &str) -> Option<AntigravityProcessInfo> {
+    let mut parts = line.split_whitespace();
+    let pid = parts.next()?.parse::<u32>().ok()?;
+    let args = parts.collect::<Vec<_>>();
+
+    if !args
+        .iter()
+        .any(|arg| arg.contains(ANTIGRAVITY_LSP_PROCESS_NAME))
+    {
+        return None;
+    }
+
+    // Restrict to the desktop app process to avoid collisions with unrelated servers.
+    let is_antigravity_app = args
+        .windows(2)
+        .any(|pair| pair[0] == "--app_data_dir" && pair[1] == "antigravity");
+    if !is_antigravity_app {
+        return None;
+    }
+
+    let csrf_token = antigravity_arg_value(&args, "--csrf_token")?.to_string();
+    let extension_server_port = antigravity_arg_value(&args, "--extension_server_port")
+        .and_then(|value| value.parse::<u16>().ok());
+
+    Some(AntigravityProcessInfo {
+        pid,
+        csrf_token,
+        extension_server_port,
+    })
+}
+
+fn find_antigravity_process_info() -> Option<AntigravityProcessInfo> {
+    let output = std::process::Command::new("/bin/ps")
+        .args(["-ax", "-o", "pid=,command="])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        log::debug!(
+            "antigravity process probe failed with status {}: {}",
+            output.status,
+            stderr.trim()
+        );
+        return None;
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|err| log::debug!("antigravity process probe returned non-utf8: {}", err))
+        .ok()?;
+    stdout
+        .lines()
+        .filter_map(parse_antigravity_process_info_line)
+        .max_by_key(|info| info.pid)
+}
+
+fn parse_antigravity_listen_port(line: &str) -> Option<u16> {
+    // Example line:
+    // language_ 34643 tang ... TCP 127.0.0.1:56503 (LISTEN)
+    let token = line.split_whitespace().find(|token| token.contains(':'))?;
+    let (_, port) = token.rsplit_once(':')?;
+    port.parse::<u16>().ok()
+}
+
+fn read_antigravity_listen_ports(pid: u32) -> Vec<u16> {
+    let output = match std::process::Command::new("/usr/sbin/lsof")
+        .args(["-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", &pid.to_string()])
+        .output()
+    {
+        Ok(output) => output,
+        Err(err) => {
+            log::debug!("antigravity lsof probe failed to launch: {}", err);
+            return Vec::new();
+        }
+    };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        log::debug!(
+            "antigravity lsof probe failed with status {}: {}",
+            output.status,
+            stderr.trim()
+        );
+        return Vec::new();
+    }
+
+    let stdout = match String::from_utf8(output.stdout) {
+        Ok(stdout) => stdout,
+        Err(err) => {
+            log::debug!("antigravity lsof probe returned non-utf8: {}", err);
+            return Vec::new();
+        }
+    };
+
+    stdout
+        .lines()
+        .skip(1)
+        .filter_map(parse_antigravity_listen_port)
+        .collect()
+}
+
+fn post_antigravity_lsp_json(
+    https_port: u16,
+    csrf_token: &str,
+    path: &str,
+    payload: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    let payload = serde_json::to_string(payload)
+        .map_err(|err| log::debug!("antigravity payload serialize failed: {}", err))
+        .ok()?;
+    let url = format!("https://127.0.0.1:{https_port}{path}");
+
+    // Token is sent through argv for portability across environments.
+    let output = std::process::Command::new("/usr/bin/curl")
+        .args([
+            "-k",
+            "-sS",
+            "--max-time",
+            "3",
+            "-X",
+            "POST",
+            &url,
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            &format!("{ANTIGRAVITY_CSRF_HEADER}: {csrf_token}"),
+            "--data",
+            &payload,
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        log::debug!(
+            "antigravity lsp request failed for {} with status {}: {}",
+            path,
+            output.status,
+            stderr.trim()
+        );
+        return None;
+    }
+
+    let raw = String::from_utf8(output.stdout)
+        .map_err(|err| log::debug!("antigravity lsp response non-utf8 for {}: {}", path, err))
+        .ok()?;
+    let parsed = serde_json::from_str::<serde_json::Value>(&raw)
+        .map_err(|err| {
+            log::debug!(
+                "antigravity lsp response JSON parse failed for {}: {}",
+                path,
+                err
+            )
+        })
+        .ok()?;
+
+    // Responses shaped like {"code":"unauthenticated",...} indicate auth mismatch.
+    if parsed.get("code").is_some() && parsed.get("message").is_some() {
+        let code = parsed
+            .get("code")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        if matches!(code, "unauthenticated" | "permission_denied") {
+            return None;
+        }
+    }
+
+    Some(parsed)
+}
+
+fn antigravity_unleash_probe(https_port: u16, csrf_token: &str) -> bool {
+    post_antigravity_lsp_json(
+        https_port,
+        csrf_token,
+        ANTIGRAVITY_GET_UNLEASH_DATA_PATH,
+        &serde_json::json!({}),
+    )
+    .is_some()
+}
+
+fn discover_antigravity_https_port(process: &AntigravityProcessInfo) -> Option<u16> {
+    let mut candidates = Vec::new();
+    if let Some(extension_port) = process.extension_server_port {
+        if extension_port < u16::MAX {
+            candidates.push(extension_port + 1);
+        }
+        candidates.push(extension_port);
+    }
+    candidates.extend(read_antigravity_listen_ports(process.pid));
+
+    let mut seen = HashSet::new();
+    candidates.retain(|port| seen.insert(*port));
+    candidates
+        .into_iter()
+        .find(|port| antigravity_unleash_probe(*port, &process.csrf_token))
+}
+
+fn fetch_antigravity_usage_json() -> Option<serde_json::Value> {
+    let process = find_antigravity_process_info()?;
+    let https_port = discover_antigravity_https_port(&process)?;
+
+    let user_status = post_antigravity_lsp_json(
+        https_port,
+        &process.csrf_token,
+        ANTIGRAVITY_GET_USER_STATUS_PATH,
+        &serde_json::json!({}),
+    )?;
+    let command_model_configs = post_antigravity_lsp_json(
+        https_port,
+        &process.csrf_token,
+        ANTIGRAVITY_GET_COMMAND_MODEL_CONFIGS_PATH,
+        &serde_json::json!({}),
+    )
+    .unwrap_or(serde_json::Value::Null);
+
+    Some(serde_json::json!({
+        "fetched_at": Utc::now().to_rfc3339(),
+        "user_status": user_status,
+        "command_model_configs": command_model_configs,
+    }))
+}
+
+fn antigravity_value_as_f64(value: &serde_json::Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value.as_i64().map(|value| value as f64))
+        .or_else(|| value.as_u64().map(|value| value as f64))
+        .or_else(|| value.as_str()?.parse::<f64>().ok())
+}
+
+fn collect_antigravity_model_name_map(
+    value: &serde_json::Value,
+    model_name_map: &mut HashMap<String, String>,
+) {
+    match value {
+        serde_json::Value::Object(map) => {
+            let model_id = map
+                .get("modelId")
+                .or_else(|| map.get("id"))
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty());
+            let display_name = map
+                .get("modelDisplayName")
+                .or_else(|| map.get("displayName"))
+                .or_else(|| map.get("name"))
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty());
+            if let (Some(model_id), Some(display_name)) = (model_id, display_name) {
+                model_name_map
+                    .entry(model_id.to_string())
+                    .or_insert_with(|| display_name.to_string());
+            }
+            for child in map.values() {
+                collect_antigravity_model_name_map(child, model_name_map);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_antigravity_model_name_map(item, model_name_map);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn antigravity_model_name_map(
+    command_model_configs: &serde_json::Value,
+) -> HashMap<String, String> {
+    let mut model_name_map = HashMap::new();
+    collect_antigravity_model_name_map(command_model_configs, &mut model_name_map);
+    model_name_map
+}
+
+fn antigravity_strip_parenthetical_suffix(label: &str) -> String {
+    let trimmed = label.trim();
+    if !trimmed.ends_with(')') {
+        return trimmed.to_string();
+    }
+    let Some(idx) = trimmed.rfind(" (") else {
+        return trimmed.to_string();
+    };
+    let candidate = trimmed[..idx].trim();
+    if candidate.is_empty() {
+        trimmed.to_string()
+    } else {
+        candidate.to_string()
+    }
+}
+
+fn antigravity_window_label(
+    object: &serde_json::Map<String, serde_json::Value>,
+    model_name_map: &HashMap<String, String>,
+) -> Option<(Option<String>, String)> {
+    let model_id = object
+        .get("modelId")
+        .or_else(|| object.get("id"))
+        .or_else(|| {
+            object
+                .get("modelOrAlias")
+                .and_then(|value| value.get("model"))
+        })
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
+
+    let raw_label = object
+        .get("modelDisplayName")
+        .or_else(|| object.get("displayName"))
+        .or_else(|| object.get("label"))
+        .or_else(|| object.get("modelName"))
+        .or_else(|| object.get("name"))
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .or_else(|| model_id.clone())?;
+
+    let resolved_from_id = model_id
+        .as_ref()
+        .and_then(|model_id| model_name_map.get(model_id))
+        .cloned();
+    let label = resolved_from_id
+        .or_else(|| model_name_map.get(&raw_label).cloned())
+        .unwrap_or_else(|| raw_label.clone());
+    let label = antigravity_strip_parenthetical_suffix(&label);
+    Some((model_id, label))
+}
+
+fn antigravity_quota_window_from_object(
+    object: &serde_json::Map<String, serde_json::Value>,
+    model_name_map: &HashMap<String, String>,
+) -> Option<AntigravityQuotaWindow> {
+    let quota_info = object.get("quotaInfo").and_then(|value| value.as_object());
+
+    let mut remaining_fraction = object
+        .get("remainingFraction")
+        .or_else(|| object.get("remaining_fraction"))
+        .or_else(|| object.get("remaining"))
+        .or_else(|| quota_info.and_then(|quota| quota.get("remainingFraction")))
+        .or_else(|| quota_info.and_then(|quota| quota.get("remaining_fraction")))
+        .or_else(|| quota_info.and_then(|quota| quota.get("remaining")))
+        .and_then(antigravity_value_as_f64)?;
+    if remaining_fraction > 1.0 && remaining_fraction <= 100.0 {
+        remaining_fraction /= 100.0;
+    }
+    if !(0.0..=1.0).contains(&remaining_fraction) {
+        remaining_fraction = remaining_fraction.clamp(0.0, 1.0);
+    }
+
+    let reset_at = object
+        .get("resetAt")
+        .or_else(|| object.get("resetsAt"))
+        .or_else(|| object.get("resetTime"))
+        .or_else(|| object.get("reset_at"))
+        .or_else(|| quota_info.and_then(|quota| quota.get("resetAt")))
+        .or_else(|| quota_info.and_then(|quota| quota.get("resetsAt")))
+        .or_else(|| quota_info.and_then(|quota| quota.get("resetTime")))
+        .or_else(|| quota_info.and_then(|quota| quota.get("reset_at")))
+        .and_then(|value| {
+            value
+                .as_str()
+                .map(|value| value.to_string())
+                .or_else(|| value.as_i64().map(|value| value.to_string()))
+                .or_else(|| value.as_u64().map(|value| value.to_string()))
+        });
+
+    let (model_id, label) = antigravity_window_label(object, model_name_map)?;
+    Some(AntigravityQuotaWindow {
+        model_id,
+        label,
+        remaining_fraction,
+        reset_at,
+    })
+}
+
+fn collect_antigravity_quota_windows(
+    value: &serde_json::Value,
+    model_name_map: &HashMap<String, String>,
+    windows: &mut Vec<AntigravityQuotaWindow>,
+) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(window) = antigravity_quota_window_from_object(map, model_name_map) {
+                windows.push(window);
+            }
+            for child in map.values() {
+                collect_antigravity_quota_windows(child, model_name_map, windows);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_antigravity_quota_windows(item, model_name_map, windows);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn antigravity_format_reset_time(raw: &str) -> Option<String> {
+    raw.parse::<i64>()
+        .ok()
+        .and_then(format_reset_time_from_epoch)
+        .or_else(|| format_reset_time_from_iso(raw))
+}
+
+fn antigravity_format_quota_value(window: &AntigravityQuotaWindow) -> String {
+    let mut value = format!(
+        "remain {}",
+        format_percent_value((window.remaining_fraction * 100.0).clamp(0.0, 100.0))
+    );
+    if let Some(reset_in) = window
+        .reset_at
+        .as_deref()
+        .and_then(antigravity_format_reset_time)
+    {
+        value.push_str(" · reset ");
+        value.push_str(&reset_in);
+    }
+    value
+}
+
+fn antigravity_selected_model_sentinel() -> Option<i32> {
+    #[cfg(test)]
+    {
+        return None;
+    }
+
+    #[cfg(not(test))]
+    let raw = read_antigravity_storage_value(
+        "antigravityUnifiedStateSync.modelPreferences",
+        "antigravity model preferences",
+    )?;
+    #[cfg(not(test))]
+    let entries = parse_antigravity_unified_state(&raw)?;
+    #[cfg(not(test))]
+    entries
+        .into_iter()
+        .find(|(key, _)| key == "last_selected_agent_model_sentinel_key")
+        .and_then(|(_, value)| decode_antigravity_int32_value(&value))
+}
+
+fn antigravity_model_id_from_sentinel(sentinel: i32, model_ids: &[String]) -> Option<String> {
+    if sentinel <= 0 {
+        return None;
+    }
+
+    let mut candidates = Vec::new();
+    candidates.push(sentinel);
+    if sentinel >= 1000 {
+        candidates.push(sentinel - 1000);
+    }
+    if sentinel >= 100 {
+        candidates.push(sentinel % 1000);
+    }
+    candidates.retain(|candidate| *candidate > 0);
+    candidates.sort_unstable();
+    candidates.dedup();
+
+    for candidate in candidates {
+        let exact = format!("MODEL_PLACEHOLDER_M{candidate}");
+        if model_ids.iter().any(|model_id| model_id == &exact) {
+            return Some(exact);
+        }
+
+        let suffix = format!("_M{candidate}");
+        if let Some(found) = model_ids
+            .iter()
+            .find(|model_id| model_id.ends_with(&suffix))
+            .cloned()
+        {
+            return Some(found);
+        }
+    }
+
+    None
+}
+
+fn antigravity_model_label_from_sentinel_value(value: i32) -> Option<&'static str> {
+    // Last-resort fallback when live LSP fetch, cached usage data, and
+    // model-id resolution all fail. These sentinel values come from
+    // Antigravity's internal model enum and may need refreshing as the app
+    // updates its bundled model list.
+    match value {
+        18 => Some("Gemini 3 Flash"),
+        26 => Some("Claude Opus 4.6"),
+        35 => Some("Claude Sonnet 4.6"),
+        36 | 37 => Some("Gemini 3.1 Pro"),
+        _ => None,
+    }
+}
+
+fn antigravity_fallback_selected_model_label() -> Option<String> {
+    let sentinel = antigravity_selected_model_sentinel()?;
+    let mut candidates = Vec::new();
+    candidates.push(sentinel);
+    if sentinel >= 1000 {
+        candidates.push(sentinel - 1000);
+    }
+    if sentinel >= 100 {
+        candidates.push(sentinel % 1000);
+    }
+    candidates.sort_unstable();
+    candidates.dedup();
+
+    candidates
+        .into_iter()
+        .find_map(|value| antigravity_model_label_from_sentinel_value(value).map(str::to_string))
+}
+
+fn antigravity_selected_model_id(
+    user_status: &serde_json::Value,
+    model_ids: &[String],
+) -> Option<String> {
+    const PATHS: [&str; 4] = [
+        "/userStatus/cascadeModelConfigData/defaultOverrideModelConfig/modelOrAlias/model",
+        "/cascadeModelConfigData/defaultOverrideModelConfig/modelOrAlias/model",
+        "/userStatus/defaultOverrideModelConfig/modelOrAlias/model",
+        "/defaultOverrideModelConfig/modelOrAlias/model",
+    ];
+    if let Some(model_id) = PATHS.iter().find_map(|path| {
+        user_status
+            .pointer(path)
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
+    }) {
+        return Some(model_id);
+    }
+
+    if let Some(sentinel) = antigravity_selected_model_sentinel() {
+        if let Some(model_id) = antigravity_model_id_from_sentinel(sentinel, model_ids) {
+            return Some(model_id);
+        }
+    }
+    None
+}
+
+fn parse_antigravity_usage_snapshot(data: &serde_json::Value) -> Option<AntigravityUsageSnapshot> {
+    let user_status = data
+        .get("user_status")
+        .or_else(|| data.get("userStatus"))
+        .unwrap_or(data);
+    let command_model_configs = data
+        .get("command_model_configs")
+        .or_else(|| data.get("commandModelConfigs"))
+        .unwrap_or(&serde_json::Value::Null);
+
+    let model_name_map = antigravity_model_name_map(command_model_configs);
+    let mut windows = Vec::new();
+    collect_antigravity_quota_windows(user_status, &model_name_map, &mut windows);
+
+    let mut deduped = HashMap::<String, AntigravityQuotaWindow>::new();
+    let mut label_order = Vec::<String>::new();
+    for window in windows {
+        if !deduped.contains_key(&window.label) {
+            label_order.push(window.label.clone());
+        }
+        deduped
+            .entry(window.label.clone())
+            .and_modify(|existing| {
+                if window.remaining_fraction < existing.remaining_fraction {
+                    *existing = window.clone();
+                }
+            })
+            .or_insert(window);
+    }
+
+    let windows = label_order
+        .into_iter()
+        .filter_map(|label| deduped.remove(&label))
+        .collect::<Vec<_>>();
+
+    let mut model_ids = windows
+        .iter()
+        .filter_map(|window| window.model_id.clone())
+        .collect::<Vec<_>>();
+    model_ids.extend(model_name_map.keys().cloned());
+    model_ids.sort();
+    model_ids.dedup();
+
+    let mut selected_model_label = None;
+    let windows =
+        if let Some(selected_model_id) = antigravity_selected_model_id(user_status, &model_ids) {
+            let selected_model_label_hint = model_name_map
+                .get(&selected_model_id)
+                .map(|label| antigravity_strip_parenthetical_suffix(label));
+            let selected_windows = windows
+                .iter()
+                .filter(|window| {
+                    window.model_id.as_deref() == Some(selected_model_id.as_str())
+                        || selected_model_label_hint
+                            .as_deref()
+                            .is_some_and(|label| window.label == label)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+
+            if !selected_windows.is_empty() {
+                selected_model_label = selected_windows.first().map(|window| window.label.clone());
+                selected_windows
+            } else {
+                windows
+            }
+        } else {
+            windows
+        };
+
+    let selected_window = if selected_model_label.is_none() {
+        match windows.first().cloned() {
+            Some(window) => {
+                selected_model_label = Some(window.label.clone());
+                Some(window)
+            }
+            None => None,
+        }
+    } else {
+        windows.first().cloned()
+    };
+
+    let summary = selected_window.as_ref().map(antigravity_format_quota_value);
+
+    Some(AntigravityUsageSnapshot {
+        summary,
+        selected_model_label,
+    })
+}
+
+fn load_antigravity_usage_snapshot() -> Option<AntigravityUsageSnapshot> {
+    let cache_path = antigravity_usage_cache_path();
+    // Antigravity model selection can change out of band while Kaku is open,
+    // so prefer a live local fetch and only fall back to cache when it fails.
+    if let Some(live) = fetch_antigravity_usage_json() {
+        write_json_cache(&cache_path, &live);
+        if let Some(snapshot) = parse_antigravity_usage_snapshot(&live) {
+            return Some(snapshot);
+        }
+    }
+
+    if cache_path.exists() && usage_cache_is_fresh(&cache_path) {
+        if let Some(cached) = load_usage_json_from_cache(&cache_path, "antigravity usage cache")
+            .and_then(|value| parse_antigravity_usage_snapshot(&value))
+        {
+            return Some(cached);
+        }
+    }
+
+    Some(antigravity_fallback_usage_snapshot())
+}
+
+fn antigravity_fallback_usage_snapshot() -> AntigravityUsageSnapshot {
+    AntigravityUsageSnapshot {
+        summary: None,
+        selected_model_label: antigravity_fallback_selected_model_label(),
+    }
+}
+
+fn load_cached_antigravity_usage_snapshot() -> AntigravityUsageSnapshot {
+    let cache_path = antigravity_usage_cache_path();
+    if cache_path.exists() && usage_cache_is_fresh(&cache_path) {
+        if let Some(cached) = load_usage_json_from_cache(&cache_path, "antigravity usage cache")
+            .and_then(|value| parse_antigravity_usage_snapshot(&value))
+        {
+            return cached;
+        }
+    }
+
+    antigravity_fallback_usage_snapshot()
 }
 
 fn format_duration_short(total_seconds: i64) -> Option<String> {
@@ -497,17 +1457,47 @@ fn format_reset_time_from_iso(reset_at: &str) -> Option<String> {
 fn supports_remote_usage(tool: Tool) -> bool {
     matches!(
         tool,
-        Tool::ClaudeCode | Tool::Codex | Tool::Kimi | Tool::Copilot
+        Tool::ClaudeCode | Tool::Codex | Tool::Kimi | Tool::Antigravity | Tool::Copilot
     )
 }
 
-fn load_usage_summary(tool: Tool) -> Option<String> {
+fn load_usage_update(tool: Tool) -> UsageSummaryUpdate {
     match tool {
-        Tool::ClaudeCode => load_claude_usage_snapshot().and_then(|snapshot| snapshot.summary),
-        Tool::Codex => load_codex_usage_snapshot().and_then(|snapshot| snapshot.summary),
-        Tool::Kimi => load_kimi_usage_snapshot().and_then(|snapshot| snapshot.summary),
-        Tool::Copilot => load_copilot_usage_snapshot().and_then(|snapshot| snapshot.summary),
-        _ => None,
+        Tool::Antigravity => {
+            let snapshot = load_antigravity_usage_snapshot();
+            UsageSummaryUpdate {
+                tool,
+                summary: snapshot
+                    .as_ref()
+                    .and_then(|snapshot| snapshot.summary.clone()),
+                fields: Some(extract_antigravity_fields(snapshot.as_ref())),
+            }
+        }
+        Tool::ClaudeCode => UsageSummaryUpdate {
+            tool,
+            summary: load_claude_usage_snapshot().and_then(|snapshot| snapshot.summary),
+            fields: None,
+        },
+        Tool::Codex => UsageSummaryUpdate {
+            tool,
+            summary: load_codex_usage_snapshot().and_then(|snapshot| snapshot.summary),
+            fields: None,
+        },
+        Tool::Kimi => UsageSummaryUpdate {
+            tool,
+            summary: load_kimi_usage_snapshot().and_then(|snapshot| snapshot.summary),
+            fields: None,
+        },
+        Tool::Copilot => UsageSummaryUpdate {
+            tool,
+            summary: load_copilot_usage_snapshot().and_then(|snapshot| snapshot.summary),
+            fields: None,
+        },
+        _ => UsageSummaryUpdate {
+            tool,
+            summary: None,
+            fields: None,
+        },
     }
 }
 
@@ -1848,8 +2838,7 @@ fn get_copilot_account() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// Get Claude Code account email from claude auth status
-fn get_claude_code_account() -> Option<String> {
+fn read_claude_auth_status_json() -> Option<serde_json::Value> {
     let output = match std::process::Command::new("claude")
         .args(["auth", "status"])
         .stdout(std::process::Stdio::piped())
@@ -1879,9 +2868,37 @@ fn get_claude_code_account() -> Option<String> {
     let parsed: serde_json::Value = serde_json::from_str(&json_str)
         .map_err(|e| log::debug!("failed to parse claude auth status json: {}", e))
         .ok()?;
+    Some(parsed)
+}
 
-    // Extract email from auth status JSON
-    parsed.get("email")?.as_str().map(|s| s.to_string())
+fn parse_claude_auth_status(parsed: &serde_json::Value) -> Option<String> {
+    let logged_in = parsed.get("loggedIn").and_then(|value| value.as_bool());
+    if matches!(logged_in, Some(false)) {
+        return Some("✗ not signed in".into());
+    }
+
+    let account = parsed
+        .get("email")
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string());
+    let auth_method = parsed
+        .get("authMethod")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("oauth");
+
+    if logged_in == Some(true) || account.is_some() {
+        Some(format_auth_status(account, auth_method))
+    } else {
+        None
+    }
+}
+
+fn read_claude_auth_status() -> Option<String> {
+    read_claude_auth_status_json()
+        .as_ref()
+        .and_then(parse_claude_auth_status)
+        .or_else(|| read_claude_oauth_access_token().map(|_| format_auth_status(None, "oauth")))
 }
 
 fn kimi_credentials_path() -> PathBuf {
@@ -2084,13 +3101,10 @@ fn extract_claude_code_fields(val: &serde_json::Value) -> Vec<FieldEntry> {
         ..Default::default()
     }];
 
-    // Auth status: Claude Code uses OAuth; statsig dir indicates active session
-    let statsig_dir = config::HOME_DIR.join(".claude").join("statsig");
-    if statsig_dir.exists() {
-        let account = get_claude_code_account();
+    if let Some(auth_status) = read_claude_auth_status() {
         fields.push(FieldEntry {
             key: "Auth".into(),
-            value: format_auth_status(account, "oauth"),
+            value: auth_status,
             options: vec![],
             editable: false,
         });
@@ -2232,6 +3246,48 @@ fn extract_kimi_fields(raw: &str) -> Vec<FieldEntry> {
             editable: false,
         },
     ]
+}
+
+fn extract_antigravity_fields(snapshot: Option<&AntigravityUsageSnapshot>) -> Vec<FieldEntry> {
+    let auth = read_antigravity_auth_status();
+    let account = auth.as_ref().and_then(|status| {
+        status
+            .get("email")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
+            .or_else(|| {
+                status
+                    .get("name")
+                    .and_then(|value| value.as_str())
+                    .filter(|value| !value.is_empty())
+                    .map(|value| value.to_string())
+            })
+    });
+
+    let mut fields = Vec::new();
+
+    if let Some(snapshot) = snapshot {
+        if let Some(label) = &snapshot.selected_model_label {
+            fields.push(FieldEntry {
+                key: "Model".into(),
+                value: label.clone(),
+                options: vec![],
+                editable: false,
+            });
+        }
+    }
+
+    if auth.is_some() {
+        fields.push(FieldEntry {
+            key: "Auth".into(),
+            value: format_auth_status(account, "oauth"),
+            options: vec![],
+            editable: false,
+        });
+    }
+
+    fields
 }
 
 /// Read model slugs from Codex's own cache, or from models.dev.
@@ -2692,6 +3748,8 @@ struct App {
     mode: AppMode,
     status_msg: Option<String>,
     status_expire: Option<Instant>,
+    toast_msg: Option<String>,
+    toast_expire: Option<Instant>,
     last_error: Option<String>,
     error_expire: Option<Instant>,
     should_quit: bool,
@@ -2730,12 +3788,14 @@ impl App {
             mode: AppMode::Browsing,
             status_msg: None,
             status_expire: None,
+            toast_msg: None,
+            toast_expire: None,
             last_error: None,
             error_expire: None,
             should_quit: false,
         };
         app.restart_usage_loading();
-        app.sync_transient_errors();
+        let _ = app.sync_transient_errors();
         app
     }
 
@@ -2900,28 +3960,63 @@ impl App {
         self.status_expire = Some(Instant::now() + UI_STATUS_TTL);
     }
 
-    fn sync_transient_errors(&mut self) {
-        self.drain_usage_updates();
+    fn set_toast(&mut self, message: impl Into<String>) {
+        self.toast_msg = Some(message.into());
+        self.toast_expire = Some(Instant::now() + UI_STATUS_TTL);
+    }
+
+    fn toast_message(&self) -> Option<&str> {
+        self.toast_msg.as_deref()
+    }
+
+    fn open_antigravity_app(&mut self) {
+        #[cfg(test)]
+        {
+            return;
+        }
+
+        #[cfg(not(test))]
+        match std::process::Command::new("open")
+            .args(["-a", "Antigravity"])
+            .status()
+        {
+            Ok(status) if status.success() => {}
+            Ok(status) => self.set_error(format!(
+                "Failed to open Antigravity (exit status: {})",
+                status
+            )),
+            Err(err) => self.set_error(format!("Failed to open Antigravity: {}", err)),
+        }
+    }
+
+    fn sync_transient_errors(&mut self) -> bool {
+        let mut changed = self.drain_usage_updates();
 
         while let Some(error) = pop_ui_error() {
             self.set_error(error);
+            changed = true;
         }
 
-        if self
-            .status_expire
-            .is_some_and(|expire_at| Instant::now() >= expire_at)
-        {
+        let now = Instant::now();
+        if self.status_expire.is_some_and(|t| now >= t) {
             self.status_msg = None;
             self.status_expire = None;
+            changed = true;
         }
 
-        if self
-            .error_expire
-            .is_some_and(|expire_at| Instant::now() >= expire_at)
-        {
+        if self.toast_expire.is_some_and(|t| now >= t) {
+            self.toast_msg = None;
+            self.toast_expire = None;
+            changed = true;
+        }
+
+        if self.error_expire.is_some_and(|t| now >= t) {
             self.last_error = None;
             self.error_expire = None;
+            changed = true;
         }
+
+        changed
     }
 
     fn restart_usage_loading(&mut self) {
@@ -2945,14 +4040,11 @@ impl App {
                 if active_generation.load(Ordering::Relaxed) != generation {
                     return;
                 }
-                let summary = load_usage_summary(tool_kind);
+                let update = load_usage_update(tool_kind);
                 if active_generation.load(Ordering::Relaxed) != generation {
                     return;
                 }
-                let _ = tx.send(UsageSummaryUpdate {
-                    tool: tool_kind,
-                    summary,
-                });
+                let _ = tx.send(update);
             });
         }
 
@@ -2985,17 +4077,17 @@ impl App {
             if active_generation.load(Ordering::Relaxed) != generation {
                 return;
             }
-            let summary = load_usage_summary(tool);
+            let update = load_usage_update(tool);
             if active_generation.load(Ordering::Relaxed) != generation {
                 return;
             }
-            let _ = tx.send(UsageSummaryUpdate { tool, summary });
+            let _ = tx.send(update);
         });
     }
 
-    fn drain_usage_updates(&mut self) {
+    fn drain_usage_updates(&mut self) -> bool {
         let Some(rx) = &self.usage_update_rx else {
-            return;
+            return false;
         };
 
         let mut updates = Vec::new();
@@ -3003,8 +4095,12 @@ impl App {
             updates.push(update);
         }
 
+        let changed = !updates.is_empty();
         for update in updates {
             if let Some(index) = self.tools.iter().position(|tool| tool.tool == update.tool) {
+                if let Some(fields) = update.fields {
+                    self.tools[index].fields = fields;
+                }
                 let installed = self.tools[index].installed;
                 let summary = summarize_tool_fields(
                     update.tool,
@@ -3015,9 +4111,11 @@ impl App {
                 self.tools[index].summary = summary;
             }
         }
+        changed
     }
 
     fn set_from_flat(&mut self, flat: usize) {
+        let previous_tool = self.current_tool().map(|tool| tool.tool);
         let mut remaining = flat;
         for (ti, _) in self.tools.iter().enumerate() {
             let count = self.tool_row_count(ti);
@@ -3027,6 +4125,11 @@ impl App {
             if remaining < count {
                 self.tool_index = ti;
                 self.field_index = remaining;
+                if self.current_tool().map(|tool| tool.tool) != previous_tool {
+                    if let Some(tool) = self.current_tool().map(|tool| tool.tool) {
+                        self.schedule_usage_reload(tool);
+                    }
+                }
                 return;
             }
             remaining -= count;
@@ -3089,6 +4192,12 @@ impl App {
         }
         let field = &tool.fields[selected_field_idx];
 
+        if tool.tool == Tool::Antigravity && field.key == "Model" {
+            self.set_toast("Change the model in Antigravity settings.");
+            self.open_antigravity_app();
+            return;
+        }
+
         // Show OAuth re-authentication command for non-editable auth fields
         if !field.editable {
             if field.key == "Auth" || (field.value.starts_with('✓') && !field.key.contains(" ▸ "))
@@ -3098,6 +4207,7 @@ impl App {
                     Tool::Gemini => Some("gemini auth login"),
                     Tool::Codex => Some("codex auth login"),
                     Tool::Kimi => Some("kimi login"),
+                    Tool::Antigravity => Some("open -a Antigravity"),
                     Tool::Copilot => Some("gh auth login"),
                     Tool::FactoryDroid => Some("droid"),
                     Tool::ClaudeCode => Some("claude auth login"),
@@ -3106,7 +4216,7 @@ impl App {
 
                 if let Some(auth_cmd) = cmd {
                     self.open_in_terminal(auth_cmd);
-                } else {
+                } else if tool.tool == Tool::OpenClaw {
                     self.set_status("OpenClaw uses API keys, check config file");
                 }
             }
@@ -3286,6 +4396,10 @@ impl App {
         if let Err(e) = std::fs::remove_file(&kimi_usage_cache) {
             log::trace!("Could not remove kimi usage cache: {}", e);
         }
+        let antigravity_usage_cache = antigravity_usage_cache_path();
+        if let Err(e) = std::fs::remove_file(&antigravity_usage_cache) {
+            log::trace!("Could not remove antigravity usage cache: {}", e);
+        }
 
         let models_refreshed = fetch_models_dev_json().is_some();
         let show_assistant = kaku_assistant_visible();
@@ -3303,7 +4417,7 @@ impl App {
             self.set_status("Usage refreshed");
             self.set_error("Models refresh failed. Kept local model cache.");
         }
-        self.sync_transient_errors();
+        let _ = self.sync_transient_errors();
     }
 
     /// Open a shell command in a new Kaku tab (preferred) or fall back to Terminal.app.
@@ -3361,6 +4475,7 @@ fn save_field(tool: Tool, field_key: &str, new_val: &str) -> anyhow::Result<()> 
 
     match tool {
         Tool::KakuAssistant => unreachable!("Kaku Assistant is handled before JSON parsing"),
+        Tool::Antigravity => return Ok(()),
         Tool::Gemini => {
             if field_key == "Model" {
                 if let Some(obj) = parsed.as_object_mut() {
@@ -3750,14 +4865,22 @@ fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
 ) -> anyhow::Result<()> {
+    let mut needs_redraw = true;
     loop {
-        app.sync_transient_errors();
-        terminal.draw(|frame| ui::ui(frame, app))?;
+        if app.sync_transient_errors() {
+            needs_redraw = true;
+        }
+
+        if needs_redraw {
+            terminal.draw(|frame| ui::ui(frame, app))?;
+            needs_redraw = false;
+        }
 
         if !event::poll(EVENT_POLL_INTERVAL).context("poll event")? {
             continue;
         }
 
+        needs_redraw = true;
         match event::read().context("read event")? {
             Event::Key(key) if key.kind == KeyEventKind::Press => {
                 app.status_msg = None;
@@ -3987,7 +5110,47 @@ fn edit_insert_char(buf: &mut String, cursor: &mut usize, c: char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
     use tempfile::tempdir;
+
+    fn encode_varint(mut value: u64) -> Vec<u8> {
+        let mut out = Vec::new();
+        loop {
+            let mut byte = (value & 0x7f) as u8;
+            value >>= 7;
+            if value != 0 {
+                byte |= 0x80;
+            }
+            out.push(byte);
+            if value == 0 {
+                return out;
+            }
+        }
+    }
+
+    fn encode_len_delimited(field_number: u64, payload: &[u8]) -> Vec<u8> {
+        let mut out = encode_varint((field_number << 3) | 2);
+        out.extend(encode_varint(payload.len() as u64));
+        out.extend(payload);
+        out
+    }
+
+    fn encode_int32_state_value(value: i32) -> String {
+        let mut out = encode_varint(2 << 3);
+        out.extend(encode_varint(value as u64));
+        base64::engine::general_purpose::STANDARD.encode(out)
+    }
+
+    fn encode_antigravity_unified_state(entries: &[(&str, &str)]) -> String {
+        let mut outer = Vec::new();
+        for (key, value) in entries {
+            let nested_value = encode_len_delimited(1, value.as_bytes());
+            let mut entry = encode_len_delimited(1, key.as_bytes());
+            entry.extend(encode_len_delimited(2, &nested_value));
+            outer.extend(encode_len_delimited(1, &entry));
+        }
+        base64::engine::general_purpose::STANDARD.encode(outer)
+    }
 
     #[test]
     fn codex_save_round_trip_for_model_and_reasoning_effort() {
@@ -4241,6 +5404,337 @@ mod tests {
     }
 
     #[test]
+    fn summarize_antigravity_uses_usage_summary() {
+        let fields = vec![
+            FieldEntry {
+                key: "Plan".into(),
+                value: "Google AI Pro".into(),
+                options: vec![],
+                editable: false,
+            },
+            FieldEntry {
+                key: "Auth".into(),
+                value: "✓ hitw93@gmail.com".into(),
+                options: vec![],
+                editable: false,
+            },
+        ];
+
+        assert_eq!(
+            summarize_tool_fields(
+                Tool::Antigravity,
+                true,
+                &fields,
+                Some("remain 60% · reset 3d4h"),
+            ),
+            Some("remain 60% · reset 3d4h".into())
+        );
+    }
+
+    #[test]
+    fn summarize_antigravity_falls_back_to_sync_message_when_model_present() {
+        let fields = vec![FieldEntry {
+            key: "Model".into(),
+            value: "Gemini 3.1 Pro".into(),
+            options: vec![],
+            editable: false,
+        }];
+
+        assert_eq!(
+            summarize_tool_fields(Tool::Antigravity, true, &fields, None),
+            Some("Open Antigravity to sync quota".into())
+        );
+    }
+
+    #[test]
+    fn antigravity_unified_state_decodes_int32_credit_values() {
+        let available = encode_int32_state_value(128);
+        let minimum = encode_int32_state_value(4);
+        let raw = encode_antigravity_unified_state(&[
+            ("availableCreditsSentinelKey", &available),
+            ("minimumCreditAmountForUsageKey", &minimum),
+        ]);
+
+        let entries = parse_antigravity_unified_state(&raw).expect("entries");
+        let parsed_available = entries
+            .iter()
+            .find(|(key, _)| key == "availableCreditsSentinelKey")
+            .and_then(|(_, value)| decode_antigravity_int32_value(value));
+        let parsed_minimum = entries
+            .iter()
+            .find(|(key, _)| key == "minimumCreditAmountForUsageKey")
+            .and_then(|(_, value)| decode_antigravity_int32_value(value));
+
+        assert_eq!(parsed_available, Some(128));
+        assert_eq!(parsed_minimum, Some(4));
+    }
+
+    #[test]
+    fn antigravity_model_label_from_sentinel_value_maps_known_models() {
+        assert_eq!(
+            antigravity_model_label_from_sentinel_value(37),
+            Some("Gemini 3.1 Pro")
+        );
+        assert_eq!(
+            antigravity_model_label_from_sentinel_value(35),
+            Some("Claude Sonnet 4.6")
+        );
+    }
+
+    #[test]
+    fn antigravity_model_id_from_sentinel_maps_placeholder_suffix() {
+        let model_ids = vec![
+            "MODEL_PLACEHOLDER_M37".to_string(),
+            "MODEL_PLACEHOLDER_M35".to_string(),
+            "MODEL_PLACEHOLDER_M18".to_string(),
+        ];
+        assert_eq!(
+            antigravity_model_id_from_sentinel(1035, &model_ids),
+            Some("MODEL_PLACEHOLDER_M35".into())
+        );
+    }
+
+    #[test]
+    fn antigravity_process_info_parses_pid_csrf_and_extension_port() {
+        let line = "34643 /Applications/Antigravity.app/Contents/Resources/app/extensions/antigravity/bin/language_server_macos_arm --enable_lsp --csrf_token abc --extension_server_port 56502 --extension_server_csrf_token def --random_port --app_data_dir antigravity";
+        let parsed = parse_antigravity_process_info_line(line).expect("process info");
+        assert_eq!(parsed.pid, 34643);
+        assert_eq!(parsed.csrf_token, "abc");
+        assert_eq!(parsed.extension_server_port, Some(56502));
+    }
+
+    #[test]
+    fn antigravity_process_info_rejects_non_app_server_processes() {
+        let line = "34643 /tmp/language_server_macos_arm --enable_lsp --csrf_token abc --extension_server_port 56502";
+        assert!(parse_antigravity_process_info_line(line).is_none());
+    }
+
+    #[test]
+    fn antigravity_unified_state_returns_none_for_malformed_payload() {
+        let raw = base64::engine::general_purpose::STANDARD.encode([0x0a, 0x05, 0x01]);
+        assert!(parse_antigravity_unified_state(&raw).is_none());
+    }
+
+    #[test]
+    fn antigravity_usage_snapshot_parses_live_quota_windows() {
+        let data = serde_json::json!({
+            "user_status": {
+                "userStatus": {
+                    "cascadeModelConfigData": {
+                        "clientModelConfigs": [
+                            {
+                                "label": "Claude Sonnet 4.6 (Thinking)",
+                                "modelOrAlias": {
+                                    "model": "claude-sonnet-thinking"
+                                },
+                                "quotaInfo": {
+                                    "remainingFraction": 0.6,
+                                    "resetTime": "2100-03-12T07:44:33Z"
+                                }
+                            },
+                            {
+                                "label": "Gemini 3 Flash",
+                                "quotaInfo": {
+                                    "remainingFraction": 1.0
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "command_model_configs": {
+                "configs": [
+                    {
+                        "modelId": "claude-sonnet-thinking",
+                        "modelDisplayName": "Claude Sonnet 4.6 (Thinking)"
+                    }
+                ]
+            }
+        });
+
+        let snapshot = parse_antigravity_usage_snapshot(&data).expect("snapshot");
+        assert_eq!(
+            snapshot.selected_model_label,
+            Some("Claude Sonnet 4.6".into())
+        );
+        assert!(snapshot
+            .summary
+            .as_deref()
+            .is_some_and(|summary| summary.starts_with("remain 60%")));
+    }
+
+    #[test]
+    fn antigravity_usage_snapshot_falls_back_to_first_model_when_unselected() {
+        let data = serde_json::json!({
+            "user_status": {
+                "userStatus": {
+                    "cascadeModelConfigData": {
+                        "clientModelConfigs": [
+                            { "label": "Claude Opus 4.6 (Thinking)", "quotaInfo": { "remainingFraction": 1.0 } },
+                            { "label": "Claude Sonnet 4.6 (Thinking)", "quotaInfo": { "remainingFraction": 1.0 } },
+                            { "label": "Gemini 3 Flash", "quotaInfo": { "remainingFraction": 1.0 } },
+                            { "label": "Gemini 3.1 Pro (High)", "quotaInfo": { "remainingFraction": 1.0 } }
+                        ]
+                    }
+                }
+            }
+        });
+
+        let snapshot = parse_antigravity_usage_snapshot(&data).expect("snapshot");
+        assert_eq!(
+            snapshot.selected_model_label,
+            Some("Claude Opus 4.6".into())
+        );
+        assert_eq!(snapshot.summary.as_deref(), Some("remain 100%"));
+    }
+
+    #[test]
+    fn antigravity_usage_snapshot_falls_back_to_first_non_selected_model() {
+        let data = serde_json::json!({
+            "user_status": {
+                "userStatus": {
+                    "cascadeModelConfigData": {
+                        "clientModelConfigs": [
+                            { "label": "Claude Sonnet 4.6 (Thinking)", "quotaInfo": { "remainingFraction": 0.6 } },
+                            { "label": "Gemini 3 Flash", "quotaInfo": { "remainingFraction": 1.0 } },
+                            { "label": "GPT-OSS 120B (Medium)", "quotaInfo": { "remainingFraction": 0.6 } }
+                        ]
+                    }
+                }
+            }
+        });
+
+        let snapshot = parse_antigravity_usage_snapshot(&data).expect("snapshot");
+        assert_eq!(
+            snapshot.selected_model_label,
+            Some("Claude Sonnet 4.6".into())
+        );
+        assert_eq!(snapshot.summary.as_deref(), Some("remain 60%"));
+    }
+
+    #[test]
+    fn antigravity_usage_snapshot_prefers_default_override_model_when_available() {
+        let data = serde_json::json!({
+            "user_status": {
+                "userStatus": {
+                    "cascadeModelConfigData": {
+                        "defaultOverrideModelConfig": {
+                            "modelOrAlias": {
+                                "model": "MODEL_PLACEHOLDER_M18"
+                            }
+                        },
+                        "clientModelConfigs": [
+                            { "label": "Gemini 3 Flash", "modelOrAlias": { "model": "MODEL_PLACEHOLDER_M18" }, "quotaInfo": { "remainingFraction": 1.0 } },
+                            { "label": "Claude Sonnet 4.6 (Thinking)", "modelOrAlias": { "model": "MODEL_PLACEHOLDER_M35" }, "quotaInfo": { "remainingFraction": 0.6 } },
+                            { "label": "Gemini 3.1 Pro (High)", "modelOrAlias": { "model": "MODEL_PLACEHOLDER_M37" }, "quotaInfo": { "remainingFraction": 1.0 } }
+                        ]
+                    }
+                }
+            }
+        });
+
+        let snapshot = parse_antigravity_usage_snapshot(&data).expect("snapshot");
+        assert_eq!(snapshot.selected_model_label, Some("Gemini 3 Flash".into()));
+        assert_eq!(snapshot.summary.as_deref(), Some("remain 100%"));
+    }
+
+    #[test]
+    fn antigravity_usage_snapshot_prefers_live_default_override_over_stale_sentinel() {
+        let data = serde_json::json!({
+            "user_status": {
+                "userStatus": {
+                    "cascadeModelConfigData": {
+                        "defaultOverrideModelConfig": {
+                            "modelOrAlias": {
+                                "model": "MODEL_PLACEHOLDER_M37"
+                            }
+                        },
+                        "clientModelConfigs": [
+                            { "label": "Gemini 3.1 Pro (High)", "modelOrAlias": { "model": "MODEL_PLACEHOLDER_M37" }, "quotaInfo": { "remainingFraction": 1.0 } },
+                            { "label": "Claude Sonnet 4.6 (Thinking)", "modelOrAlias": { "model": "MODEL_PLACEHOLDER_M35" }, "quotaInfo": { "remainingFraction": 0.6 } }
+                        ]
+                    }
+                }
+            }
+        });
+
+        let snapshot = parse_antigravity_usage_snapshot(&data).expect("snapshot");
+        assert_eq!(snapshot.selected_model_label, Some("Gemini 3.1 Pro".into()));
+        assert_eq!(snapshot.summary.as_deref(), Some("remain 100%"));
+    }
+
+    #[test]
+    fn extract_antigravity_fields_include_model_and_auth_only() {
+        let snapshot = AntigravityUsageSnapshot {
+            summary: Some("remain 60%".into()),
+            selected_model_label: Some("Claude Sonnet 4.6".into()),
+        };
+
+        let fields = extract_antigravity_fields(Some(&snapshot));
+        assert!(fields
+            .iter()
+            .any(|field| field.key == "Model" && field.value == "Claude Sonnet 4.6"));
+        assert!(fields.iter().all(|field| field.key != "Quota"));
+        assert!(fields
+            .iter()
+            .all(|field| !field.key.starts_with("Quota · ")));
+        assert!(fields.iter().all(|field| field.key != "Prompt Credits"));
+        assert!(fields.iter().all(|field| field.key != "Flow Credits"));
+        assert!(fields.iter().all(|field| field.key != "Plan"));
+    }
+
+    #[test]
+    fn antigravity_model_click_shows_toast_instead_of_editing() {
+        let mut app = App {
+            tools: vec![ToolState {
+                tool: Tool::Antigravity,
+                installed: true,
+                fields: vec![FieldEntry {
+                    key: "Model".into(),
+                    value: "Gemini 3.1 Pro".into(),
+                    options: vec![],
+                    editable: false,
+                }],
+                summary: Some("remain 100%".into()),
+            }],
+            tool_index: 0,
+            field_index: 0,
+            assistant_collapsed: false,
+            usage_update_rx: None,
+            usage_update_tx: None,
+            usage_update_generation: Arc::new(AtomicUsize::new(0)),
+            focus: Focus::ToolList,
+            mode: AppMode::Browsing,
+            status_msg: None,
+            status_expire: None,
+            toast_msg: None,
+            toast_expire: None,
+            last_error: None,
+            error_expire: None,
+            should_quit: false,
+        };
+
+        app.start_edit();
+
+        assert_eq!(
+            app.toast_message(),
+            Some("Change the model in Antigravity settings.")
+        );
+        assert!(!app.is_editing());
+        assert!(!app.is_selecting());
+    }
+
+    #[test]
+    fn antigravity_plan_name_extracts_google_ai_tier() {
+        let raw = base64::engine::general_purpose::STANDARD
+            .encode(b"\0\0Google AI Pro\0ignored model text");
+        assert_eq!(
+            extract_antigravity_plan_name(&raw),
+            Some("Google AI Pro".into())
+        );
+    }
+
+    #[test]
     fn summarize_gemini_falls_back_to_auth_and_model_when_quota_missing() {
         let fields = vec![
             FieldEntry {
@@ -4442,6 +5936,33 @@ provider = "managed:kimi-code"
         } else {
             let _ = std::fs::remove_file(&path);
         }
+    }
+
+    #[test]
+    fn claude_auth_status_prefers_email_when_logged_in() {
+        let parsed = serde_json::json!({
+            "loggedIn": true,
+            "authMethod": "claude.ai",
+            "email": "user@example.com",
+        });
+
+        assert_eq!(
+            parse_claude_auth_status(&parsed),
+            Some("✓ user@example.com".into())
+        );
+    }
+
+    #[test]
+    fn claude_auth_status_reports_signed_out() {
+        let parsed = serde_json::json!({
+            "loggedIn": false,
+            "authMethod": "claude.ai",
+        });
+
+        assert_eq!(
+            parse_claude_auth_status(&parsed),
+            Some("✗ not signed in".into())
+        );
     }
 
     #[test]
