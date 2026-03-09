@@ -75,6 +75,7 @@ CLAUDE.md
 **/CLAUDE.md
 /assets/vendor/*
 !/assets/vendor/starship.toml
+.ace-tool/
 /.sisyphus/
 /log/
 

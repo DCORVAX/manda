@@ -311,6 +311,11 @@ impl super::TermWindow {
 
         match event.kind {
             WMEK::Release(ref press) => {
+                if press == &MousePress::Left && self.edge_drag_in_progress {
+                    self.edge_drag_in_progress = false;
+                    self.finish_mouse_release(*press);
+                    return;
+                }
                 if press == &MousePress::Left {
                     let was_dragging_window = self.is_window_dragging;
                     self.is_window_dragging = false;
@@ -341,6 +346,8 @@ impl super::TermWindow {
             }
 
             WMEK::Press(ref press) => {
+                // If a previous edge drag never received its Release, reset now.
+                self.edge_drag_in_progress = false;
                 capture_mouse = true;
 
                 // Perform click counting
@@ -381,6 +388,9 @@ impl super::TermWindow {
             }
 
             WMEK::Move => {
+                if self.edge_drag_in_progress {
+                    return;
+                }
                 if let Some(start) = self.window_drag_position.clone() {
                     if event.mouse_buttons != WMB::LEFT {
                         self.window_drag_position = None;
@@ -1094,10 +1104,9 @@ impl super::TermWindow {
             }
         }
 
-        // Compute near_window_edge early so we can prevent mouse capture
-        // from being set when the user clicks near the edge to resize.
-        // Without this, the Press sets capture → subsequent Move events
-        // during OS resize are routed to the terminal → unwanted selection.
+        // Detect when the mouse is in the OS resize handle zone.
+        // Only used to prevent mouse capture and to seed edge_drag_in_progress;
+        // event suppression is driven by edge_drag_in_progress state, not position.
         let outside_window = event.coords.x < 0
             || event.coords.x as usize > self.dimensions.pixel_width
             || event.coords.y < 0
@@ -1107,12 +1116,10 @@ impl super::TermWindow {
         let base_dpi: usize = 72;
         #[cfg(not(target_os = "macos"))]
         let base_dpi: usize = 96;
-        let edge_to_btn_gap: usize = 7;
-        let traffic_light_btn_diameter: usize = 14;
-        let resize_zone_pt = edge_to_btn_gap + traffic_light_btn_diameter;
+        let resize_zone_pt: usize = 5;
         let resize_zone =
             (resize_zone_pt * self.dimensions.dpi / base_dpi).max(resize_zone_pt) as isize;
-        let near_window_edge = event.coords.x < resize_zone
+        let in_resize_zone = event.coords.x < resize_zone
             || (event.coords.x as usize)
                 >= self
                     .dimensions
@@ -1125,8 +1132,12 @@ impl super::TermWindow {
                     .pixel_height
                     .saturating_sub(resize_zone as usize);
 
-        if capture_mouse && !near_window_edge {
+        if capture_mouse && !in_resize_zone {
             self.current_mouse_capture = Some(MouseCapture::TerminalPane(pane.pane_id()));
+        }
+
+        if matches!(event.kind, WMEK::Press(MousePress::Left)) && in_resize_zone {
+            self.edge_drag_in_progress = true;
         }
 
         let is_focused = if let Some(focused) = self.focused.as_ref() {
@@ -1233,7 +1244,11 @@ impl super::TermWindow {
             // When hovering over a hyperlink, show an appropriate
             // mouse cursor to give the cue that it is clickable
             MouseCursor::Hand
-        } else if pane.is_mouse_grabbed() || outside_window || near_window_edge {
+        } else if pane.is_mouse_grabbed()
+            || outside_window
+            || in_resize_zone
+            || self.edge_drag_in_progress
+        {
             MouseCursor::Arrow
         } else {
             MouseCursor::Text
@@ -1346,7 +1361,7 @@ impl super::TermWindow {
             return;
         }
 
-        if allow_action && !bypass_wheel_assignment_in_alt {
+        if allow_action && !self.edge_drag_in_progress && !bypass_wheel_assignment_in_alt {
             if let Some(mut event_trigger_type) = event_trigger_type {
                 self.current_event = Some(event_trigger_type.to_dynamic());
                 let mut modifiers = event.modifiers;
@@ -1465,6 +1480,7 @@ impl super::TermWindow {
         };
 
         if allow_action
+            && !self.edge_drag_in_progress
             && !(self.config.swallow_mouse_click_on_pane_focus && is_click_to_focus_pane)
         {
             if let Err(err) = pane.mouse_event(mouse_event) {
