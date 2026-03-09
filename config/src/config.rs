@@ -786,6 +786,14 @@ pub struct Config {
     #[dynamic(default)]
     pub window_close_confirmation: WindowCloseConfirmation,
 
+    /// When true, always ask for confirmation before closing a tab.
+    #[dynamic(default)]
+    pub tab_close_confirmation: bool,
+
+    /// When true, always ask for confirmation before closing a pane.
+    #[dynamic(default)]
+    pub pane_close_confirmation: bool,
+
     #[dynamic(default)]
     pub native_macos_fullscreen_mode: bool,
 
