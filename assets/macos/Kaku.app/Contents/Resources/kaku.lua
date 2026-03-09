@@ -143,9 +143,7 @@ local function padding_matches(current, expected)
     and current.bottom == expected.bottom
 end
 
--- Detect if user has custom config overrides in their config file.
--- Resolve the user config path, respecting XDG_CONFIG_HOME when set.
-local function kaku_user_config_path()
+local function default_kaku_user_config_path()
   local xdg = os.getenv('XDG_CONFIG_HOME')
   if xdg and xdg ~= '' then
     return xdg .. '/kaku/kaku.lua'
@@ -157,9 +155,42 @@ local function kaku_user_config_path()
   return nil
 end
 
+local function is_bundled_kaku_config_path(path)
+  if type(path) ~= 'string' or path == '' then
+    return false
+  end
+
+  local normalized = path:gsub('\\', '/')
+  return normalized:match('/Kaku%.app/Contents/Resources/kaku%.lua$') ~= nil
+    or normalized:match('/assets/macos/Kaku%.app/Contents/Resources/kaku%.lua$') ~= nil
+end
+
+-- Detect if user has custom config overrides in their config file.
+-- Prefer the actively loaded config file, but ignore the bundled defaults file.
+local function kaku_user_config_path()
+  local runtime_config = nil
+  if type(wezterm.config_file) == 'string' and wezterm.config_file ~= '' then
+    runtime_config = wezterm.config_file
+  end
+  if (not runtime_config or runtime_config == '') then
+    local env_config = os.getenv('KAKU_CONFIG_FILE')
+    if env_config and env_config ~= '' then
+      runtime_config = env_config
+    end
+  end
+
+  if runtime_config and runtime_config ~= '' and not is_bundled_kaku_config_path(runtime_config) then
+    return runtime_config
+  end
+
+  return default_kaku_user_config_path()
+end
+
 local user_has_custom_padding = false
 local user_has_custom_hide_tab_bar = false
 local user_has_custom_content_alignment = false
+local user_has_custom_font = false
+local user_has_custom_font_rules = false
 
 local function check_user_custom_config()
   local user_config_path = kaku_user_config_path()
@@ -183,11 +214,41 @@ local function check_user_custom_config()
       if trimmed:match('^config%.window_content_alignment%s*=') then
         user_has_custom_content_alignment = true
       end
+      if trimmed:match('^config%.font%s*=') then
+        user_has_custom_font = true
+      end
+      if trimmed:match('^config%.font_rules%s*=') then
+        user_has_custom_font_rules = true
+      end
     end
   end
   file:close()
 end
 check_user_custom_config()
+
+local function resolve_appearance_color_scheme()
+  local gui = wezterm.gui
+  if not gui or type(gui.get_appearance) ~= 'function' then
+    return 'Kaku Dark'
+  end
+
+  local ok, appearance = pcall(gui.get_appearance)
+  if not ok or type(appearance) ~= 'string' then
+    return 'Kaku Dark'
+  end
+
+  return appearance:find('Dark', 1, true) and 'Kaku Dark' or 'Kaku Light'
+end
+
+local function resolve_kaku_color_scheme(scheme)
+  if scheme == 'Auto' then
+    return resolve_appearance_color_scheme()
+  end
+  if not scheme or scheme == '' then
+    return 'Kaku Dark'
+  end
+  return scheme
+end
 
 -- Two-tier display detection.
 -- low resolution screens use smaller spacing and 15px font.
@@ -222,9 +283,9 @@ local low_resolution_screen = is_low_resolution_screen()
 
 local function get_default_padding()
   if low_resolution_screen then
-    return { left = '26px', right = '26px', top = '26px', bottom = '14px' }
+    return { left = '26px', right = '26px', top = '26px', bottom = '0px' }
   end
-  return { left = '40px', right = '40px', top = '40px', bottom = '20px' }
+  return { left = '40px', right = '40px', top = '40px', bottom = '0px' }
 end
 
 local function get_fullscreen_padding()
@@ -1684,7 +1745,7 @@ local kaku_yazi_theme_marker_end = "# ===== End Kaku Yazi Flavor (managed) =====
 
 local function current_yazi_flavor(window)
   local overrides = window and window:get_config_overrides() or {}
-  local scheme = overrides.color_scheme or config.color_scheme or 'Kaku Dark'
+  local scheme = resolve_kaku_color_scheme(overrides.color_scheme or config.color_scheme)
   return scheme == 'Kaku Light' and 'kaku-light' or 'kaku-dark'
 end
 
@@ -2909,6 +2970,14 @@ local function is_user_light_theme()
         file:close()
         return true
       end
+      if trimmed:match("^config%.color_scheme%s*=%s*['\"]Kaku Dark['\"]") then
+        file:close()
+        return false
+      end
+      if trimmed:match('^config%.color_scheme%s*=') and trimmed:match('get_appearance') then
+        file:close()
+        return resolve_appearance_color_scheme() == 'Kaku Light'
+      end
     end
   end
   file:close()
@@ -2920,19 +2989,30 @@ config.font, config.font_rules = build_font_config(is_user_light_theme())
 
 -- Track last font theme per window to avoid redundant overrides
 local window_font_theme = setmetatable({}, { __mode = 'k' })
+local window_has_managed_font_override = setmetatable({}, { __mode = 'k' })
 
 -- Dynamically switch font weight when theme changes
 wezterm.on('window-config-reloaded', function(window, pane)
   local overrides = window:get_config_overrides() or {}
-  local scheme = overrides.color_scheme or config.color_scheme or 'Kaku Dark'
+  local scheme = resolve_kaku_color_scheme(overrides.color_scheme or config.color_scheme)
   local is_light = scheme == 'Kaku Light'
 
-  if window_font_theme[window] ~= is_light then
+  if user_has_custom_font or user_has_custom_font_rules then
+    window_font_theme[window] = nil
+    if window_has_managed_font_override[window]
+      and (overrides.font ~= nil or overrides.font_rules ~= nil) then
+      overrides.font = nil
+      overrides.font_rules = nil
+      window:set_config_overrides(overrides)
+    end
+    window_has_managed_font_override[window] = nil
+  elseif window_font_theme[window] ~= is_light then
     window_font_theme[window] = is_light
 
     local font, font_rules = build_font_config(is_light)
     overrides.font = font
     overrides.font_rules = font_rules
+    window_has_managed_font_override[window] = true
     window:set_config_overrides(overrides)
   end
 
@@ -2989,10 +3069,10 @@ config.cursor_blink_ease_out = 'Constant'
 -- ===== Scrollback =====
 config.scrollback_lines = 10000
 
--- ===== Mouse =====
+-- ===== Text Selection =====
 config.selection_word_boundary = ' \t\n{}[]()"\'-'  -- Smart selection boundaries
 
--- ===== Window =====
+-- ===== Window Layout =====
 config.window_padding = get_default_padding()
 config.use_resize_increments = true
 
@@ -3002,9 +3082,14 @@ config.initial_rows = 22
 config.window_decorations = "INTEGRATED_BUTTONS|RESIZE"
 -- Window frame colors will be set after color_scheme is determined
 
-config.window_close_confirmation = 'NeverPrompt'
 config.window_background_opacity = 1.0
 config.text_background_opacity = 1.0
+
+-- ===== Close Protection =====
+config.window_close_confirmation = 'NeverPrompt'
+-- Off by default. When enabled, Kaku always asks before closing tabs/panes.
+config.tab_close_confirmation = false
+config.pane_close_confirmation = false
 
 -- ===== Tab Bar =====
 config.enable_tab_bar = true
@@ -3135,6 +3220,7 @@ local kaku_light = {
     '#403E3C', -- base-800
   },
 
+  scrollbar_thumb = '#C9C2B1',
   split = '#B8B7AD',
 
   tab_bar = {
@@ -3186,13 +3272,11 @@ config.color_schemes['Kaku Dark'] = kaku_theme
 config.color_schemes['Kaku Light'] = kaku_light
 -- Legacy alias for compatibility
 config.color_schemes['Kaku Theme'] = kaku_theme
-if not config.color_scheme then
-  config.color_scheme = 'Kaku Dark'
-end
+config.color_scheme = resolve_kaku_color_scheme(config.color_scheme)
 
 -- ===== Window Frame (theme-aware) =====
 local function get_window_frame_colors()
-  local scheme = config.color_scheme or 'Kaku Dark'
+  local scheme = resolve_kaku_color_scheme(config.color_scheme)
   if scheme == 'Kaku Light' then
     return '#FFFCF0', '#FFFCF0'
   else
@@ -3226,6 +3310,7 @@ config.quit_when_all_windows_are_closed = false
 
 -- ===== Key Bindings =====
 config.keys = {
+  -- Window & App
   -- Cmd+K: clear screen + scrollback
   {
     key = 'k',
@@ -3260,6 +3345,7 @@ config.keys = {
     action = wezterm.action.SpawnWindow,
   },
 
+  -- Close Behavior
   -- Cmd+W: close pane > close tab > hide app
   {
     key = 'w',
@@ -3270,11 +3356,11 @@ config.keys = {
       local current_tab = pane:tab()
       local panes = current_tab and current_tab:panes() or {}
       if #panes > 1 then
-        win:perform_action(wezterm.action.CloseCurrentPane { confirm = false }, pane)
+        win:perform_action(wezterm.action.CloseCurrentPane { confirm = config.pane_close_confirmation }, pane)
       else
         local should_close_tab = (#tabs > 1) or (#wezterm.mux.all_windows() > 1)
         if should_close_tab then
-          win:perform_action(wezterm.action.CloseCurrentTab { confirm = false }, pane)
+          win:perform_action(wezterm.action.CloseCurrentTab { confirm = config.tab_close_confirmation }, pane)
           return
         end
         win:perform_action(wezterm.action.HideApplication, pane)
@@ -3286,9 +3372,10 @@ config.keys = {
   {
     key = 'w',
     mods = 'CMD|SHIFT',
-    action = wezterm.action.CloseCurrentTab({ confirm = false }),
+    action = wezterm.action.CloseCurrentTab({ confirm = config.tab_close_confirmation }),
   },
 
+  -- Tabs & Panes
   -- Cmd+T: new tab
   {
     key = 't',
@@ -3331,6 +3418,7 @@ config.keys = {
     action = wezterm.action.EmitEvent('kaku-open-remote-files'),
   },
 
+  -- Window Controls
   -- Cmd+Ctrl+F: toggle fullscreen
   {
     key = 'f',
@@ -3352,6 +3440,7 @@ config.keys = {
     action = wezterm.action.HideApplication,
   },
 
+  -- Font Size
   -- Cmd+Equal/Minus/0: adjust font size
   {
     key = '=',
@@ -3369,6 +3458,7 @@ config.keys = {
     action = wezterm.action.ResetFontSize,
   },
 
+  -- Shell Editing
   -- Alt+Left / Alt+Right: word jump
   {
     key = 'LeftArrow',
@@ -3407,6 +3497,7 @@ config.keys = {
     action = wezterm.action.SendKey({ key = 'w', mods = 'CTRL' }),
   },
 
+  -- Layout
   -- Cmd+D: vertical split
   {
     key = 'd',
@@ -3433,6 +3524,7 @@ config.keys = {
     action = wezterm.action.ActivateTabRelative(1),
   },
 
+  -- Pane Navigation
   -- Cmd+Option+Arrow: navigate between splits
   {
     key = 'LeftArrow',
@@ -3502,6 +3594,7 @@ config.keys = {
     action = wezterm.action.ActivateTab(8),
   },
 
+  -- Command Input
   -- Cmd+Enter / Shift+Enter: newline without execute
   {
     key = 'Enter',
@@ -3553,6 +3646,7 @@ config.keys = {
 
 }
 
+-- ===== Mouse Bindings =====
 -- Copy on select (equivalent to Kitty's copy_on_select)
 -- config.copy_on_select = false -- uncomment to disable copy and toast on selection
 config.mouse_bindings = {
@@ -3568,7 +3662,7 @@ config.mouse_bindings = {
   },
 }
 
--- ===== Performance =====
+-- ===== Rendering & Performance =====
 config.enable_scroll_bar = false
 config.front_end = 'WebGpu'
 config.webgpu_power_preference = 'LowPower'
@@ -3576,7 +3670,7 @@ config.animation_fps = 60
 config.max_fps = 60
 config.status_update_interval = 1000
 
--- ===== Visuals & Splits =====
+-- ===== Pane Layout & Focus =====
 -- Split pane gap: gutter = 1 + 2*gap cells, giving ~40px padding on each side
 config.split_pane_gap = 2
 
