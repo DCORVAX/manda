@@ -45,7 +45,7 @@ use raw_window_handle::{
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::cell::{Cell, RefCell};
-use std::ffi::{c_void, CStr};
+use std::ffi::{CStr, c_void};
 use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::rc::Rc;
@@ -53,7 +53,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use wezterm_font::FontConfiguration;
-use wezterm_input_types::{is_ascii_control, IntegratedTitleButtonStyle, KeyboardLedStatus};
+use wezterm_input_types::{IntegratedTitleButtonStyle, KeyboardLedStatus, is_ascii_control};
 
 static APP_TERMINATING: AtomicBool = AtomicBool::new(false);
 
@@ -3107,11 +3107,7 @@ impl WindowView {
     extern "C" fn has_marked_text(this: &mut Object, _sel: Sel) -> BOOL {
         if let Some(myself) = Self::get_this(this) {
             let inner = myself.inner.borrow();
-            if inner.ime_text.is_empty() {
-                NO
-            } else {
-                YES
-            }
+            if inner.ime_text.is_empty() { NO } else { YES }
         } else {
             NO
         }
@@ -3435,6 +3431,27 @@ impl WindowView {
                 .events
                 .dispatch(WindowEvent::FocusChanged(false));
             this.update_application_presentation(true);
+        }
+    }
+
+    extern "C" fn did_change_occlusion_state(this: &mut Object, _sel: Sel, _id: id) {
+        if let Some(this) = Self::get_this(this) {
+            let visible = {
+                let inner = this.inner.borrow();
+                inner.window.as_ref().is_some_and(|window| {
+                    let window = window.load();
+                    unsafe {
+                        window
+                            .occlusionState()
+                            .contains(appkit::NSWindowOcclusionState::NSWindowOcclusionStateVisible)
+                    }
+                })
+            };
+
+            this.inner
+                .borrow_mut()
+                .events
+                .dispatch(WindowEvent::VisibilityChanged(visible));
         }
     }
 
@@ -4933,6 +4950,10 @@ impl WindowView {
             cls.add_method(
                 sel!(windowDidResignKey:),
                 Self::did_resign_key as extern "C" fn(&mut Object, Sel, id),
+            );
+            cls.add_method(
+                sel!(windowDidChangeOcclusionState:),
+                Self::did_change_occlusion_state as extern "C" fn(&mut Object, Sel, id),
             );
 
             cls.add_method(

@@ -2908,17 +2908,8 @@ fn kimi_credentials_path() -> PathBuf {
         .join("kimi-code.json")
 }
 
-fn kimi_config_model_options(parsed: &toml::Value) -> Vec<String> {
-    parsed
-        .get("models")
-        .and_then(|value| value.as_table())
-        .map(|table| table.keys().cloned().collect::<Vec<_>>())
-        .filter(|models| !models.is_empty())
-        .unwrap_or_else(|| vec!["kimi-code/kimi-for-coding".into()])
-}
-
-fn read_kimi_auth_status() -> String {
-    let Some(auth) = read_json_file_with_debug(&kimi_credentials_path(), "kimi credentials") else {
+fn read_kimi_auth_status_from_path(path: &Path) -> String {
+    let Some(auth) = read_json_file_with_debug(path, "kimi credentials") else {
         return "✗ not signed in".into();
     };
 
@@ -2942,6 +2933,19 @@ fn read_kimi_auth_status() -> String {
     } else {
         "✗ login required".into()
     }
+}
+
+fn kimi_config_model_options(parsed: &toml::Value) -> Vec<String> {
+    parsed
+        .get("models")
+        .and_then(|value| value.as_table())
+        .map(|table| table.keys().cloned().collect::<Vec<_>>())
+        .filter(|models| !models.is_empty())
+        .unwrap_or_else(|| vec!["kimi-code/kimi-for-coding".into()])
+}
+
+fn read_kimi_auth_status() -> String {
+    read_kimi_auth_status_from_path(&kimi_credentials_path())
 }
 
 /// Format auth status, with account fallback to auth method
@@ -5922,20 +5926,18 @@ provider = "managed:kimi-code"
             "refresh_token": "refresh-token",
             "expires_at": 0.0
         });
-        let path = kimi_credentials_path();
+        let dir = tempdir().expect("tempdir");
+        let path = dir
+            .path()
+            .join(".kimi")
+            .join("credentials")
+            .join("kimi-code.json");
         let parent = path.parent().expect("credentials dir");
         std::fs::create_dir_all(parent).expect("create credentials dir");
-        let previous = std::fs::read_to_string(&path).ok();
         std::fs::write(&path, serde_json::to_vec(&auth).expect("serialize auth"))
             .expect("write credentials");
 
-        assert_eq!(read_kimi_auth_status(), "✓ oauth");
-
-        if let Some(previous) = previous {
-            std::fs::write(&path, previous).expect("restore credentials");
-        } else {
-            let _ = std::fs::remove_file(&path);
-        }
+        assert_eq!(read_kimi_auth_status_from_path(&path), "✓ oauth");
     }
 
     #[test]

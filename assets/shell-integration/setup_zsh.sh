@@ -111,6 +111,56 @@ active_kaku_config_path() {
 	fi
 }
 
+system_kaku_flavor() {
+	local flavor="kaku-dark"
+	if command -v defaults >/dev/null 2>&1; then
+		local appearance
+		appearance="$(defaults read -g AppleInterfaceStyle 2>/dev/null || true)"
+		if [[ "$appearance" != "Dark" ]]; then
+			flavor="kaku-light"
+		fi
+	fi
+	printf '%s\n' "$flavor"
+}
+
+resolve_kaku_flavor_from_config() {
+	local config_file="$1"
+	local system_flavor
+	system_flavor="$(system_kaku_flavor)"
+
+	if [[ -f "$config_file" ]]; then
+		local scheme_line
+		scheme_line="$(
+			awk '
+				/^[[:space:]]*--/ { next }
+				/^[[:space:]]*config\.color_scheme[[:space:]]*=/ { print; exit }
+			' "$config_file"
+		)"
+		if [[ -n "$scheme_line" ]]; then
+			if [[ "$scheme_line" == *"Kaku Light"* ]]; then
+				printf '%s\n' "kaku-light"
+				return
+			fi
+			if [[ "$scheme_line" == *"Kaku Dark"* || "$scheme_line" == *"Kaku Theme"* ]]; then
+				printf '%s\n' "kaku-dark"
+				return
+			fi
+			if [[ "$scheme_line" == *"'Auto'"* || "$scheme_line" == *'"Auto"'* ]]; then
+				printf '%s\n' "$system_flavor"
+				return
+			fi
+			if [[ "$scheme_line" == *get_appearance* ]]; then
+				printf '%s\n' "$system_flavor"
+				return
+			fi
+			printf '%s\n' "kaku-dark"
+			return
+		fi
+	fi
+
+	printf '%s\n' "kaku-dark"
+}
+
 current_kaku_yazi_flavor() {
 	resolve_kaku_flavor_from_config "$(active_kaku_config_path)"
 }
@@ -266,15 +316,15 @@ resolve_kaku_flavor_from_config() {
 			' "$config_file"
 		)"
 		if [[ -n "$scheme_line" ]]; then
-			if [[ "$scheme_line" =~ ^[[:space:]]*config\.color_scheme[[:space:]]*=[[:space:]]*['\"]Kaku\ Light['\"] ]]; then
+			if [[ "$scheme_line" == *"Kaku Light"* ]]; then
 				printf '%s\n' "kaku-light"
 				return
 			fi
-			if [[ "$scheme_line" =~ ^[[:space:]]*config\.color_scheme[[:space:]]*=[[:space:]]*['\"](Kaku\ Dark|Kaku\ Theme)['\"] ]]; then
+			if [[ "$scheme_line" == *"Kaku Dark"* || "$scheme_line" == *"Kaku Theme"* ]]; then
 				printf '%s\n' "kaku-dark"
 				return
 			fi
-			if [[ "$scheme_line" =~ ^[[:space:]]*config\.color_scheme[[:space:]]*=[[:space:]]*['\"]Auto['\"] ]]; then
+			if [[ "$scheme_line" == *"'Auto'"* || "$scheme_line" == *'"Auto"'* ]]; then
 				printf '%s\n' "$system_flavor"
 				return
 			fi

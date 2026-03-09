@@ -192,6 +192,9 @@ pub enum WindowEvent {
     /// Called when the window gains/loses focus
     FocusChanged(bool),
 
+    /// Called when the window becomes visible or occluded on screen
+    VisibilityChanged(bool),
+
     AdviseDeadKeyStatus(DeadKeyStatus),
 
     /// Called to handle a raw key event, prior to any dead key,
