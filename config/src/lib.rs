@@ -519,11 +519,15 @@ pub fn user_config_path() -> PathBuf {
 
 pub fn ensure_user_config_exists() -> anyhow::Result<PathBuf> {
     let config_path = user_config_path();
+    ensure_config_exists_at_path(&config_path)
+}
+
+pub fn ensure_config_exists_at_path(config_path: &std::path::Path) -> anyhow::Result<PathBuf> {
     if config_path.exists() {
-        let metadata = std::fs::metadata(&config_path)
+        let metadata = std::fs::metadata(config_path)
             .with_context(|| format!("stat user config path {}", config_path.display()))?;
         if metadata.is_file() {
-            return Ok(config_path);
+            return Ok(config_path.to_path_buf());
         }
         bail!(
             "user config path exists but is not a regular file: {}",
@@ -536,9 +540,9 @@ pub fn ensure_user_config_exists() -> anyhow::Result<PathBuf> {
         .ok_or_else(|| anyhow!("invalid config path: {}", config_path.display()))?;
     create_user_owned_dirs(parent).context("create config directory")?;
 
-    write_new_file_atomic(&config_path, minimal_user_config_template().as_bytes())
+    write_new_file_atomic(config_path, minimal_user_config_template().as_bytes())
         .context("write minimal user config file")?;
-    Ok(config_path)
+    Ok(config_path.to_path_buf())
 }
 
 /// Atomically writes data to a file using a temporary file and rename.
@@ -1102,7 +1106,12 @@ impl ConfigInner {
             // Watch the config file itself to avoid unrelated changes in the
             // config directory (for example runtime state files) from
             // triggering reload loops.
-            watch_paths.push(path);
+            watch_paths.push(path.clone());
+            if let Ok(real_path) = std::fs::canonicalize(&path) {
+                if real_path != path {
+                    watch_paths.push(real_path);
+                }
+            }
         }
         if let Some(lua) = &lua {
             ConfigInner::accumulate_watch_paths(lua, &mut watch_paths);

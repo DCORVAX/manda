@@ -320,7 +320,7 @@ fn run() -> anyhow::Result<()> {
         SubCommand::Update(cmd) => cmd.run(),
         SubCommand::Config(cmd) => {
             init_config(&opts)?;
-            cmd.run()
+            cmd.run(opts.config_file.as_ref().map(PathBuf::from))
         }
         SubCommand::Init(cmd) => cmd.run(),
         SubCommand::Doctor(cmd) => cmd.run(),
