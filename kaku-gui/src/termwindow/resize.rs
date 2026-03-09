@@ -1,7 +1,7 @@
 use crate::resize_increment_calculator::ResizeIncrementCalculator;
 use crate::utilsprites::RenderMetrics;
 use ::window::{Dimensions, ResizeIncrement, Window, WindowOps, WindowState};
-use config::{ConfigHandle, DimensionContext};
+use config::{Config, ConfigHandle, DimensionContext};
 use mux::Mux;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -231,6 +231,7 @@ impl super::TermWindow {
                 self.show_tab_bar,
                 self.config.tab_bar_at_bottom,
                 tab_bar_height_px,
+                self.window_state.contains(WindowState::FULL_SCREEN),
             );
             let padding_right = effective_right_padding(&config, h_context);
 
@@ -281,6 +282,7 @@ impl super::TermWindow {
                 self.show_tab_bar,
                 self.config.tab_bar_at_bottom,
                 tab_bar_height_px,
+                self.window_state.contains(WindowState::FULL_SCREEN),
             );
             let padding_right = effective_right_padding(&config, h_context);
 
@@ -551,6 +553,7 @@ impl super::TermWindow {
             show_tab_bar,
             config.tab_bar_at_bottom,
             tab_bar_height,
+            self.window_state.contains(WindowState::FULL_SCREEN),
         );
 
         let dimensions = Dimensions {
@@ -587,7 +590,7 @@ impl super::TermWindow {
         self.set_window_size(size, window)
     }
 
-    pub fn effective_right_padding(&self, config: &ConfigHandle) -> usize {
+    pub fn effective_right_padding(&self, config: &Config) -> usize {
         effective_right_padding(
             config,
             DimensionContext {
@@ -683,6 +686,12 @@ pub(super) fn load_persisted_font_scale(config: &ConfigHandle) -> Option<f64> {
 
 /// Visual spacing adjustment for tab bar layouts.
 const VISUAL_SPACING: usize = 4;
+const TOP_TAB_TIGHTENING: usize = 2;
+/// Minimum gap kept between terminal content and the bottom tab bar.
+/// Applied identically in fullscreen and non-fullscreen so that fullscreen
+/// transitions (which can change padding_top via Lua) never cause the
+/// available-row count to change in a way that makes content crowd the bar.
+const BOTTOM_TAB_MIN_GAP: usize = 2;
 
 fn effective_top_padding(base_top: usize, default_top: usize) -> usize {
     if base_top == default_top {
@@ -696,11 +705,12 @@ fn effective_top_padding(base_top: usize, default_top: usize) -> usize {
 /// Tab bar height is subtracted from the side where it appears,
 /// keeping content spacing stable when tab bar visibility changes.
 pub fn effective_vertical_padding(
-    config: &ConfigHandle,
+    config: &Config,
     context: DimensionContext,
     show_tab_bar: bool,
     tab_bar_at_bottom: bool,
     tab_bar_height: usize,
+    is_fullscreen: bool,
 ) -> (usize, usize) {
     let base_top = config.window_padding.top.evaluate_as_pixels(context) as usize;
     let base_bottom = config.window_padding.bottom.evaluate_as_pixels(context) as usize;
@@ -714,10 +724,16 @@ pub fn effective_vertical_padding(
     // Subtract tab bar height from its side to keep content spacing stable.
     if show_tab_bar && tab_bar_height > 0 {
         if tab_bar_at_bottom {
-            bottom = bottom.saturating_sub(tab_bar_height);
+            bottom = bottom
+                .saturating_sub(tab_bar_height)
+                .max(BOTTOM_TAB_MIN_GAP);
         } else {
             top = top.saturating_sub(tab_bar_height);
         }
+    }
+
+    if !is_fullscreen && show_tab_bar && !tab_bar_at_bottom && base_top == default_top {
+        top = top.saturating_sub(TOP_TAB_TIGHTENING);
     }
 
     (top, bottom)
@@ -727,7 +743,7 @@ pub fn effective_vertical_padding(
 /// This is needed because the default is 0, but if the user has
 /// enabled the scroll bar then they will expect it to have a reasonable
 /// size unless they've specified differently.
-pub fn effective_right_padding(config: &ConfigHandle, context: DimensionContext) -> usize {
+pub fn effective_right_padding(config: &Config, context: DimensionContext) -> usize {
     if config.enable_scroll_bar && config.window_padding.right.is_zero() {
         context.pixel_cell as usize
     } else {
@@ -738,7 +754,7 @@ pub fn effective_right_padding(config: &ConfigHandle, context: DimensionContext)
 #[cfg(test)]
 mod tests {
     use super::{effective_top_padding, effective_vertical_padding};
-    use config::{ConfigHandle, DimensionContext};
+    use config::{Config, ConfigHandle, DimensionContext};
 
     fn context() -> DimensionContext {
         DimensionContext {
@@ -760,7 +776,7 @@ mod tests {
         let config = ConfigHandle::default_config();
         let (base_top, base_bottom) = base_vertical_padding(&config);
 
-        let (top, bottom) = effective_vertical_padding(&config, context(), false, false, 24);
+        let (top, bottom) = effective_vertical_padding(&config, context(), false, false, 24, false);
 
         assert_eq!(top, base_top + 4);
         assert_eq!(bottom, base_bottom);
@@ -779,9 +795,9 @@ mod tests {
         let (base_top, base_bottom) = base_vertical_padding(&config);
 
         let (with_tab_top, with_tab_bottom) =
-            effective_vertical_padding(&config, context(), true, false, tab_bar_height);
+            effective_vertical_padding(&config, context(), true, false, tab_bar_height, false);
 
-        assert_eq!(with_tab_top, (base_top + 4).saturating_sub(tab_bar_height));
+        assert_eq!(with_tab_top, (base_top + 2).saturating_sub(tab_bar_height));
         assert_eq!(with_tab_bottom, base_bottom);
     }
 
@@ -790,24 +806,56 @@ mod tests {
         let config = ConfigHandle::default_config();
         let (base_top, base_bottom) = base_vertical_padding(&config);
         let (with_bottom_top, with_bottom_bottom) =
-            effective_vertical_padding(&config, context(), false, true, 24);
+            effective_vertical_padding(&config, context(), false, true, 24, false);
 
         assert_eq!(with_bottom_top, base_top + 4);
         assert_eq!(with_bottom_bottom, base_bottom);
     }
 
     #[test]
-    fn bottom_tab_bar_visible_also_subtracts_tab_bar_height() {
-        let config = ConfigHandle::default_config();
+    fn bottom_tab_bar_enforces_min_gap() {
         let tab_bar_height = 24;
-        let (_, base_bottom) = base_vertical_padding(&config);
+
+        // Default config: saturating_sub gives 0, min-gap floor kicks in.
+        let config = ConfigHandle::default_config();
+        let (_, bottom) =
+            effective_vertical_padding(&config, context(), true, true, tab_bar_height, false);
+        assert_eq!(bottom, super::BOTTOM_TAB_MIN_GAP);
+
+        // Same in fullscreen — identical value, no transition jump.
+        let (_, bottom_fs) =
+            effective_vertical_padding(&config, context(), true, true, tab_bar_height, true);
+        assert_eq!(bottom_fs, super::BOTTOM_TAB_MIN_GAP);
+
+        // Explicit large value: user gets their residual (already above the floor).
+        let mut config2 = Config::default_config();
+        config2.window_padding.bottom = config::Dimension::Pixels(40.0);
+        let (_, bottom2) =
+            effective_vertical_padding(&config2, context(), true, true, tab_bar_height, false);
+        assert_eq!(bottom2, 40usize.saturating_sub(tab_bar_height)); // 16px
+    }
+
+    #[test]
+    fn fullscreen_bottom_tab_bar_explicit_zero_gets_min_gap() {
+        // Even explicit 0px gets the min gap — the floor is unconditional.
+        let mut config = Config::default_config();
+        config.window_padding.bottom = config::Dimension::Pixels(0.0);
 
         let (_, with_bottom_bottom) =
-            effective_vertical_padding(&config, context(), true, true, tab_bar_height);
+            effective_vertical_padding(&config, context(), true, true, 24, true);
 
-        assert_eq!(
-            with_bottom_bottom,
-            base_bottom.saturating_sub(tab_bar_height)
-        );
+        assert_eq!(with_bottom_bottom, super::BOTTOM_TAB_MIN_GAP);
+    }
+
+    #[test]
+    fn fullscreen_bottom_tab_bar_explicit_small_gets_min_gap() {
+        // 2px - 24px saturates to 0, then min-gap floor applies.
+        let mut config = Config::default_config();
+        config.window_padding.bottom = config::Dimension::Pixels(2.0);
+
+        let (_, with_bottom_bottom) =
+            effective_vertical_padding(&config, context(), true, true, 24, true);
+
+        assert_eq!(with_bottom_bottom, super::BOTTOM_TAB_MIN_GAP);
     }
 }

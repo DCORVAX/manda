@@ -5,7 +5,11 @@ use config::{ConfigHandle, DimensionContext};
 
 const INTEGRATED_BUTTONS_TOP_INSET: usize = 16;
 
-pub(crate) fn integrated_buttons_top_inset(config: &ConfigHandle, is_fullscreen: bool) -> usize {
+pub(crate) fn integrated_buttons_top_inset(
+    config: &ConfigHandle,
+    is_fullscreen: bool,
+    _top_tab_bar_visible: bool,
+) -> usize {
     if !is_fullscreen
         && config
             .window_decorations
@@ -230,7 +234,11 @@ impl crate::TermWindow {
         let is_fullscreen = self
             .window_state
             .contains(::window::WindowState::FULL_SCREEN);
-        let extra_top = integrated_buttons_top_inset(&self.config, is_fullscreen);
+        let extra_top = integrated_buttons_top_inset(
+            &self.config,
+            is_fullscreen,
+            self.show_tab_bar && !self.config.tab_bar_at_bottom,
+        );
         if extra_top > 0 {
             border.top += ULength::new(extra_top);
         }

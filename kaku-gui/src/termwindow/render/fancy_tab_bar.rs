@@ -88,6 +88,7 @@ impl crate::TermWindow {
             .to_linear()
             .into(),
         };
+        let tab_bottom_padding = Dimension::Cells(0.25);
 
         // Calculate horizontal padding for tabs: add extra 4px for better visual spacing
         let tab_padding_h = Dimension::Pixels((0.5 * metrics.cell_size.width as f32) + 4.0);
@@ -155,7 +156,7 @@ impl crate::TermWindow {
                     left: Dimension::Cells(0.5),
                     right: Dimension::Cells(0.5),
                     top: Dimension::Cells(0.2),
-                    bottom: Dimension::Cells(0.25),
+                    bottom: tab_bottom_padding,
                 })
                 .border(BoxDimension::new(Dimension::Pixels(1.)))
                 .colors(ElementColors {
@@ -181,7 +182,7 @@ impl crate::TermWindow {
                         left: tab_padding_h,
                         right: tab_padding_h,
                         top: Dimension::Cells(0.2),
-                        bottom: Dimension::Cells(0.25),
+                        bottom: tab_bottom_padding,
                     })
                     .border(BoxDimension::new(Dimension::Pixels(1.)))
                     .border_corners(Some(Corners {
@@ -226,7 +227,7 @@ impl crate::TermWindow {
                         left: tab_padding_h,
                         right: tab_padding_h,
                         top: Dimension::Cells(0.2),
-                        bottom: Dimension::Cells(0.25),
+                        bottom: tab_bottom_padding,
                     })
                     .border(BoxDimension::new(Dimension::Pixels(1.)))
                     .border_corners(Some(Corners {
