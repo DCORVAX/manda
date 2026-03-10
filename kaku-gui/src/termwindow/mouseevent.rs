@@ -48,6 +48,15 @@ fn mouse_dispatch_target(
     }
 }
 
+fn should_zoom_title_area(
+    window_decorations: window::WindowDecorations,
+    click_streak: Option<usize>,
+) -> bool {
+    window_decorations
+        == (window::WindowDecorations::INTEGRATED_BUTTONS | window::WindowDecorations::RESIZE)
+        && click_streak == Some(2)
+}
+
 impl super::TermWindow {
     const TAB_DRAG_THRESHOLD: isize = 6;
 
@@ -832,17 +841,16 @@ impl super::TermWindow {
                         .window_state
                         .intersects(WindowState::MAXIMIZED | WindowState::FULL_SCREEN);
                     if let Some(ref window) = self.window {
-                        if self.config.window_decorations
-                            == window::WindowDecorations::INTEGRATED_BUTTONS
-                                | window::WindowDecorations::RESIZE
-                        {
-                            if self.last_mouse_click.as_ref().map(|c| c.streak) == Some(2) {
-                                if maximized {
-                                    window.restore();
-                                } else {
-                                    window.maximize();
-                                }
+                        if should_zoom_title_area(
+                            self.config.window_decorations,
+                            self.last_mouse_click.as_ref().map(|c| c.streak),
+                        ) {
+                            if maximized {
+                                window.restore();
+                            } else {
+                                window.maximize();
                             }
+                            return;
                         }
                     }
                     self.is_window_dragging = true;
@@ -1501,9 +1509,10 @@ fn mouse_press_to_tmb(press: &MousePress) -> TMB {
 
 #[cfg(test)]
 mod tests {
-    use super::{mouse_dispatch_target, MouseDispatchTarget};
+    use super::{mouse_dispatch_target, should_zoom_title_area, MouseDispatchTarget};
     use crate::termwindow::MouseCapture;
     use mux::pane::PaneId;
+    use window::WindowDecorations;
 
     #[test]
     fn terminal_capture_keeps_release_routed_to_terminal() {
@@ -1532,5 +1541,17 @@ mod tests {
             mouse_dispatch_target(false, 0, 24, None),
             MouseDispatchTarget::TitleArea
         );
+    }
+
+    #[test]
+    fn title_area_double_click_zooms_instead_of_dragging() {
+        assert!(should_zoom_title_area(
+            WindowDecorations::INTEGRATED_BUTTONS | WindowDecorations::RESIZE,
+            Some(2),
+        ));
+        assert!(!should_zoom_title_area(
+            WindowDecorations::INTEGRATED_BUTTONS | WindowDecorations::RESIZE,
+            Some(1),
+        ));
     }
 }
