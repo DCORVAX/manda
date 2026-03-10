@@ -9,17 +9,17 @@ use cocoa::appkit::{
 };
 use cocoa::base::{id, nil};
 use cocoa::foundation::NSInteger;
-use config::WindowCloseConfirmation;
 use config::keyassignment::KeyAssignment;
+use config::WindowCloseConfirmation;
 use objc::declare::ClassDecl;
-use objc::runtime::{BOOL, Class, NO, Object, Sel, YES};
+use objc::runtime::{Class, Object, Sel, BOOL, NO, YES};
 use objc::*;
 use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::ffi::c_void;
 use std::process::Command;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use url::Url;
 
