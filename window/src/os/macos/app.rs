@@ -9,17 +9,17 @@ use cocoa::appkit::{
 };
 use cocoa::base::{id, nil};
 use cocoa::foundation::NSInteger;
-use config::keyassignment::KeyAssignment;
 use config::WindowCloseConfirmation;
+use config::keyassignment::KeyAssignment;
 use objc::declare::ClassDecl;
-use objc::runtime::{Class, Object, Sel, BOOL, NO, YES};
+use objc::runtime::{BOOL, Class, NO, Object, Sel, YES};
 use objc::*;
 use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::ffi::c_void;
 use std::process::Command;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use url::Url;
 
@@ -298,16 +298,35 @@ fn toggle_hotkey_window() {
     };
 
     if !existing_windows.is_empty() {
-        for window in &existing_windows {
-            window.borrow_mut().prepare_for_global_hotkey_show();
+        let target_window = existing_windows
+            .iter()
+            .find(|window| window.borrow().is_key_window())
+            .cloned()
+            .or_else(|| {
+                existing_windows
+                    .iter()
+                    .find(|window| window.borrow().is_main_window())
+                    .cloned()
+            })
+            .or_else(|| existing_windows.first().cloned());
+
+        if let Some(target_window) = target_window {
+            target_window.borrow_mut().prepare_for_global_hotkey_show();
+            unsafe {
+                let () = msg_send![NSApp(), unhide: NSApp()];
+                let current_app = NSRunningApplication::currentApplication(nil);
+                current_app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps);
+            }
+            let mut target_window = target_window.borrow_mut();
+            target_window.focus();
+            target_window.restore_after_global_hotkey_show();
+            return;
         }
+
         unsafe {
             let () = msg_send![NSApp(), unhide: NSApp()];
             let current_app = NSRunningApplication::currentApplication(nil);
             current_app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps);
-        }
-        for window in existing_windows {
-            window.borrow_mut().focus();
         }
     } else {
         conn.dispatch_app_event(ApplicationEvent::PerformKeyAssignment(

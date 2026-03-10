@@ -45,7 +45,7 @@ use raw_window_handle::{
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::cell::{Cell, RefCell};
-use std::ffi::{c_void, CStr};
+use std::ffi::{CStr, c_void};
 use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::rc::Rc;
@@ -53,7 +53,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use wezterm_font::FontConfiguration;
-use wezterm_input_types::{is_ascii_control, IntegratedTitleButtonStyle, KeyboardLedStatus};
+use wezterm_input_types::{IntegratedTitleButtonStyle, KeyboardLedStatus, is_ascii_control};
 
 static APP_TERMINATING: AtomicBool = AtomicBool::new(false);
 
@@ -1858,6 +1858,20 @@ impl WindowInner {
         }
     }
 
+    pub(crate) fn is_key_window(&self) -> bool {
+        unsafe {
+            let is_key: BOOL = msg_send![*self.window, isKeyWindow];
+            is_key != NO
+        }
+    }
+
+    pub(crate) fn is_main_window(&self) -> bool {
+        unsafe {
+            let is_main: BOOL = msg_send![*self.window, isMainWindow];
+            is_main != NO
+        }
+    }
+
     /// Prepare a regular window to be shown by the global hotkey from any
     /// active macOS Space (including another app's fullscreen Space).
     pub(crate) fn prepare_for_global_hotkey_show(&mut self) {
@@ -1867,6 +1881,22 @@ impl WindowInner {
         unsafe {
             let mut behavior = self.window.collectionBehavior();
             behavior.insert(
+                appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorMoveToActiveSpace
+                    | appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary,
+            );
+            self.window.setCollectionBehavior_(behavior);
+        }
+    }
+
+    /// Restore the default collection behavior after a global hotkey reveal
+    /// so native Cmd+` window cycling stays scoped to the current Space.
+    pub(crate) fn restore_after_global_hotkey_show(&mut self) {
+        if self.is_fullscreen() {
+            return;
+        }
+        unsafe {
+            let mut behavior = self.window.collectionBehavior();
+            behavior.remove(
                 appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorMoveToActiveSpace
                     | appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary,
             );
@@ -3217,11 +3247,7 @@ impl WindowView {
     extern "C" fn has_marked_text(this: &mut Object, _sel: Sel) -> BOOL {
         if let Some(myself) = Self::get_this(this) {
             let inner = myself.inner.borrow();
-            if inner.ime_text.is_empty() {
-                NO
-            } else {
-                YES
-            }
+            if inner.ime_text.is_empty() { NO } else { YES }
         } else {
             NO
         }
