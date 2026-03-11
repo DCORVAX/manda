@@ -105,6 +105,7 @@ jobs:
           cargo nextest run --locked -p wezterm-escape-parser
           bash assets/shell-integration/tests/normalize_kaku_source_line_smoke.sh
           bash assets/shell-integration/tests/cleanup_legacy_inline_block_smoke.sh
+          bash assets/shell-integration/tests/z_jump_provider_smoke.sh
           bash assets/shell-integration/tests/starship_rprompt_smoke.sh
 
       - name: Import signing certificate

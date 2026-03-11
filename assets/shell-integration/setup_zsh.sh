@@ -1039,8 +1039,15 @@ if ! (( \${+functions[_main_complete]} )) || ! (( \${+_comps} )); then
     fi
 fi
 
-# Load zsh-z only if it is not already available from user config.
-if ! (( \${+functions[zshz]} )) && [[ -f "\$KAKU_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh" ]]; then
+# Load zsh-z only if user config has not already provided `z`.
+_kaku_has_dir_jump_provider() {
+    (( \${+functions[zshz]} )) && return 0
+    (( \${+functions[z]} )) && return 0
+    (( \${+aliases[z]} )) && return 0
+    return 1
+}
+
+if ! _kaku_has_dir_jump_provider && [[ -f "\$KAKU_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh" ]]; then
     # Default to smart case matching so z kaku prefers Kaku over lowercase
     # path entries. Users can still override this in their own shell config.
     : "\${ZSHZ_CASE:=smart}"
