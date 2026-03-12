@@ -4834,8 +4834,21 @@ impl TermWindow {
             return false;
         }
 
-        self.get_active_pane_or_overlay().map(|pane| pane.pane_id())
-            == self.get_active_pane_no_overlay().map(|pane| pane.pane_id())
+        match (
+            self.get_active_pane_or_overlay(),
+            self.get_active_pane_no_overlay(),
+        ) {
+            (Some(active_or_overlay), Some(active_pane)) => {
+                Arc::ptr_eq(&active_or_overlay, &active_pane)
+            }
+            _ => false,
+        }
+    }
+
+    fn is_active_mux_pane(&self, pane: &Arc<dyn Pane>) -> bool {
+        self.get_active_pane_no_overlay()
+            .as_ref()
+            .is_some_and(|active_pane| Arc::ptr_eq(active_pane, pane))
     }
 
     fn terminal_input_targets(&self, pane: &Arc<dyn Pane>) -> Vec<Arc<dyn Pane>> {
@@ -4843,8 +4856,7 @@ impl TermWindow {
             return vec![pane.clone()];
         }
 
-        let active_pane_id = self.get_active_pane_no_overlay().map(|pane| pane.pane_id());
-        if active_pane_id != Some(pane.pane_id()) {
+        if !self.is_active_mux_pane(pane) {
             return vec![pane.clone()];
         }
 
