@@ -6,8 +6,8 @@ use crate::termwindow::render::corners::{
     TOP_RIGHT_ROUNDED_CORNER,
 };
 use crate::termwindow::render::{
-    same_hyperlink, CursorProperties, LineQuadCacheKey, LineQuadCacheValue, LineToEleShapeCacheKey,
-    RenderScreenLineParams,
+    forces_opaque_kaku_tui_background, same_hyperlink, CursorProperties, LineQuadCacheKey,
+    LineQuadCacheValue, LineToEleShapeCacheKey, RenderScreenLineParams,
 };
 use crate::termwindow::{ScrollHit, UIItem, UIItemType};
 use ::window::bitmaps::TextureRect;
@@ -222,11 +222,13 @@ impl crate::TermWindow {
 
         let window_is_transparent =
             !self.window_background.is_empty() || config.window_background_opacity != 1.0;
+        let force_opaque_background = forces_opaque_kaku_tui_background(&pos.pane);
+        let effective_window_is_transparent = window_is_transparent && !force_opaque_background;
 
         let default_bg = palette
             .resolve_bg(ColorAttribute::Default)
             .to_linear()
-            .mul_alpha(if window_is_transparent {
+            .mul_alpha(if effective_window_is_transparent {
                 0.
             } else {
                 config.text_background_opacity
@@ -246,7 +248,7 @@ impl crate::TermWindow {
             // by the fill strip in paint_pass().  Starting the pane bg at x=0
             // would double-paint that region, making it appear more opaque.
             let transparent_fill_strips_active =
-                self.window_background.is_empty() && window_is_transparent;
+                self.window_background.is_empty() && effective_window_is_transparent;
             let (x, width_delta) = if pos.left == 0 {
                 if transparent_fill_strips_active {
                     (content_left, cell_width * split_col_gutter / 2.0)
@@ -306,7 +308,7 @@ impl crate::TermWindow {
             euclid::rect(x, y, width, height)
         };
 
-        if self.window_background.is_empty() {
+        if self.window_background.is_empty() || force_opaque_background {
             // Per-pane, palette-specified background
 
             let mut quad = self
@@ -317,7 +319,11 @@ impl crate::TermWindow {
                     palette
                         .background
                         .to_linear()
-                        .mul_alpha(config.window_background_opacity),
+                        .mul_alpha(if force_opaque_background {
+                            1.0
+                        } else {
+                            config.window_background_opacity
+                        }),
                 )
                 .context("filled_rectangle")?;
             quad.set_hsv(if pos.is_active {
@@ -523,7 +529,7 @@ impl crate::TermWindow {
                 cursor_is_default_color,
                 white_space,
                 filled_box,
-                window_is_transparent,
+                window_is_transparent: effective_window_is_transparent,
                 layers,
                 error: None,
             };
@@ -606,6 +612,7 @@ impl crate::TermWindow {
                         left_pixel_x: NotNan::new(self.left_pixel_x).unwrap(),
                         phys_line_idx: line_idx,
                         reverse_video: self.dims.reverse_video,
+                        window_is_transparent: self.window_is_transparent,
                     };
 
                     if let Some(cached_quad) =
@@ -639,6 +646,7 @@ impl crate::TermWindow {
                     let shape_key = LineToEleShapeCacheKey {
                         shape_hash,
                         shape_generation: quad_key.shape_generation,
+                        window_is_transparent: self.window_is_transparent,
                         composing: if self.cursor.y == stable_row && pane_is_active_for_cursor {
                             if let DeadKeyStatus::Composing(composing) =
                                 &self.term_window.dead_key_status

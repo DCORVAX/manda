@@ -4,6 +4,7 @@ use crate::termwindow::render::corners::{
     BOTTOM_LEFT_ROUNDED_CORNER, BOTTOM_RIGHT_ROUNDED_CORNER, TOP_LEFT_ROUNDED_CORNER,
     TOP_RIGHT_ROUNDED_CORNER,
 };
+use crate::termwindow::render::forces_opaque_kaku_tui_window_background;
 use crate::termwindow::{DimensionContext, RenderFrame, TermWindowNotif};
 use crate::utilsprites::RenderMetrics;
 use ::window::bitmaps::atlas::OutOfTextureSpace;
@@ -253,6 +254,9 @@ impl crate::TermWindow {
         let focused = self.focused.is_some();
         let window_is_transparent =
             !self.window_background.is_empty() || self.config.window_background_opacity != 1.0;
+        let force_opaque_window_background = forces_opaque_kaku_tui_window_background(&panes);
+        let effective_window_is_transparent =
+            window_is_transparent && !force_opaque_window_background;
 
         let start = Instant::now();
         let gl_state = self.render_state.as_ref().unwrap();
@@ -266,158 +270,169 @@ impl crate::TermWindow {
         let mut paint_terminal_background = false;
 
         // Render the full window background
-        match (self.window_background.is_empty(), self.allow_images) {
-            (false, AllowImage::Yes | AllowImage::Scale(_)) => {
-                let bg_color = self.palette().background.to_linear();
+        if force_opaque_window_background {
+            paint_terminal_background = true;
+        } else {
+            match (self.window_background.is_empty(), self.allow_images) {
+                (false, AllowImage::Yes | AllowImage::Scale(_)) => {
+                    let bg_color = self.palette().background.to_linear();
 
-                let top = panes
-                    .iter()
-                    .find(|p| p.is_active)
-                    .map(|p| match self.get_viewport(p.pane.pane_id()) {
-                        Some(top) => top,
-                        None => p.pane.get_dimensions().physical_top,
-                    })
-                    .unwrap_or(0);
+                    let top = panes
+                        .iter()
+                        .find(|p| p.is_active)
+                        .map(|p| match self.get_viewport(p.pane.pane_id()) {
+                            Some(top) => top,
+                            None => p.pane.get_dimensions().physical_top,
+                        })
+                        .unwrap_or(0);
 
-                let loaded_any = self
-                    .render_backgrounds(bg_color, top)
-                    .context("render_backgrounds")?;
+                    let loaded_any = self
+                        .render_backgrounds(bg_color, top)
+                        .context("render_backgrounds")?;
 
-                if !loaded_any {
-                    // Either there was a problem loading the background(s)
-                    // or they haven't finished loading yet.
-                    // Use the regular terminal background until that changes.
+                    if !loaded_any {
+                        // Either there was a problem loading the background(s)
+                        // or they haven't finished loading yet.
+                        // Use the regular terminal background until that changes.
+                        paint_terminal_background = true;
+                    }
+                }
+                _ if effective_window_is_transparent => {
+                    // Avoid doubling up the background color for the main pane area.
+                    // We still need to paint strips that are intentionally excluded
+                    // from pane background quads.
+                    let strip_background = if panes.len() == 1 {
+                        panes[0].pane.palette().background
+                    } else {
+                        self.palette().background
+                    }
+                    .to_linear()
+                    .mul_alpha(self.config.window_background_opacity);
+                    let border = self.get_os_border();
+                    let tab_bar_height = if self.show_tab_bar {
+                        self.tab_bar_pixel_height()
+                            .context("tab_bar_pixel_height")?
+                    } else {
+                        0.0
+                    };
+                    let (_, padding_bottom) = self.effective_vertical_padding();
+                    let padding_bottom = padding_bottom as f32;
+                    // Only cover the OS border area; the tab bar paints its own
+                    // transparent background in paint_tab_bar(), so including
+                    // tab_bar_height here would double-paint that region.
+                    // When tab bar is at top, it starts at y=0 and covers the
+                    // titlebar area completely, so no top fill needed.
+                    let top_fill_height = if self.show_tab_bar && !self.config.tab_bar_at_bottom {
+                        0.0
+                    } else {
+                        border.top.get() as f32
+                    };
+                    // Same reasoning as top: only cover the OS border + padding.
+                    // The tab bar paints its own transparent background.
+                    // When tab bar is at bottom, it covers the bottom border area,
+                    // so only fill the padding area.
+                    let bottom_fill_height = if self.show_tab_bar && self.config.tab_bar_at_bottom {
+                        padding_bottom
+                    } else {
+                        padding_bottom + border.bottom.get() as f32
+                    };
+                    let right_fill_width = self.effective_right_padding(&self.config) as f32
+                        + border.right.get() as f32;
+                    // Use content_left_inset() to include content-alignment gap;
+                    // the leftmost pane background will start at this boundary so
+                    // the two regions don't overlap.
+                    let left_fill_width = self.content_left_inset();
+                    let window_width = self.dimensions.pixel_width as f32;
+                    let window_height = self.dimensions.pixel_height as f32;
+
+                    if top_fill_height > 0.0 {
+                        self.filled_rectangle(
+                            &mut layers,
+                            0,
+                            euclid::rect(
+                                0.0,
+                                0.0,
+                                window_width,
+                                top_fill_height.min(window_height),
+                            ),
+                            strip_background,
+                        )
+                        .context("filled_rectangle for transparent top strip")?;
+                    }
+
+                    if bottom_fill_height > 0.0 {
+                        let clamped_height = bottom_fill_height.min(window_height);
+                        self.filled_rectangle(
+                            &mut layers,
+                            0,
+                            euclid::rect(
+                                0.0,
+                                (window_height - clamped_height).max(0.0),
+                                window_width,
+                                clamped_height,
+                            ),
+                            strip_background,
+                        )
+                        .context("filled_rectangle for transparent bottom strip")?;
+                    }
+
+                    // The tab bar paints its own full-width background, so the
+                    // left/right side strips must skip the tab bar region to avoid
+                    // double-painting.
+                    let tab_bar_top_height = if self.show_tab_bar && !self.config.tab_bar_at_bottom
+                    {
+                        tab_bar_height
+                    } else {
+                        0.0
+                    };
+                    let tab_bar_bottom_height =
+                        if self.show_tab_bar && self.config.tab_bar_at_bottom {
+                            tab_bar_height
+                        } else {
+                            0.0
+                        };
+                    let side_fill_y = (top_fill_height + tab_bar_top_height).min(window_height);
+                    // When tab bar is at bottom, side fills should extend to tab bar top,
+                    // not to (bottom_fill_height + tab_bar_height) which would leave a gap.
+                    let side_fill_height = if self.show_tab_bar && self.config.tab_bar_at_bottom {
+                        (window_height - side_fill_y - tab_bar_height).max(0.0)
+                    } else {
+                        (window_height
+                            - side_fill_y
+                            - (bottom_fill_height + tab_bar_bottom_height).min(window_height))
+                        .max(0.0)
+                    };
+
+                    if right_fill_width > 0.0 {
+                        let clamped_width = right_fill_width.min(window_width);
+                        self.filled_rectangle(
+                            &mut layers,
+                            0,
+                            euclid::rect(
+                                window_width - clamped_width,
+                                side_fill_y,
+                                clamped_width,
+                                side_fill_height,
+                            ),
+                            strip_background,
+                        )
+                        .context("filled_rectangle for transparent right strip")?;
+                    }
+
+                    if left_fill_width > 0.0 {
+                        let clamped_width = left_fill_width.min(window_width);
+                        self.filled_rectangle(
+                            &mut layers,
+                            0,
+                            euclid::rect(0.0, side_fill_y, clamped_width, side_fill_height),
+                            strip_background,
+                        )
+                        .context("filled_rectangle for transparent left strip")?;
+                    }
+                }
+                _ => {
                     paint_terminal_background = true;
                 }
-            }
-            _ if window_is_transparent => {
-                // Avoid doubling up the background color for the main pane area.
-                // We still need to paint strips that are intentionally excluded
-                // from pane background quads.
-                let strip_background = if panes.len() == 1 {
-                    panes[0].pane.palette().background
-                } else {
-                    self.palette().background
-                }
-                .to_linear()
-                .mul_alpha(self.config.window_background_opacity);
-                let border = self.get_os_border();
-                let tab_bar_height = if self.show_tab_bar {
-                    self.tab_bar_pixel_height()
-                        .context("tab_bar_pixel_height")?
-                } else {
-                    0.0
-                };
-                let (_, padding_bottom) = self.effective_vertical_padding();
-                let padding_bottom = padding_bottom as f32;
-                // Only cover the OS border area; the tab bar paints its own
-                // transparent background in paint_tab_bar(), so including
-                // tab_bar_height here would double-paint that region.
-                // When tab bar is at top, it starts at y=0 and covers the
-                // titlebar area completely, so no top fill needed.
-                let top_fill_height = if self.show_tab_bar && !self.config.tab_bar_at_bottom {
-                    0.0
-                } else {
-                    border.top.get() as f32
-                };
-                // Same reasoning as top: only cover the OS border + padding.
-                // The tab bar paints its own transparent background.
-                // When tab bar is at bottom, it covers the bottom border area,
-                // so only fill the padding area.
-                let bottom_fill_height = if self.show_tab_bar && self.config.tab_bar_at_bottom {
-                    padding_bottom
-                } else {
-                    padding_bottom + border.bottom.get() as f32
-                };
-                let right_fill_width =
-                    self.effective_right_padding(&self.config) as f32 + border.right.get() as f32;
-                // Use content_left_inset() to include content-alignment gap;
-                // the leftmost pane background will start at this boundary so
-                // the two regions don't overlap.
-                let left_fill_width = self.content_left_inset();
-                let window_width = self.dimensions.pixel_width as f32;
-                let window_height = self.dimensions.pixel_height as f32;
-
-                if top_fill_height > 0.0 {
-                    self.filled_rectangle(
-                        &mut layers,
-                        0,
-                        euclid::rect(0.0, 0.0, window_width, top_fill_height.min(window_height)),
-                        strip_background,
-                    )
-                    .context("filled_rectangle for transparent top strip")?;
-                }
-
-                if bottom_fill_height > 0.0 {
-                    let clamped_height = bottom_fill_height.min(window_height);
-                    self.filled_rectangle(
-                        &mut layers,
-                        0,
-                        euclid::rect(
-                            0.0,
-                            (window_height - clamped_height).max(0.0),
-                            window_width,
-                            clamped_height,
-                        ),
-                        strip_background,
-                    )
-                    .context("filled_rectangle for transparent bottom strip")?;
-                }
-
-                // The tab bar paints its own full-width background, so the
-                // left/right side strips must skip the tab bar region to avoid
-                // double-painting.
-                let tab_bar_top_height = if self.show_tab_bar && !self.config.tab_bar_at_bottom {
-                    tab_bar_height
-                } else {
-                    0.0
-                };
-                let tab_bar_bottom_height = if self.show_tab_bar && self.config.tab_bar_at_bottom {
-                    tab_bar_height
-                } else {
-                    0.0
-                };
-                let side_fill_y = (top_fill_height + tab_bar_top_height).min(window_height);
-                // When tab bar is at bottom, side fills should extend to tab bar top,
-                // not to (bottom_fill_height + tab_bar_height) which would leave a gap.
-                let side_fill_height = if self.show_tab_bar && self.config.tab_bar_at_bottom {
-                    (window_height - side_fill_y - tab_bar_height).max(0.0)
-                } else {
-                    (window_height
-                        - side_fill_y
-                        - (bottom_fill_height + tab_bar_bottom_height).min(window_height))
-                    .max(0.0)
-                };
-
-                if right_fill_width > 0.0 {
-                    let clamped_width = right_fill_width.min(window_width);
-                    self.filled_rectangle(
-                        &mut layers,
-                        0,
-                        euclid::rect(
-                            window_width - clamped_width,
-                            side_fill_y,
-                            clamped_width,
-                            side_fill_height,
-                        ),
-                        strip_background,
-                    )
-                    .context("filled_rectangle for transparent right strip")?;
-                }
-
-                if left_fill_width > 0.0 {
-                    let clamped_width = left_fill_width.min(window_width);
-                    self.filled_rectangle(
-                        &mut layers,
-                        0,
-                        euclid::rect(0.0, side_fill_y, clamped_width, side_fill_height),
-                        strip_background,
-                    )
-                    .context("filled_rectangle for transparent left strip")?;
-                }
-            }
-            _ => {
-                paint_terminal_background = true;
             }
         }
 
@@ -431,7 +446,11 @@ impl crate::TermWindow {
                 self.palette().background
             }
             .to_linear()
-            .mul_alpha(self.config.window_background_opacity);
+            .mul_alpha(if force_opaque_window_background {
+                1.0
+            } else {
+                self.config.window_background_opacity
+            });
 
             self.filled_rectangle(
                 &mut layers,

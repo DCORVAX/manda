@@ -1,5 +1,5 @@
 use crate::quad::TripleLayerQuadAllocator;
-use crate::termwindow::render::RenderScreenLineParams;
+use crate::termwindow::render::{forces_opaque_kaku_tui_window_background, RenderScreenLineParams};
 use crate::utilsprites::RenderMetrics;
 use config::ConfigHandle;
 use mux::renderable::RenderableDimensions;
@@ -20,6 +20,8 @@ impl crate::TermWindow {
             // the titlebar area completely.
             0.0
         };
+        let panes = self.get_panes_to_render();
+        let force_opaque_tab_bar_background = forces_opaque_kaku_tui_window_background(&panes);
 
         if self.config.use_fancy_tab_bar {
             if self.fancy_tab_bar.is_none() {
@@ -32,7 +34,7 @@ impl crate::TermWindow {
             // background so it blends consistently with the window.
             let window_is_transparent =
                 !self.window_background.is_empty() || self.config.window_background_opacity != 1.0;
-            if window_is_transparent {
+            if window_is_transparent && !force_opaque_tab_bar_background {
                 let tab_bar_bg = if let Some(active) = self.get_active_pane_or_overlay() {
                     active
                         .palette()
@@ -73,19 +75,21 @@ impl crate::TermWindow {
 
         let window_is_transparent =
             !self.window_background.is_empty() || self.config.window_background_opacity != 1.0;
+        let effective_window_is_transparent =
+            window_is_transparent && !force_opaque_tab_bar_background;
         let gl_state = self.render_state.as_ref().unwrap();
         let white_space = gl_state.util_sprites.white_space.texture_coords();
         let filled_box = gl_state.util_sprites.filled_box.texture_coords();
         let default_bg = palette
             .resolve_bg(ColorAttribute::Default)
             .to_linear()
-            .mul_alpha(if window_is_transparent {
+            .mul_alpha(if effective_window_is_transparent {
                 0.
             } else {
                 self.config.text_background_opacity
             });
 
-        if window_is_transparent {
+        if effective_window_is_transparent {
             let tab_bar_bg = if let Some(active) = self.get_active_pane_or_overlay() {
                 active
                     .palette()
@@ -145,7 +149,7 @@ impl crate::TermWindow {
                 cursor_is_default_color: true,
                 white_space,
                 filled_box,
-                window_is_transparent,
+                window_is_transparent: effective_window_is_transparent,
                 default_bg,
                 style: None,
                 font: None,

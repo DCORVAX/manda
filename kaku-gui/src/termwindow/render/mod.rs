@@ -19,6 +19,7 @@ use config::{
 use euclid::num::Zero;
 use mux::pane::{Pane, PaneId};
 use mux::renderable::{RenderableDimensions, StableCursorPosition};
+use mux::tab::PositionedPane;
 use ordered_float::NotNan;
 use std::ops::Range;
 use std::rc::Rc;
@@ -72,6 +73,7 @@ pub struct LineQuadCacheKey {
     pub cursor: Option<CursorProperties>,
     pub reverse_video: bool,
     pub password_input: bool,
+    pub window_is_transparent: bool,
 }
 
 pub struct LineQuadCacheValue {
@@ -97,6 +99,31 @@ pub struct LineToEleShapeCacheKey {
     pub shape_hash: [u8; 16],
     pub composing: Option<(usize, String)>,
     pub shape_generation: usize,
+    pub window_is_transparent: bool,
+}
+
+pub(crate) fn forces_opaque_kaku_tui_background(pane: &Arc<dyn Pane>) -> bool {
+    let Some(info) = pane.get_foreground_process_info(mux::pane::CachePolicy::AllowStale) else {
+        return false;
+    };
+
+    let executable = info
+        .executable
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned());
+    if executable.as_deref() != Some("kaku") {
+        return false;
+    }
+
+    info.argv
+        .iter()
+        .skip(1)
+        .map(String::as_str)
+        .any(|arg| matches!(arg, "ai" | "config"))
+}
+
+pub(crate) fn forces_opaque_kaku_tui_window_background(panes: &[PositionedPane]) -> bool {
+    panes.len() == 1 && forces_opaque_kaku_tui_background(&panes[0].pane)
 }
 
 pub struct LineToElementShapeItem {
