@@ -252,7 +252,15 @@ fn parse_buffered_data(
         // not lost to a race with pane cleanup.
         if dead.load(Ordering::Acquire) {
             log::trace!("parse_buffered_data: dead flag set, draining remaining data");
-            drain_socketpair(&mut rx, &mut buf, &mut parser, &mut actions, &pane, pane_id, dead);
+            drain_socketpair(
+                &mut rx,
+                &mut buf,
+                &mut parser,
+                &mut actions,
+                &pane,
+                pane_id,
+                dead,
+            );
             break;
         }
 
@@ -324,12 +332,7 @@ fn parse_buffered_data(
                     action.append_to(&mut actions);
 
                     if flush && !actions.is_empty() {
-                        send_actions_to_mux(
-                            &pane,
-                            pane_id,
-                            &dead,
-                            std::mem::take(&mut actions),
-                        );
+                        send_actions_to_mux(&pane, pane_id, &dead, std::mem::take(&mut actions));
                         action_size = 0;
                     }
                 });
