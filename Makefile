@@ -1,4 +1,4 @@
-.PHONY: all fmt fmt-check build app dev check test install-tools install-hooks test-webgpu-fallback
+.PHONY: all fmt fmt-check build app dev check test install-tools install-hooks test-webgpu-fallback release
 
 all: build
 
@@ -71,3 +71,6 @@ install-hooks:
 
 test-webgpu-fallback:
 	./scripts/test_webgpu_fallback.sh --strict
+
+release:
+	bash ./scripts/release.sh
