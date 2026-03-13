@@ -210,22 +210,24 @@ fn send_actions_to_mux(
 fn rescue_user_var_actions(pane_id: PaneId, actions: &[Action]) {
     for action in actions {
         if let Action::OperatingSystemCommand(osc) = action {
-            if let OperatingSystemCommand::ITermProprietary(prop) = osc.as_ref() {
-                if let ITermProprietary::SetUserVar { name, value } = prop {
-                    log::debug!(
-                        "rescue_user_var_actions: rescued SetUserVar {}={} from dead pane {}",
-                        name,
-                        value,
-                        pane_id
-                    );
-                    Mux::notify_from_any_thread(MuxNotification::Alert {
-                        pane_id,
-                        alert: wezterm_term::Alert::SetUserVar {
-                            name: name.clone(),
-                            value: value.clone(),
-                        },
-                    });
-                }
+            if let OperatingSystemCommand::ITermProprietary(ITermProprietary::SetUserVar {
+                name,
+                value,
+            }) = osc.as_ref()
+            {
+                log::debug!(
+                    "rescue_user_var_actions: rescued SetUserVar {}={} from dead pane {}",
+                    name,
+                    value,
+                    pane_id
+                );
+                Mux::notify_from_any_thread(MuxNotification::Alert {
+                    pane_id,
+                    alert: wezterm_term::Alert::SetUserVar {
+                        name: name.clone(),
+                        value: value.clone(),
+                    },
+                });
             }
         }
     }
@@ -393,7 +395,7 @@ fn parse_buffered_data(
 /// still be in the pipe (e.g. OSC 1337 SetUserVar from config TUI).
 fn drain_socketpair(
     rx: &mut FileDescriptor,
-    buf: &mut Vec<u8>,
+    buf: &mut [u8],
     parser: &mut termwiz::escape::parser::Parser,
     actions: &mut Vec<Action>,
     pane: &Weak<dyn Pane>,

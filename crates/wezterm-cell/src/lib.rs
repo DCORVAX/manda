@@ -998,7 +998,7 @@ mod test {
         );
 
         let s = TeenyString::from_char('a');
-        assert_eq!(s.as_bytes(), &[b'a']);
+        assert_eq!(s.as_bytes(), b"a");
 
         let longer = TeenyString::from_str("hellothere", None, None);
         assert_eq!(longer.as_bytes(), b"hellothere");

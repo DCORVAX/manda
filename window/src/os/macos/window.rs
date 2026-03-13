@@ -2875,6 +2875,7 @@ fn should_clear_modifiers_for_empty_unmod(
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
 

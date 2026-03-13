@@ -721,6 +721,7 @@ extern "C" fn keyboard_selection_did_change(
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
 

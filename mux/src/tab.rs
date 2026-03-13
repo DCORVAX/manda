@@ -2493,7 +2493,7 @@ mod test {
     }
 
     impl FakePane {
-        fn new(id: PaneId, size: TerminalSize) -> Arc<dyn Pane> {
+        fn new_arc(id: PaneId, size: TerminalSize) -> Arc<dyn Pane> {
             Arc::new(Self {
                 id,
                 size: Mutex::new(size),
@@ -2607,12 +2607,12 @@ mod test {
         };
 
         let tab = Tab::new(&size);
-        tab.assign_pane(&FakePane::new(PaneId::new(1), size));
+        tab.assign_pane(&FakePane::new_arc(PaneId::new(1), size));
 
         let panes = tab.iter_panes();
         assert_eq!(1, panes.len());
         assert_eq!(0, panes[0].index);
-        assert_eq!(true, panes[0].is_active);
+        assert!(panes[0].is_active);
         assert_eq!(0, panes[0].left);
         assert_eq!(0, panes[0].top);
         assert_eq!(80, panes[0].width);
@@ -2695,7 +2695,7 @@ mod test {
                     direction: SplitDirection::Horizontal,
                     ..Default::default()
                 },
-                FakePane::new(PaneId::new(2), horz_size.second),
+                FakePane::new_arc(PaneId::new(2), horz_size.second),
             )
             .unwrap();
         assert_eq!(new_index, 1);
@@ -2704,7 +2704,7 @@ mod test {
         assert_eq!(2, panes.len());
 
         assert_eq!(0, panes[0].index);
-        assert_eq!(false, panes[0].is_active);
+        assert!(!panes[0].is_active);
         assert_eq!(0, panes[0].left);
         assert_eq!(0, panes[0].top);
         assert_eq!(39, panes[0].width);
@@ -2714,7 +2714,7 @@ mod test {
         assert_eq!(PaneId::new(1), panes[0].pane.pane_id());
 
         assert_eq!(1, panes[1].index);
-        assert_eq!(true, panes[1].is_active);
+        assert!(panes[1].is_active);
         assert_eq!(40, panes[1].left);
         assert_eq!(0, panes[1].top);
         assert_eq!(40, panes[1].width);
@@ -2741,7 +2741,7 @@ mod test {
                     target_is_second: true,
                     size: Default::default(),
                 },
-                FakePane::new(PaneId::new(3), vert_size.second),
+                FakePane::new_arc(PaneId::new(3), vert_size.second),
             )
             .unwrap();
         assert_eq!(new_index, 1);
@@ -2750,7 +2750,7 @@ mod test {
         assert_eq!(3, panes.len());
 
         assert_eq!(0, panes[0].index);
-        assert_eq!(false, panes[0].is_active);
+        assert!(!panes[0].is_active);
         assert_eq!(0, panes[0].left);
         assert_eq!(0, panes[0].top);
         assert_eq!(39, panes[0].width);
@@ -2760,7 +2760,7 @@ mod test {
         assert_eq!(PaneId::new(1), panes[0].pane.pane_id());
 
         assert_eq!(1, panes[1].index);
-        assert_eq!(true, panes[1].is_active);
+        assert!(panes[1].is_active);
         assert_eq!(0, panes[1].left);
         assert_eq!(12, panes[1].top);
         assert_eq!(39, panes[1].width);
@@ -2770,7 +2770,7 @@ mod test {
         assert_eq!(PaneId::new(3), panes[1].pane.pane_id());
 
         assert_eq!(2, panes[2].index);
-        assert_eq!(false, panes[2].is_active);
+        assert!(!panes[2].is_active);
         assert_eq!(40, panes[2].left);
         assert_eq!(0, panes[2].top);
         assert_eq!(40, panes[2].width);
@@ -2797,12 +2797,12 @@ mod test {
         assert_eq!(600, panes[2].pixel_height);
     }
 
-    fn is_send_and_sync<T: Send + Sync>() -> bool {
-        true
+    fn assert_send_and_sync<T: Send + Sync>() {
+        let _ = std::marker::PhantomData::<T>;
     }
 
     #[test]
     fn tab_is_send_and_sync() {
-        assert!(is_send_and_sync::<Tab>());
+        assert_send_and_sync::<Tab>();
     }
 }
