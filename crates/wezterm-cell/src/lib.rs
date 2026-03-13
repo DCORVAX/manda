@@ -25,23 +25,18 @@ pub mod color;
 pub mod image;
 
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Default, Hash)]
 enum SmallColor {
+    #[default]
     Default,
     PaletteIndex(PaletteIndex),
 }
 
-impl Default for SmallColor {
-    fn default() -> Self {
-        Self::Default
-    }
-}
-
-impl Into<ColorAttribute> for SmallColor {
-    fn into(self) -> ColorAttribute {
-        match self {
-            Self::Default => ColorAttribute::Default,
-            Self::PaletteIndex(idx) => ColorAttribute::PaletteIndex(idx),
+impl From<SmallColor> for ColorAttribute {
+    fn from(value: SmallColor) -> Self {
+        match value {
+            SmallColor::Default => ColorAttribute::Default,
+            SmallColor::PaletteIndex(idx) => ColorAttribute::PaletteIndex(idx),
         }
     }
 }
@@ -93,7 +88,7 @@ struct FatAttributes {
     hyperlink: Option<Arc<Hyperlink>>,
     /// The image data, if any
     #[cfg(feature = "use_image")]
-    image: Vec<Box<ImageCell>>,
+    image: Vec<ImageCell>,
     /// The color of the underline.  If None, then
     /// the foreground color is to be used
     underline_color: ColorAttribute,
@@ -176,18 +171,13 @@ macro_rules! bitfield {
 /// Input (that the user typed) and Prompt (effectively, "chrome" provided
 /// by the shell or application that the user is interacting with.
 #[cfg_attr(feature = "use_serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromDynamic, ToDynamic)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, FromDynamic, ToDynamic)]
 #[repr(u8)]
 pub enum SemanticType {
+    #[default]
     Output = 0,
     Input = 1,
     Prompt = 2,
-}
-
-impl Default for SemanticType {
-    fn default() -> Self {
-        Self::Output
-    }
 }
 
 pub use wezterm_escape_parser::csi::{Blink, Intensity, Underline, VerticalAlign};
@@ -265,10 +255,10 @@ impl CellAttributes {
     }
 
     pub fn foreground(&self) -> ColorAttribute {
-        if let Some(fat) = self.fat.as_ref() {
-            if fat.foreground != ColorAttribute::Default {
-                return fat.foreground;
-            }
+        if let Some(fat) = self.fat.as_ref()
+            && fat.foreground != ColorAttribute::Default
+        {
+            return fat.foreground;
         }
         self.foreground.into()
     }
@@ -301,10 +291,10 @@ impl CellAttributes {
     }
 
     pub fn background(&self) -> ColorAttribute {
-        if let Some(fat) = self.fat.as_ref() {
-            if fat.background != ColorAttribute::Default {
-                return fat.background;
-            }
+        if let Some(fat) = self.fat.as_ref()
+            && fat.background != ColorAttribute::Default
+        {
+            return fat.background;
         }
         self.background.into()
     }
@@ -364,7 +354,7 @@ impl CellAttributes {
 #[cfg(feature = "use_image")]
 impl CellAttributes {
     /// Assign a single image to a cell.
-    pub fn set_image(&mut self, image: Box<ImageCell>) -> &mut Self {
+    pub fn set_image(&mut self, image: ImageCell) -> &mut Self {
         self.allocate_fat_attributes();
         self.fat.as_mut().unwrap().image = vec![image];
         self
@@ -389,7 +379,7 @@ impl CellAttributes {
 
     /// Add an image attachement, preserving any existing attachments.
     /// The list of images is maintained in z-index order
-    pub fn attach_image(&mut self, image: Box<ImageCell>) -> &mut Self {
+    pub fn attach_image(&mut self, image: ImageCell) -> &mut Self {
         self.allocate_fat_attributes();
         let fat = self.fat.as_mut().unwrap();
         let z_index = image.z_index();
@@ -428,15 +418,14 @@ impl CellAttributes {
             background: self.background,
             fat: None,
         };
-        if let Some(fat) = self.fat.as_ref() {
-            if fat.background != ColorAttribute::Default
-                || fat.foreground != ColorAttribute::Default
-            {
-                res.allocate_fat_attributes();
-                let new_fat = res.fat.as_mut().unwrap();
-                new_fat.foreground = fat.foreground;
-                new_fat.background = fat.background;
-            }
+        if let Some(fat) = self.fat.as_ref()
+            && (fat.background != ColorAttribute::Default
+                || fat.foreground != ColorAttribute::Default)
+        {
+            res.allocate_fat_attributes();
+            let new_fat = res.fat.as_mut().unwrap();
+            new_fat.foreground = fat.foreground;
+            new_fat.background = fat.background;
         }
         // Reset the semantic type; clone_sgr_only is used primarily
         // to create a "blank" cell when clearing and we want that to
@@ -474,7 +463,7 @@ impl CellAttributes {
         if fat.image.is_empty() {
             return None;
         }
-        Some(fat.image.iter().map(|im| im.as_ref().clone()).collect())
+        Some(fat.image.clone())
     }
 
     pub fn underline_color(&self) -> ColorAttribute {
@@ -625,7 +614,7 @@ impl TeenyString {
                     len,
                 );
             }
-            let word = Self::set_marker_bit(word as u64, width);
+            let word = Self::set_marker_bit(word, width);
             Self(word)
         } else {
             let vec = Box::new(TeenyStringHeap {
@@ -861,10 +850,10 @@ impl UnicodeVersion {
     #[inline]
     fn wcwidth(&self, c: char) -> usize {
         #[cfg(feature = "std")]
-        if let Some(ref cell_widths) = self.cell_widths {
-            if let Some(width) = cell_widths.get(&(c as u32)) {
-                return (*width).into();
-            }
+        if let Some(ref cell_widths) = self.cell_widths
+            && let Some(width) = cell_widths.get(&(c as u32))
+        {
+            return (*width).into();
         }
         self.width(WCWIDTH_TABLE.classify(c))
     }
@@ -939,7 +928,7 @@ pub fn unicode_column_width(s: &str, version: Option<&UnicodeVersion>) -> usize 
 /// the Cell that is used to hold a grapheme, and that per-Cell version
 /// can then be used to calculate width.
 pub fn grapheme_column_width(s: &str, version: Option<&UnicodeVersion>) -> usize {
-    let version = version.as_deref().unwrap_or(&LATEST_UNICODE_VERSION);
+    let version = version.unwrap_or(&LATEST_UNICODE_VERSION);
 
     // Optimization: if there is a single byte we can directly cast
     // that byte as a char which will be in the range 0.255.

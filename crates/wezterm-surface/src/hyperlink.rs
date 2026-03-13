@@ -5,6 +5,7 @@
 //! plan is to then implicitly enable the hyperlink attribute for a cell
 //! as we recognize linkable input text during print() processing.
 use alloc::sync::Arc;
+use core::cmp::Reverse;
 use core::ops::Range;
 use fancy_regex::{Captures, Regex};
 #[cfg(feature = "use_serde")]
@@ -79,9 +80,9 @@ impl From<&Regex> for RegexWrap {
     }
 }
 
-impl Into<Regex> for RegexWrap {
-    fn into(self) -> Regex {
-        self.0
+impl From<RegexWrap> for Regex {
+    fn from(value: RegexWrap) -> Self {
+        value.0
     }
 }
 
@@ -166,10 +167,12 @@ pub const GENERIC_HYPERLINK_PATTERN: &str = r"\b\w+://\S+[_/a-zA-Z0-9-]";
 
 impl Rule {
     /// Construct a new rule.  It may fail if the regex is invalid.
+    #[allow(clippy::result_large_err)]
     pub fn new(regex: &str, format: &str) -> Result<Self, fancy_regex::Error> {
         Self::with_highlight(regex, format, 0)
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn with_highlight(
         regex: &str,
         format: &str,
@@ -187,19 +190,17 @@ impl Rule {
     pub fn match_hyperlinks(line: &str, rules: &[Rule]) -> Vec<RuleMatch> {
         let mut matches = Vec::new();
         for rule in rules.iter() {
-            for capture_result in rule.regex.captures_iter(line) {
-                if let Ok(captures) = capture_result {
-                    let m = Match { rule, captures };
-                    if m.highlight().is_some() {
-                        matches.push(m);
-                    }
+            for captures in rule.regex.captures_iter(line).flatten() {
+                let m = Match { rule, captures };
+                if m.highlight().is_some() {
+                    matches.push(m);
                 }
             }
         }
         // Sort the matches by descending match length.
         // This is to avoid confusion if multiple rules match the
         // same sections of text.
-        matches.sort_by(|a, b| b.len().cmp(&a.len()));
+        matches.sort_by_key(|m| Reverse(m.len()));
 
         matches
             .into_iter()

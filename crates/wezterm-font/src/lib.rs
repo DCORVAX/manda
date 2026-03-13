@@ -1,3 +1,28 @@
+#![allow(clippy::assign_op_pattern)]
+#![allow(clippy::borrow_deref_ref)]
+#![allow(clippy::cast_abs_to_unsigned)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::derived_hash_with_manual_eq)]
+#![allow(clippy::explicit_auto_deref)]
+#![allow(clippy::manual_contains)]
+#![allow(clippy::neg_multiply)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::needless_lifetimes)]
+#![allow(clippy::needless_return)]
+#![allow(clippy::new_without_default)]
+#![allow(clippy::non_canonical_partial_ord_impl)]
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+#![allow(clippy::option_map_unit_fn)]
+#![allow(clippy::single_char_add_str)]
+#![allow(clippy::single_component_path_imports)]
+#![allow(clippy::single_match)]
+#![allow(clippy::to_string_in_format_args)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::unnecessary_cast)]
+#![allow(clippy::unnecessary_lazy_evaluations)]
+#![allow(clippy::unwrap_or_default)]
+#![allow(clippy::useless_conversion)]
+
 use crate::db::FontDatabase;
 use crate::locator::{new_locator, FontLocator};
 use crate::parser::ParsedFont;

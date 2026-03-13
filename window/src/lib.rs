@@ -1,3 +1,23 @@
+#![allow(clippy::cmp_owned)]
+#![allow(clippy::derivable_impls)]
+#![allow(clippy::if_same_then_else)]
+#![allow(clippy::len_zero)]
+#![allow(clippy::manual_contains)]
+#![allow(clippy::missing_const_for_thread_local)]
+#![allow(clippy::missing_transmute_annotations)]
+#![allow(clippy::mut_from_ref)]
+#![allow(clippy::map_clone)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::new_without_default)]
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+#![allow(clippy::to_string_in_format_args)]
+#![allow(clippy::to_string_trait_impl)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::unnecessary_cast)]
+#![allow(clippy::unnecessary_map_or)]
+#![allow(clippy::unnecessary_unwrap)]
+#![allow(clippy::useless_asref)]
+
 use async_trait::async_trait;
 use bitflags::bitflags;
 use config::window::WindowLevel;

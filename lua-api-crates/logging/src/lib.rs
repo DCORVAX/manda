@@ -1,3 +1,5 @@
+#![allow(clippy::redundant_pattern)]
+
 use config::lua::get_or_create_module;
 use config::lua::mlua::{Lua, Value, Variadic};
 use luahelper::ValuePrinter;

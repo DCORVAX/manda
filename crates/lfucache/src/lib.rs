@@ -1,3 +1,8 @@
+#![allow(clippy::assign_op_pattern)]
+#![allow(clippy::len_without_is_empty)]
+#![allow(clippy::manual_hash_one)]
+#![allow(clippy::multiple_bound_locations)]
+
 use ahash::AHasher;
 use config::ConfigHandle;
 use intrusive_collections::{

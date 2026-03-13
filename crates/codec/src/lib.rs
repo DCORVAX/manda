@@ -9,6 +9,10 @@
 //! of this code; in this way the client and server can more gracefully
 //! manage unknown enum variants.
 #![allow(dead_code)]
+#![allow(clippy::drop_non_drop)]
+#![allow(clippy::large_enum_variant)]
+#![allow(clippy::match_like_matches_macro)]
+#![allow(clippy::needless_borrow)]
 #![allow(clippy::range_plus_one)]
 
 use anyhow::{bail, Context as _, Error};

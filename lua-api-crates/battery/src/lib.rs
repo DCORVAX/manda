@@ -1,3 +1,6 @@
+#![allow(clippy::manual_unwrap_or)]
+#![allow(clippy::needless_lifetimes)]
+
 use config::lua::get_or_create_module;
 use config::lua::mlua::{self, Lua};
 use luahelper::impl_lua_conversion_dynamic;

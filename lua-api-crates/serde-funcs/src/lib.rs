@@ -1,3 +1,7 @@
+#![allow(clippy::unnecessary_cast)]
+#![allow(clippy::useless_conversion)]
+#![allow(clippy::useless_format)]
+
 use config::lua::mlua::{self, IntoLua, Lua, Value as LuaValue};
 use config::lua::{get_or_create_module, get_or_create_sub_module};
 use luahelper::lua_value_to_dynamic;

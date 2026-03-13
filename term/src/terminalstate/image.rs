@@ -193,18 +193,20 @@ impl TerminalState {
                     .get_cell(cursor_x + x, cursor_y)
                     .cloned()
                     .unwrap_or_else(Cell::blank);
-                let img = Box::new(ImageCell::with_z_index(
+                let img = ImageCell::with_z_index(
                     TextureCoordinate::new(xpos, ypos),
                     TextureCoordinate::new(xpos + x_delta, ypos + y_delta),
                     params.data.clone(),
                     params.z_index,
-                    cell_padding_left,
-                    cell_padding_top,
-                    padding_right,
-                    padding_bottom,
+                    (
+                        cell_padding_left,
+                        cell_padding_top,
+                        padding_right,
+                        padding_bottom,
+                    ),
                     params.image_id,
                     params.placement_id,
-                ));
+                );
                 match params.style {
                     ImageAttachStyle::Kitty => cell.attrs_mut().attach_image(img),
                     ImageAttachStyle::Sixel | ImageAttachStyle::Iterm => {
@@ -254,6 +256,7 @@ impl TerminalState {
     }
 
     /// cache recent images and avoid assigning a new id for repeated data!
+    #[allow(clippy::result_large_err)]
     pub(crate) fn raw_image_to_image_data(
         &mut self,
         data: ImageDataType,

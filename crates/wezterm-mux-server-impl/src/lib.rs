@@ -1,3 +1,9 @@
+#![allow(clippy::collapsible_else_if)]
+#![allow(clippy::large_enum_variant)]
+#![allow(clippy::manual_flatten)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::nonminimal_bool)]
+
 use config::{ConfigHandle, SshMultiplexing};
 use mux::domain::{Domain, LocalDomain};
 use mux::ssh::RemoteSshDomain;

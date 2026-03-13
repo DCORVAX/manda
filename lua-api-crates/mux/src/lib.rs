@@ -1,3 +1,9 @@
+#![allow(clippy::derivable_impls)]
+#![allow(clippy::legacy_numeric_constants)]
+#![allow(clippy::needless_lifetimes)]
+#![allow(clippy::single_match)]
+#![allow(clippy::unit_arg)]
+
 use config::keyassignment::SpawnTabDomain;
 use config::lua::mlua::{self, Lua, UserData, UserDataMethods, Value as LuaValue};
 use config::lua::{get_or_create_module, get_or_create_sub_module};

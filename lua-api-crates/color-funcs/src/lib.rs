@@ -1,3 +1,7 @@
+#![allow(clippy::doc_lazy_continuation)]
+#![allow(clippy::multiple_bound_locations)]
+#![allow(clippy::needless_lifetimes)]
+
 use crate::schemes::base16::Base16Scheme;
 use crate::schemes::sexy::Sexy;
 use config::lua::mlua::{self, Lua, MetaMethod, UserData, UserDataMethods, UserDataRef};

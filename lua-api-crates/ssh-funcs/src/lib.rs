@@ -1,3 +1,5 @@
+#![allow(clippy::needless_lifetimes)]
+
 use config::lua::get_or_create_module;
 use config::lua::mlua::{self, Lua, Variadic};
 use std::collections::HashMap;

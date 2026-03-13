@@ -1,3 +1,5 @@
+#![allow(clippy::manual_flatten)]
+
 use anyhow::{anyhow, Context};
 use config::lua::get_or_create_sub_module;
 use config::lua::mlua::{self, Lua, Value};

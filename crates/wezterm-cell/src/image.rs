@@ -105,7 +105,7 @@ impl ImageCell {
         bottom_right: TextureCoordinate,
         data: Arc<ImageData>,
     ) -> Self {
-        Self::with_z_index(top_left, bottom_right, data, 0, 0, 0, 0, 0, None, None)
+        Self::with_z_index(top_left, bottom_right, data, 0, (0, 0, 0, 0), None, None)
     }
 
     pub fn compute_shape_hash<H: Hasher>(&self, hasher: &mut H) {
@@ -126,13 +126,11 @@ impl ImageCell {
         bottom_right: TextureCoordinate,
         data: Arc<ImageData>,
         z_index: i32,
-        padding_left: u16,
-        padding_top: u16,
-        padding_right: u16,
-        padding_bottom: u16,
+        padding: (u16, u16, u16, u16),
         image_id: Option<u32>,
         placement_id: Option<u32>,
     ) -> Self {
+        let (padding_left, padding_top, padding_right, padding_bottom) = padding;
         Self {
             top_left,
             bottom_right,
@@ -175,10 +173,10 @@ impl ImageCell {
         &self.data
     }
 
-    /// negative z_index is rendered beneath the text layer.
-    /// >= 0 is rendered above the text.
-    /// negative z_index < INT32_MIN/2 will be drawn under cells
-    /// with non-default background colors
+    /// Negative z-index values are rendered beneath the text layer.
+    /// Non-negative values are rendered above the text layer.
+    /// Values less than `INT32_MIN / 2` are drawn under cells with
+    /// non-default background colors.
     pub fn z_index(&self) -> i32 {
         self.z_index
     }
@@ -331,13 +329,10 @@ impl ImageDataType {
     /// if the speed_factor is negative, non-finite or the result
     /// overflows the allow Duration range.
     pub fn adjust_speed(&mut self, speed_factor: f32) {
-        match self {
-            Self::AnimRgba8 { durations, .. } => {
-                for d in durations {
-                    *d = d.mul_f32(1. / speed_factor);
-                }
+        if let Self::AnimRgba8 { durations, .. } = self {
+            for d in durations {
+                *d = d.mul_f32(1. / speed_factor);
             }
-            _ => {}
         }
     }
 
@@ -392,12 +387,12 @@ impl ImageDataType {
                 match format {
                     ImageFormat::Gif => image::codecs::gif::GifDecoder::new(cursor)
                         .and_then(|decoder| decoder.into_frames().collect_frames())
-                        .and_then(|frames| {
+                        .map(|frames| {
                             if frames.is_empty() {
                                 log::error!("decoded image has 0 frames, using placeholder");
-                                Ok(Self::placeholder())
+                                Self::placeholder()
                             } else {
-                                Ok(Self::decode_frames(frames))
+                                Self::decode_frames(frames)
                             }
                         })
                         .unwrap_or_else(|err| {
@@ -574,8 +569,12 @@ impl ImageData {
             ImageDataType::EncodedFile(d) => d.len(),
             ImageDataType::EncodedLease(_) => 0,
             ImageDataType::Rgba8 { data, .. } => data.len(),
-            ImageDataType::AnimRgba8 { frames, .. } => frames.len() * frames[0].len(),
+            ImageDataType::AnimRgba8 { frames, .. } => frames.iter().map(Vec::len).sum(),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn data(&self) -> MutexGuard<'_, ImageDataType> {

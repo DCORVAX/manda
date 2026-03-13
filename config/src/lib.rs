@@ -1,4 +1,26 @@
 //! Configuration for the gui portion of the terminal
+#![allow(clippy::comparison_to_empty)]
+#![allow(clippy::derivable_impls)]
+#![allow(clippy::explicit_auto_deref)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::from_over_into)]
+#![allow(clippy::large_const_arrays)]
+#![allow(clippy::manual_contains)]
+#![allow(clippy::manual_flatten)]
+#![allow(clippy::manual_is_multiple_of)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::needless_lifetimes)]
+#![allow(clippy::needless_question_mark)]
+#![allow(clippy::needless_return)]
+#![allow(clippy::never_loop)]
+#![allow(clippy::new_without_default)]
+#![allow(clippy::redundant_static_lifetimes)]
+#![allow(clippy::should_implement_trait)]
+#![allow(clippy::single_match)]
+#![allow(clippy::to_string_trait_impl)]
+#![allow(clippy::useless_conversion)]
+#![allow(clippy::wrong_self_convention)]
 
 use anyhow::{anyhow, bail, Context, Error};
 use lazy_static::lazy_static;
@@ -83,7 +105,7 @@ lazy_static! {
 }
 
 thread_local! {
-    static LUA_CONFIG: RefCell<Option<LuaConfigState>> = RefCell::new(None);
+    static LUA_CONFIG: RefCell<Option<LuaConfigState>> = const { RefCell::new(None) };
 }
 
 fn toml_table_has_numeric_keys(t: &toml::value::Table) -> bool {

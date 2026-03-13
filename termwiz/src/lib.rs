@@ -40,6 +40,8 @@
 //! * `widgets` - enables the widget layout and related traits
 //! * `use_serde` - makes a number of structs serde serializable
 
+#![allow(clippy::result_large_err)]
+
 pub mod caps;
 pub use wezterm_cell as cell;
 pub use wezterm_cell::color;

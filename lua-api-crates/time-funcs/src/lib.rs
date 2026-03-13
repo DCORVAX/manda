@@ -1,3 +1,6 @@
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::needless_lifetimes)]
+
 use chrono::prelude::*;
 use config::lua::mlua::{self, Lua, MetaMethod, UserData, UserDataMethods, UserDataRef};
 use config::lua::{

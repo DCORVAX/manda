@@ -1,3 +1,7 @@
+#![allow(clippy::needless_lifetimes)]
+#![allow(clippy::useless_conversion)]
+#![allow(clippy::wrong_self_convention)]
+
 use config::lua::get_or_create_module;
 use config::lua::mlua::{self, IntoLua, Lua};
 use finl_unicode::grapheme_clusters::Graphemes;

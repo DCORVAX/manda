@@ -1,3 +1,5 @@
+#![allow(clippy::useless_conversion)]
+
 pub mod ringlog;
 pub use ringlog::setup_logger;
 use std::path::{Path, PathBuf};

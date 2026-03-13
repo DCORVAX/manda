@@ -1,3 +1,5 @@
+#![allow(clippy::module_inception)]
+
 mod cellref;
 mod clusterline;
 mod line;

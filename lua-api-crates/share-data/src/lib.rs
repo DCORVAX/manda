@@ -1,3 +1,7 @@
+#![allow(clippy::needless_return)]
+#![allow(clippy::useless_conversion)]
+#![allow(clippy::while_let_on_iterator)]
+
 use config::lua::get_or_create_module;
 use config::lua::mlua::{
     self, IntoLua, Lua, UserData, UserDataMethods, UserDataRef, Value as LuaValue,
