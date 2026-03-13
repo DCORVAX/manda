@@ -183,9 +183,7 @@ fn run_kaku_subcommand_in_shell_new_window(subcommand: &str) {
             "{fallback_bin} {subcommand}; printf '\\nPress Enter to close...\\n'; read -l dummy"
         )
     } else {
-        format!(
-            "{fallback_bin} {subcommand}; printf '\\nPress Enter to close...\\n'; read dummy"
-        )
+        format!("{fallback_bin} {subcommand}; printf '\\nPress Enter to close...\\n'; read dummy")
     };
 
     promise::spawn::spawn_into_main_thread(async move {
