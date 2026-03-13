@@ -12,7 +12,7 @@
 
 2. **Safer Close & Interaction**: Tab/pane close confirmations, double-click zoom no longer blocks title bar drag, and refreshed overlay styling.
 
-3. **Settings TUI Redesign**: Clearer grouped sections, pinned footer, safer config parsing, and cleaner save flow in `kaku config`.
+3. **Settings TUI Redesign**: Clearer grouped sections, pinned footer with contextual key hints, safer config parsing, and reliable config reload when the TUI exits.
 
 4. **AI Config v2**: Antigravity model support, quota tracking, background loading, and more reliable OAuth token refresh.
 
@@ -20,7 +20,7 @@
 
 6. **File & Editor Workflow**: Enhanced file path link opening, remote files shortcut for SSH sessions, and `$EDITOR` environment respect.
 
-7. **Shell & Session Stability**: Hardened managed shell/tmux integration, Smart Tab scoped to Kaku sessions only, and Starship RPROMPT fallback fixes.
+7. **Bug Fixes & Stability**: Fixed AeroSpace/yabai window flickering on resize, hardened managed shell/tmux integration, Smart Tab scoped to Kaku sessions only, and Starship RPROMPT fallback fixes.
 
 ### 更新日志
 
@@ -28,7 +28,7 @@
 
 2. **更安全的关闭与交互**：标签/窗格关闭确认，双击缩放不再干扰标题栏拖拽，关闭浮层样式重做。
 
-3. **设置 TUI 重构**：`kaku config` 分组结构更清晰，底部操作区固定，配置解析更稳健，保存流程更顺畅。
+3. **设置 TUI 重构**：`kaku config` 分组结构更清晰，底部操作区固定显示上下文快捷键，配置解析更稳健，TUI 退出后配置重载更可靠。
 
 4. **AI 配置升级**：支持 Antigravity 模型与额度追踪，后台加载，OAuth token 刷新更可靠。
 
@@ -36,7 +36,7 @@
 
 6. **文件与编辑器工作流**：改进文件路径链接打开，SSH 会话增加远程文件快捷入口，尊重 `$EDITOR` 环境变量。
 
-7. **Shell 与会话稳定性**：加固托管 shell/tmux 集成，Smart Tab 默认仅限 Kaku 会话，修复 Starship RPROMPT 回退。
+7. **Bug 修复与稳定性**：修复 AeroSpace/yabai 调整窗口大小时的闪烁问题，加固托管 shell/tmux 集成，Smart Tab 默认仅限 Kaku 会话，修复 Starship RPROMPT 回退。
 
 Special thanks to @frankekn, @crossly, @iwen-conf, and @zxh326 for their contributions to this release.
 

@@ -234,7 +234,7 @@ notarize_release() {
 # Create and push git tag
 create_tag() {
     local version="$1"
-    local tag="v${version}"
+    local tag="V${version}"
 
     log_info "Creating tag $tag..."
 
@@ -251,7 +251,7 @@ create_tag() {
 # Create GitHub Release
 create_github_release() {
     local version="$1"
-    local tag="v${version}"
+    local tag="V${version}"
 
     log_info "Creating GitHub Release for $tag..."
 
@@ -332,7 +332,7 @@ update_homebrew_tap() {
         "/repos/tw93/homebrew-kaku/dispatches" \
         -f "event_type=release" \
         -f "client_payload[version]=$version" \
-        -f "client_payload[url]=https://github.com/tw93/Kaku/releases/download/v${version}/Kaku.dmg" \
+        -f "client_payload[url]=https://github.com/tw93/Kaku/releases/download/V${version}/Kaku.dmg" \
         2>/dev/null || {
         log_warn "Failed to dispatch Homebrew tap update (token may lack permissions for tw93/homebrew-kaku)"
         return 0
@@ -378,7 +378,7 @@ main() {
     log_info "  - $OUT_DIR/kaku_for_update.zip"
     log_info "  - $OUT_DIR/kaku_for_update.zip.sha256"
     log_info ""
-    log_info "GitHub Release: https://github.com/tw93/Kaku/releases/tag/v${version}"
+    log_info "GitHub Release: https://github.com/tw93/Kaku/releases/tag/V${version}"
 }
 
 main "$@"
