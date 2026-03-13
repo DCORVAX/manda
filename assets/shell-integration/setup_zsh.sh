@@ -1039,7 +1039,7 @@ if ! (( \${+functions[_main_complete]} )) || ! (( \${+_comps} )); then
     fi
 fi
 
-# Load zsh-z only if user config has not already provided `z`.
+# Load zsh-z only if user config has not already provided \`z\`.
 _kaku_has_dir_jump_provider() {
     (( \${+functions[zshz]} )) && return 0
     (( \${+functions[z]} )) && return 0
@@ -1387,7 +1387,18 @@ has_kaku_tmux_source_line() {
 }
 
 ensure_kaku_tmux_integration() {
-	if ! command -v tmux >/dev/null 2>&1; then
+	# GUI-launched shells inherit a minimal PATH (no Homebrew). Probe common
+	# install locations so tmux is found even when PATH is stripped down.
+	local tmux_cmd=""
+	if command -v tmux >/dev/null 2>&1; then
+		tmux_cmd="tmux"
+	elif [[ -x /opt/homebrew/bin/tmux ]]; then
+		tmux_cmd=/opt/homebrew/bin/tmux
+	elif [[ -x /usr/local/bin/tmux ]]; then
+		tmux_cmd=/usr/local/bin/tmux
+	fi
+
+	if [[ -z "$tmux_cmd" ]]; then
 		echo -e "  ${BLUE}•${NC} ${BOLD}Integrate${NC}   Skipped tmux integration ${NC}(tmux not found)${NC}"
 		return
 	fi
