@@ -79,6 +79,7 @@ use std::sync::{Arc, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 use termwiz::escape::csi::{DecPrivateMode, DecPrivateModeCode, Device, Mode};
+use termwiz::escape::osc::{ITermProprietary, OperatingSystemCommand};
 use termwiz::escape::{Action, CSI};
 use thiserror::*;
 use wezterm_term::{Clipboard, ClipboardSelection, DownloadHandler, TerminalSize};
@@ -176,7 +177,12 @@ const BUFSIZE: usize = 256 * 1024;
 
 /// This function applies parsed actions to the pane and notifies any
 /// mux subscribers about the output event
-fn send_actions_to_mux(pane: &Weak<dyn Pane>, dead: &Arc<AtomicBool>, actions: Vec<Action>) {
+fn send_actions_to_mux(
+    pane: &Weak<dyn Pane>,
+    pane_id: PaneId,
+    dead: &Arc<AtomicBool>,
+    actions: Vec<Action>,
+) {
     let start = Instant::now();
     match pane.upgrade() {
         Some(pane) => {
@@ -185,16 +191,52 @@ fn send_actions_to_mux(pane: &Weak<dyn Pane>, dead: &Arc<AtomicBool>, actions: V
             Mux::notify_from_any_thread(MuxNotification::PaneOutput(pane.pane_id()));
         }
         None => {
-            // Something else removed the pane from
-            // the mux, so signal that we should stop
-            // trying to process it in read_from_pane_pty.
+            // Pane was removed from the mux. Before giving up, rescue any
+            // SetUserVar actions that carry critical signals (e.g. config
+            // reload from config TUI). These can't go through
+            // pane.perform_actions() because the pane is gone, but the
+            // notification subscribers (TermWindow) still need them.
+            rescue_user_var_actions(pane_id, &actions);
             dead.store(true, Ordering::Release);
         }
     }
     histogram!("send_actions_to_mux.rate").record(1.);
 }
 
-fn parse_buffered_data(pane: Weak<dyn Pane>, dead: &Arc<AtomicBool>, mut rx: FileDescriptor) {
+/// Extract SetUserVar actions from a batch of terminal actions and post them
+/// directly to the Mux notification system, bypassing the (now-dead) pane.
+/// This prevents config reload signals from being silently dropped when the
+/// config TUI process exits before its OSC 1337 output is fully processed.
+fn rescue_user_var_actions(pane_id: PaneId, actions: &[Action]) {
+    for action in actions {
+        if let Action::OperatingSystemCommand(osc) = action {
+            if let OperatingSystemCommand::ITermProprietary(prop) = osc.as_ref() {
+                if let ITermProprietary::SetUserVar { name, value } = prop {
+                    log::debug!(
+                        "rescue_user_var_actions: rescued SetUserVar {}={} from dead pane {}",
+                        name,
+                        value,
+                        pane_id
+                    );
+                    Mux::notify_from_any_thread(MuxNotification::Alert {
+                        pane_id,
+                        alert: wezterm_term::Alert::SetUserVar {
+                            name: name.clone(),
+                            value: value.clone(),
+                        },
+                    });
+                }
+            }
+        }
+    }
+}
+
+fn parse_buffered_data(
+    pane: Weak<dyn Pane>,
+    pane_id: PaneId,
+    dead: &Arc<AtomicBool>,
+    mut rx: FileDescriptor,
+) {
     let mut buf = vec![0; configuration().mux_output_parser_buffer_size];
     let mut parser = termwiz::escape::parser::Parser::new();
     let mut actions = vec![];
@@ -204,9 +246,13 @@ fn parse_buffered_data(pane: Weak<dyn Pane>, dead: &Arc<AtomicBool>, mut rx: Fil
     let mut deadline = None;
 
     loop {
-        // Check dead flag at the start of each iteration
+        // Check dead flag at the start of each iteration.
+        // When set, drain any remaining buffered data before exiting so
+        // that critical signals (e.g. config reload from config TUI) are
+        // not lost to a race with pane cleanup.
         if dead.load(Ordering::Acquire) {
-            log::trace!("parse_buffered_data: dead flag set, exiting");
+            log::trace!("parse_buffered_data: dead flag set, draining remaining data");
+            drain_socketpair(&mut rx, &mut buf, &mut parser, &mut actions, &pane, pane_id, dead);
             break;
         }
 
@@ -254,7 +300,12 @@ fn parse_buffered_data(pane: Weak<dyn Pane>, dead: &Arc<AtomicBool>, mut rx: Fil
 
                             // Flush prior actions
                             if !actions.is_empty() {
-                                send_actions_to_mux(&pane, &dead, std::mem::take(&mut actions));
+                                send_actions_to_mux(
+                                    &pane,
+                                    pane_id,
+                                    &dead,
+                                    std::mem::take(&mut actions),
+                                );
                                 action_size = 0;
                             }
                         }
@@ -273,7 +324,12 @@ fn parse_buffered_data(pane: Weak<dyn Pane>, dead: &Arc<AtomicBool>, mut rx: Fil
                     action.append_to(&mut actions);
 
                     if flush && !actions.is_empty() {
-                        send_actions_to_mux(&pane, &dead, std::mem::take(&mut actions));
+                        send_actions_to_mux(
+                            &pane,
+                            pane_id,
+                            &dead,
+                            std::mem::take(&mut actions),
+                        );
                         action_size = 0;
                     }
                 });
@@ -308,7 +364,7 @@ fn parse_buffered_data(pane: Weak<dyn Pane>, dead: &Arc<AtomicBool>, mut rx: Fil
                         }
                     }
 
-                    send_actions_to_mux(&pane, &dead, std::mem::take(&mut actions));
+                    send_actions_to_mux(&pane, pane_id, &dead, std::mem::take(&mut actions));
                     deadline = None;
                     action_size = 0;
                 }
@@ -325,7 +381,43 @@ fn parse_buffered_data(pane: Weak<dyn Pane>, dead: &Arc<AtomicBool>, mut rx: Fil
     // for very short lived commands so that we don't forget to
     // display what they displayed.
     if !actions.is_empty() {
-        send_actions_to_mux(&pane, &dead, std::mem::take(&mut actions));
+        send_actions_to_mux(&pane, pane_id, &dead, std::mem::take(&mut actions));
+    }
+}
+
+/// Non-blocking drain of any remaining data in the socketpair buffer.
+/// Called when the dead flag is set, to rescue critical signals that might
+/// still be in the pipe (e.g. OSC 1337 SetUserVar from config TUI).
+fn drain_socketpair(
+    rx: &mut FileDescriptor,
+    buf: &mut Vec<u8>,
+    parser: &mut termwiz::escape::parser::Parser,
+    actions: &mut Vec<Action>,
+    pane: &Weak<dyn Pane>,
+    pane_id: PaneId,
+    dead: &Arc<AtomicBool>,
+) {
+    loop {
+        let mut pfd = [pollfd {
+            fd: rx.as_socket_descriptor(),
+            events: POLLIN,
+            revents: 0,
+        }];
+        // Non-blocking poll: only read what's already buffered
+        match poll(&mut pfd, Some(Duration::ZERO)) {
+            Ok(_) if pfd[0].revents & POLLIN != 0 => match rx.read(buf) {
+                Ok(0) | Err(_) => break,
+                Ok(size) => {
+                    parser.parse(&buf[..size], |action| {
+                        action.append_to(actions);
+                    });
+                }
+            },
+            _ => break,
+        }
+    }
+    if !actions.is_empty() {
+        send_actions_to_mux(pane, pane_id, dead, std::mem::take(actions));
     }
 }
 
@@ -399,7 +491,7 @@ fn read_from_pane_pty(
     let parse_pane = pane.clone();
     let parse_handle = std::thread::spawn({
         let dead = Arc::clone(&dead);
-        move || parse_buffered_data(parse_pane, &dead, rx)
+        move || parse_buffered_data(parse_pane, pane_id, &dead, rx)
     });
 
     if let Some(banner) = banner {
