@@ -75,6 +75,38 @@ require_command() {
 	fi
 }
 
+codesign_with_retry() {
+	local max_attempts=3
+	local delay_seconds=15
+	local attempt=1
+	local output rc
+
+	while (( attempt <= max_attempts )); do
+		if output=$(codesign "$@" 2>&1); then
+			if [[ -n "$output" ]]; then
+				printf '%s\n' "$output"
+			fi
+			return 0
+		fi
+
+		rc=$?
+		printf '%s\n' "$output" >&2
+
+		if [[ "$output" != *"timestamp service is not available"* ]]; then
+			return "$rc"
+		fi
+
+		if (( attempt == max_attempts )); then
+			echo "codesign failed after $max_attempts attempts because the Apple timestamp service remained unavailable." >&2
+			return "$rc"
+		fi
+
+		echo "codesign timestamp service unavailable, retrying in ${delay_seconds}s (attempt ${attempt}/${max_attempts})..." >&2
+		sleep "$delay_seconds"
+		attempt=$((attempt + 1))
+	done
+}
+
 ensure_rust_targets() {
 	local installed
 	local missing=()
@@ -262,11 +294,11 @@ touch "$APP_BUNDLE_OUT/Contents/Info.plist"
 touch "$APP_BUNDLE_OUT"
 
 while IFS= read -r -d '' dylib; do
-	codesign "${BASE_SIGN_ARGS[@]}" "$dylib"
+	codesign_with_retry "${BASE_SIGN_ARGS[@]}" "$dylib"
 done < <(find "$APP_BUNDLE_OUT/Contents/Frameworks" -type f -name '*.dylib' -print0 | sort -z)
 
 for bin in "$APP_BUNDLE_OUT/Contents/MacOS/kaku" "$APP_BUNDLE_OUT/Contents/MacOS/kaku-gui"; do
-	codesign "${RUNTIME_SIGN_ARGS[@]}" "$bin"
+	codesign_with_retry "${RUNTIME_SIGN_ARGS[@]}" "$bin"
 done
 
 APP_SIGN_ARGS=("${RUNTIME_SIGN_ARGS[@]}")
@@ -274,7 +306,7 @@ if [[ "$SIGNING_IDENTITY" == "-" && -n "${BUNDLE_ID:-}" ]]; then
 	APP_SIGN_ARGS+=("-r=designated => identifier \"$BUNDLE_ID\"")
 fi
 
-codesign "${APP_SIGN_ARGS[@]}" "$APP_BUNDLE_OUT"
+codesign_with_retry "${APP_SIGN_ARGS[@]}" "$APP_BUNDLE_OUT"
 
 if [[ "$APP_ONLY" == "1" ]]; then
 	echo "App bundle ready: $APP_BUNDLE_OUT"
