@@ -607,7 +607,7 @@ extern "C" fn application_will_finish_launching(
     _notif: *mut Object,
 ) {
     log::debug!("application_will_finish_launching");
-    reap_kaku_autofill_helpers();
+    std::thread::spawn(reap_kaku_autofill_helpers);
 }
 
 extern "C" fn application_did_finish_launching(this: &mut Object, _sel: Sel, _notif: *mut Object) {
