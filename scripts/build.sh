@@ -251,6 +251,11 @@ echo "[5/7] Signing app bundle..."
 # - Release builds (PROFILE=release/release-opt): Use KAKU_SIGNING_IDENTITY if set, otherwise ad-hoc
 # Usage with developer certificate:
 #   KAKU_SIGNING_IDENTITY="Apple Development: Your Name" ./scripts/build.sh
+if [[ "$KAKU_REQUIRE_SIGNED_RELEASE" == "1" && ( "$PROFILE" == "dev" || "$PROFILE" == "debug" ) ]]; then
+	echo "Error: signed release requires PROFILE=release or PROFILE=release-opt, got PROFILE=$PROFILE" >&2
+	exit 1
+fi
+
 if [[ "$PROFILE" == "dev" || "$PROFILE" == "debug" ]]; then
 	SIGNING_IDENTITY="-"
 	echo "Dev build: using ad-hoc signing"

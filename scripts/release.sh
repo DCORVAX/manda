@@ -54,6 +54,10 @@ die() {
     exit 1
 }
 
+is_valid_team_id() {
+    [[ "$1" =~ ^[A-Z0-9]{10}$ ]]
+}
+
 # Detect version from Cargo.toml if not provided
 get_cargo_version() {
     grep '^version =' "$REPO_ROOT/kaku/Cargo.toml" | head -n1 | cut -d'"' -f2
@@ -170,25 +174,62 @@ detect_signing_identity() {
     log_info "Auto-detected signing identity: $KAKU_SIGNING_IDENTITY"
 }
 
+validate_release_profile() {
+    case "$PROFILE" in
+        release|release-opt)
+            log_info "Using release build profile: $PROFILE"
+            ;;
+        *)
+            die "Invalid PROFILE=$PROFILE for release flow. Use PROFILE=release or PROFILE=release-opt."
+            ;;
+    esac
+}
+
+resolve_notarization_team_id() {
+    local team_id="${KAKU_NOTARIZE_TEAM_ID:-}"
+
+    if [[ -n "$team_id" ]]; then
+        if is_valid_team_id "$team_id"; then
+            return 0
+        fi
+
+        log_warn "Ignoring invalid KAKU_NOTARIZE_TEAM_ID: $team_id"
+    fi
+
+    team_id=$(printf '%s\n' "${KAKU_SIGNING_IDENTITY:-}" | sed -n 's/.*(\([A-Z0-9]\{10\}\)).*/\1/p')
+    if [[ -n "$team_id" ]] && is_valid_team_id "$team_id"; then
+        export KAKU_NOTARIZE_TEAM_ID="$team_id"
+        log_info "Derived notarization Team ID from signing identity: $team_id"
+        return 0
+    fi
+
+    return 1
+}
+
 # Check notarization credentials are available
 check_notarization_creds() {
     log_info "Checking notarization credentials..."
 
     local have_creds=0
+    local have_team_id=0
+
+    if resolve_notarization_team_id; then
+        have_team_id=1
+    fi
 
     # Check environment variables
-    if [[ -n "${KAKU_NOTARIZE_APPLE_ID:-}" && -n "${KAKU_NOTARIZE_PASSWORD:-}" && -n "${KAKU_NOTARIZE_TEAM_ID:-}" ]]; then
+    if [[ -n "${KAKU_NOTARIZE_APPLE_ID:-}" && -n "${KAKU_NOTARIZE_PASSWORD:-}" && "$have_team_id" -eq 1 ]]; then
         have_creds=1
         log_info "Using notarization credentials from environment variables"
     else
         # Check Keychain
-        local apple_id password team_id
+        local apple_id password
         apple_id=$(security find-generic-password -s "kaku-notarize-apple-id" -w 2>/dev/null || true)
         password=$(security find-generic-password -s "kaku-notarize-password" -w 2>/dev/null || true)
 
-        if [[ -n "$apple_id" && -n "$password" ]]; then
+        if [[ -n "$apple_id" && -n "$password" && "$have_team_id" -eq 1 ]]; then
             have_creds=1
-            log_info "Found notarization credentials in Keychain"
+            log_info "Found notarization credentials in Keychain and resolved Team ID"
         fi
     fi
 
@@ -432,6 +473,7 @@ main() {
     check_release_notes
     check_release_config
     check_gh_auth
+    validate_release_profile
     detect_signing_identity
     check_notarization_creds
     run_checks
