@@ -20,7 +20,7 @@
 ## Features
 
 - **Zero Config**: Defaults with JetBrains Mono, macOS font rendering, and low-res font sizing.
-- **Theme-Aware Experience**: Built-in dark/light themes with tuned selection colors, font weight, and practical color overrides support.
+- **Theme-Aware Experience**: Auto-switches between dark and light modes with macOS, with tuned selection colors, font weight, and practical color overrides support.
 - **Curated Shell Suite**: Built-in zsh plugins with optional CLI tools for prompt, diff, and navigation workflows.
 - **Fast & Lightweight**: 40% smaller binary, instant startup, lazy loading, stripped-down GPU-accelerated core.
 - **WezTerm-Compatible Config**: Use WezTerm's Lua config directly with full API compatibility and no migration.
@@ -51,6 +51,7 @@ Kaku comes with intuitive macOS-native shortcuts:
 | Resize Pane | `Cmd + Ctrl + Arrows` |
 | Open Settings Panel | `Cmd + ,` |
 | Reopen Closed Tab | `Cmd + Shift + T` |
+| Rename Tab | Double-click on tab title |
 | Clear Screen | `Cmd + K` |
 | Doctor Panel | `Ctrl + Shift + L` |
 | AI Panel | `Cmd + Shift + A` |
@@ -72,6 +73,9 @@ Kaku comes with intuitive macOS-native shortcuts:
 - **Zoom Window**: Double-click the title bar or tab bar empty space to safely zoom or unzoom the window.
 - **Finder Integration**: Right-click folders in macOS Finder and deploy Kaku via Services, or drop multiple files directly onto the Kaku Dock icon.
 - **History Peek**: Scroll up while inside full-screen apps like `less` or `vim` to lift the screen and peek at your primary shell history without exiting.
+- **Tab Reordering**: Drag and drop tabs to reorder them in the tab bar.
+- **Close Confirmation**: Closing a tab or pane with active processes prompts for confirmation to prevent accidental data loss.
+- **Pane Input Broadcast**: Synchronize typing across multiple panes simultaneously. Enable broadcast mode from the pane context menu or via the `kaku` command. Overlay input is never broadcast by mistake.
 
 ## Configuration
 
@@ -93,7 +97,9 @@ Optional CLI tools installed via Homebrew during `kaku init`:
 
 Kaku uses `~/.config/kaku/kaku.lua` for configuration, fully compatible with WezTerm's Lua API, with built-in defaults at `Kaku.app/Contents/Resources/kaku.lua` as fallback.
 
-Run `kaku config` or press `Cmd + ,` to open the Settings TUI and edit common options (font, theme, opacity, bells, Kaku Assistant) without manually editing config files.
+Run `kaku config` or press `Cmd + ,` to open the Settings TUI and edit common options (font, theme, opacity, bells, scrollbars, Kaku Assistant) without manually editing config files. The settings panel uses grouped sections with a pinned footer showing contextual key hints.
+
+To enable rounded scrollbars, open `kaku config` and toggle the scrollbar style option.
 
 If you already use your own Zsh completion workflow such as `fzf-tab`, Kaku's Smart Tab only applies inside Kaku sessions by default. You can also disable it explicitly before loading Kaku shell integration:
 
@@ -111,14 +117,14 @@ config.color_overrides = {
 }
 ```
 
-Run `kaku` in your terminal to see all available commands such as `kaku ai`, `kaku config`, `kaku doctor`, `kaku update`, and `kaku reset`.
+Run `kaku` in your terminal to see all available commands such as `kaku ai`, `kaku config`, `kaku doctor`, `kaku update`, `kaku reset`, and `kaku set-tab-title`.
 
 ## Kaku AI
 
 Kaku includes a built-in assistant for command-line error recovery and a single AI settings page for coding tools.
 
 - **Kaku Assistant**: Automatically analyzes failed commands and prepares a safe command suggestion. Enable or disable it from `kaku config`.
-- **AI Tools Config**: Manage settings for tools like Claude Code, Codex, Gemini CLI, Copilot CLI, Factory Droid, and OpenClaw.
+- **AI Tools Config**: Manage settings for tools like Claude Code, Codex, Gemini CLI, Copilot CLI, Kimi Code, Factory Droid, and OpenClaw.
 
 Open AI settings with `kaku ai` to configure your external AI tools and edit **Kaku Assistant** details after it is enabled.
 For enterprise gateway/proxy headers, edit `~/.config/kaku/assistant.toml` and set `custom_headers` there.
