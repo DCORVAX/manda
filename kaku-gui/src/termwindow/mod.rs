@@ -4707,6 +4707,13 @@ impl TermWindow {
         position: Option<StableRowIndex>,
         dims: RenderableDimensions,
     ) {
+        log::trace!(
+            "set_viewport: pane={} pos={:?} physical_top={} scrollback_top={}",
+            pane_id,
+            position,
+            dims.physical_top,
+            dims.scrollback_top,
+        );
         let pos = match position {
             Some(pos) => {
                 // Drop out of scrolling mode if we're off the bottom
@@ -4747,12 +4754,14 @@ impl TermWindow {
         if pane.is_primary_peek() {
             pane.set_primary_peek(false);
         }
+        log::trace!("scroll_to_top: pane={}", pane.pane_id());
         let dims = pane.get_dimensions();
         self.reveal_scrollbar();
         self.set_viewport(pane.pane_id(), Some(dims.scrollback_top), dims);
     }
 
     fn scroll_to_bottom(&mut self, pane: &Arc<dyn Pane>) {
+        log::trace!("scroll_to_bottom: pane={}", pane.pane_id());
         self.reveal_scrollbar();
         self.pane_state(pane.pane_id()).viewport = None;
         pane.set_primary_peek(false);
