@@ -103,6 +103,7 @@ end
 local user_has_custom_padding = false
 local user_has_custom_font = false
 local user_has_custom_font_rules = false
+local remember_last_cwd = true
 
 local function check_user_custom_config()
   local user_config_path = kaku_user_config_path()
@@ -125,6 +126,9 @@ local function check_user_custom_config()
       end
       if trimmed:match('^config%.font_rules%s*=') then
         user_has_custom_font_rules = true
+      end
+      if trimmed:match('^config%.remember_last_cwd%s*=%s*false') then
+        remember_last_cwd = false
       end
     end
   end
@@ -293,7 +297,12 @@ local function extract_path_from_cwd(cwd)
   end
 
   local path = ''
-  if type(cwd) == 'table' then
+  if type(cwd) == 'userdata' then
+    -- pane:get_current_working_dir() returns a Url userdata (not a table).
+    -- .file_path gives the already percent-decoded local path.
+    path = (cwd.file_path or ''):gsub('/$', '')
+    return path
+  elseif type(cwd) == 'table' then
     path = cwd.file_path or cwd.path or tostring(cwd)
   else
     path = tostring(cwd)
@@ -317,6 +326,29 @@ local runtime_cwd_warmup_until_secs = now_secs() + runtime_cwd_startup_grace_sec
 local home_dir = os.getenv("HOME")
 local kaku_state_dir = home_dir and (home_dir .. "/.config/kaku") or nil
 local lazygit_state_file = kaku_state_dir and (kaku_state_dir .. "/lazygit_state.json") or nil
+local last_cwd_file = kaku_state_dir and (kaku_state_dir .. "/last_cwd") or nil
+local last_saved_cwd = nil
+
+local function save_last_cwd(path)
+  if not last_cwd_file or not path or path == '' then return end
+  if path == last_saved_cwd then return end
+  local f = io.open(last_cwd_file, 'w')
+  if f then
+    f:write(path .. '\n')
+    f:close()
+    last_saved_cwd = path
+  end
+end
+
+local function read_last_cwd()
+  if not last_cwd_file then return nil end
+  local f = io.open(last_cwd_file, 'r')
+  if not f then return nil end
+  local path = f:read('l')
+  f:close()
+  if not path or path == '' then return nil end
+  return path
+end
 local lazygit_state_cache = nil
 local lazygit_repo_probe_cache = {}
 local lazygit_repo_probe_interval_secs = 5
@@ -1996,7 +2028,7 @@ local function resolve_remote_target_from_pane(pane)
   end
 
   local cwd = pane_cwd_value(pane)
-  if cwd and type(cwd) == "table" then
+  if cwd and (type(cwd) == "table" or type(cwd) == "userdata") then
     local host = trim_surrounding_whitespace(cwd.host or "")
     if host ~= "" then
       local username = trim_surrounding_whitespace(cwd.username or "")
@@ -2703,6 +2735,16 @@ end)
 
 wezterm.on('update-right-status', function(window, pane)
   pane = resolve_active_pane(window, pane)
+  if remember_last_cwd then
+    local ok, cwd = pcall(function() return pane:get_current_working_dir() end)
+    if ok and cwd then
+      -- Url userdata: .host is nil for local file:/// URLs, hostname string for SSH.
+      local is_local = (cwd.host == nil or cwd.host == '')
+      if is_local then
+        save_last_cwd(extract_path_from_cwd(cwd))
+      end
+    end
+  end
   schedule_lazygit_hint_probe(window, pane)
 
   local dims = window:get_dimensions()
@@ -3667,7 +3709,17 @@ wezterm.on('gui-startup', function(cmd)
 
   -- Normal startup
   if not cmd then
-    wezterm.mux.spawn_window {}
+    local start_cwd = nil
+    if remember_last_cwd then
+      local saved = read_last_cwd()
+      if saved and saved ~= '' then
+        local result = os.execute(string.format('[ -d %q ] 2>/dev/null', saved))
+        if result == true or result == 0 then
+          start_cwd = saved
+        end
+      end
+    end
+    wezterm.mux.spawn_window(start_cwd and { cwd = start_cwd } or {})
   end
 end)
 

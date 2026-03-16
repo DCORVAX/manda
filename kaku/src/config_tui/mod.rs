@@ -399,6 +399,15 @@ impl App {
                 options: vec!["On", "Off"],
                 skip_write: false,
             },
+            ConfigField {
+                section: "Behavior",
+                key: "Remember Last Directory",
+                lua_key: "remember_last_cwd",
+                value: String::new(),
+                default: "On".into(),
+                options: vec!["On", "Off"],
+                skip_write: false,
+            },
         ];
 
         Self {
@@ -666,7 +675,8 @@ impl App {
             | "tab_close_confirmation"
             | "pane_close_confirmation"
             | "bell_tab_indicator"
-            | "bell_dock_badge" => {
+            | "bell_dock_badge"
+            | "remember_last_cwd" => {
                 if raw == "true" {
                     Some("On".into())
                 } else if raw == "false" {
@@ -1171,7 +1181,8 @@ impl App {
             | "tab_close_confirmation"
             | "pane_close_confirmation"
             | "bell_tab_indicator"
-            | "bell_dock_badge" => {
+            | "bell_dock_badge"
+            | "remember_last_cwd" => {
                 if field.value == "On" {
                     "true".into()
                 } else {
