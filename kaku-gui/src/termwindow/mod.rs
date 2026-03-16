@@ -73,6 +73,7 @@ use wezterm_font::FontConfiguration;
 use wezterm_term::color::ColorPalette;
 use wezterm_term::input::LastMouseClick;
 use wezterm_term::{Alert, Progress, StableRowIndex, TerminalConfiguration, TerminalSize};
+use wezterm_toast_notification::ToastNotification;
 
 pub mod background;
 pub mod box_model;
@@ -521,6 +522,7 @@ pub struct PaneState {
     /// Otherwise, the viewport is at the bottom of the
     /// scrollback.
     viewport: Option<StableRowIndex>,
+    was_primary_peek: bool,
     selection: Selection,
     /// If is_some(), rather than display the actual tab
     /// contents, we're overlaying a little internal application
@@ -1944,6 +1946,25 @@ impl TermWindow {
                     // Update global Dock badge count
                     if should_mark_unread {
                         front_end().adjust_unread_bell_count(1);
+                    }
+
+                    // Show macOS system notification when window is not focused
+                    if !window_has_focus {
+                        let pane_title = Mux::get()
+                            .get_pane(pane_id)
+                            .map(|p| p.get_title())
+                            .unwrap_or_default();
+                        ToastNotification {
+                            title: "Kaku".to_string(),
+                            message: if pane_title.is_empty() {
+                                "Task completed".to_string()
+                            } else {
+                                pane_title
+                            },
+                            url: None,
+                            timeout: Some(Duration::from_secs(5)),
+                        }
+                        .show();
                     }
 
                     window.invalidate();
@@ -4701,6 +4722,63 @@ impl TermWindow {
         self.pane_state(pane_id).viewport
     }
 
+    fn normalize_viewport(
+        position: Option<StableRowIndex>,
+        dims: RenderableDimensions,
+    ) -> Option<StableRowIndex> {
+        match position {
+            Some(pos) if pos >= dims.physical_top => None,
+            Some(pos) => Some(pos.max(dims.scrollback_top)),
+            None => None,
+        }
+    }
+
+    fn reconcile_viewport(
+        position: Option<StableRowIndex>,
+        was_primary_peek: bool,
+        is_primary_peek: bool,
+        dims: RenderableDimensions,
+    ) -> Option<StableRowIndex> {
+        if was_primary_peek && !is_primary_peek {
+            None
+        } else {
+            Self::normalize_viewport(position, dims)
+        }
+    }
+
+    fn sync_pane_viewport_state(&self, pane: &Arc<dyn Pane>) {
+        let pane_id = pane.pane_id();
+        let is_primary_peek = pane.is_primary_peek();
+        let dims = pane.get_dimensions();
+        let mut state = self.pane_state(pane_id);
+        let viewport = state.viewport;
+        let was_primary_peek = state.was_primary_peek;
+        let next_viewport =
+            Self::reconcile_viewport(viewport, was_primary_peek, is_primary_peek, dims);
+
+        if next_viewport != viewport {
+            if was_primary_peek && !is_primary_peek {
+                log::trace!(
+                    "sync_pane_viewport_state: clearing stale viewport after peek exit pane={} viewport={:?}",
+                    pane_id,
+                    viewport,
+                );
+            } else {
+                log::trace!(
+                    "sync_pane_viewport_state: normalizing viewport pane={} from {:?} to {:?} physical_top={} scrollback_top={}",
+                    pane_id,
+                    viewport,
+                    next_viewport,
+                    dims.physical_top,
+                    dims.scrollback_top,
+                );
+            }
+            state.viewport = next_viewport;
+        }
+
+        state.was_primary_peek = is_primary_peek;
+    }
+
     pub fn set_viewport(
         &mut self,
         pane_id: PaneId,
@@ -4714,17 +4792,7 @@ impl TermWindow {
             dims.physical_top,
             dims.scrollback_top,
         );
-        let pos = match position {
-            Some(pos) => {
-                // Drop out of scrolling mode if we're off the bottom
-                if pos >= dims.physical_top {
-                    None
-                } else {
-                    Some(pos.max(dims.scrollback_top))
-                }
-            }
-            None => None,
-        };
+        let pos = Self::normalize_viewport(position, dims);
 
         let mut state = self.pane_state(pane_id);
         if pos != state.viewport {
@@ -5204,6 +5272,7 @@ impl TermWindow {
         } else {
             let mut panes = tab.iter_panes();
             for p in &mut panes {
+                self.sync_pane_viewport_state(&p.pane);
                 if let Some(overlay) = self.pane_state(p.pane.pane_id()).overlay.as_ref() {
                     p.pane = Arc::clone(&overlay.pane);
                 }
@@ -5315,8 +5384,9 @@ impl Drop for TermWindow {
 
 #[cfg(test)]
 mod tests {
-    use super::{InputBroadcastMode, TermWindow};
+    use super::{InputBroadcastMode, RenderableDimensions, TermWindow};
     use mux::tab::TabId;
+    use wezterm_term::StableRowIndex;
 
     #[test]
     fn other_user_vars_never_trigger_reload() {
@@ -5366,5 +5436,47 @@ mod tests {
         assert!(!InputBroadcastMode::CurrentTab.applies_to_active_tab(None, Some(tab_a)));
         assert!(InputBroadcastMode::AllTabs.applies_to_active_tab(Some(tab_a), Some(tab_b)));
         assert!(!InputBroadcastMode::Off.applies_to_active_tab(Some(tab_a), Some(tab_a)));
+    }
+
+    fn dims(physical_top: StableRowIndex, scrollback_top: StableRowIndex) -> RenderableDimensions {
+        RenderableDimensions {
+            cols: 80,
+            viewport_rows: 24,
+            scrollback_rows: 200,
+            physical_top,
+            scrollback_top,
+            dpi: 96,
+            pixel_width: 800,
+            pixel_height: 480,
+            reverse_video: false,
+        }
+    }
+
+    #[test]
+    fn normalize_viewport_clamps_to_scrollback_top() {
+        assert_eq!(
+            TermWindow::normalize_viewport(Some(90), dims(150, 100)),
+            Some(100)
+        );
+    }
+
+    #[test]
+    fn normalize_viewport_clears_when_position_reaches_bottom() {
+        assert_eq!(
+            TermWindow::normalize_viewport(Some(150), dims(150, 100)),
+            None
+        );
+        assert_eq!(
+            TermWindow::normalize_viewport(Some(180), dims(150, 100)),
+            None
+        );
+    }
+
+    #[test]
+    fn reconcile_viewport_clears_stale_peek_viewport_on_exit() {
+        assert_eq!(
+            TermWindow::reconcile_viewport(Some(120), true, false, dims(40, 0)),
+            None
+        );
     }
 }
