@@ -65,7 +65,7 @@ Kaku comes with intuitive macOS-native shortcuts:
 
 ### Intuitive Interactions
 
-- **Visual Bell**: A blinking dot appears on inactive tabs when background tasks finish. Optional Dock badge is controlled by `bell_dock_badge` (off by default); tab dots use `bell_tab_indicator`.
+- **Visual Bell**: A bell prefix appears on inactive tabs when background tasks finish. Optional Dock badge is controlled by `bell_dock_badge` (off by default), and the tab prefix can be toggled with `bell_tab_indicator`.
 - **File Path Hyperlinks**: Relative and home-based file paths in terminal output become clickable links.
 - **Active Pane**: A subtle dot highlights the currently focused pane during split-screen workflows.
 - **Global Hotkey**: Press `Cmd + Opt + Ctrl + K` anytime to float Kaku over your current workspace.

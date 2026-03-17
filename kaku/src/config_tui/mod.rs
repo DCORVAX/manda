@@ -383,7 +383,7 @@ impl App {
             },
             ConfigField {
                 section: "Behavior",
-                key: "Bell Tab Indicator",
+                key: "Bell Tab Prefix",
                 lua_key: "bell_tab_indicator",
                 value: String::new(),
                 default: "On".into(),
