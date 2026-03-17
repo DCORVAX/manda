@@ -516,7 +516,13 @@ impl Screen {
         let first = match self.stable_row_to_phys(range.start) {
             Some(first) => first,
             None => {
-                return 0..range_len.min(self.lines.len());
+                // The start position is no longer in our buffer (pruned by
+                // scrollback rotation).  Fall back to showing the most recent
+                // content at the bottom of the buffer rather than the top,
+                // which prevents a jarring "jump to top" visual glitch when
+                // the viewport becomes stale during rapid output.
+                let last = self.lines.len();
+                return last.saturating_sub(range_len)..last;
             }
         };
 

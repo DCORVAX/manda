@@ -1111,6 +1111,13 @@ impl TermWindow {
             .contains(WindowState::FULL_SCREEN)
     }
 
+    /// Returns true when the window fills the screen edge-to-edge (maximized
+    /// or fullscreen). Used to eliminate bottom padding so terminal content
+    /// fills to the window bottom.
+    pub(crate) fn layout_is_edge_to_edge(&self) -> bool {
+        self.window_state.contains(WindowState::MAXIMIZED) || self.layout_is_effective_fullscreen()
+    }
+
     fn schedule_deferred_layout_relayout(&mut self, window: &Window) {
         // Deferred relayout runs for all layout modes (bottom-tab, top-tab, fullscreen).
         // Top-tab is included because Lua's config override (window_padding /
@@ -2458,7 +2465,7 @@ impl TermWindow {
             self.show_tab_bar,
             self.config.tab_bar_at_bottom,
             tab_bar_height,
-            self.layout_is_effective_fullscreen(),
+            self.layout_is_edge_to_edge(),
         )
     }
 
@@ -4728,7 +4735,16 @@ impl TermWindow {
     ) -> Option<StableRowIndex> {
         match position {
             Some(pos) if pos >= dims.physical_top => None,
-            Some(pos) => Some(pos.max(dims.scrollback_top)),
+            Some(pos) if pos < dims.scrollback_top => {
+                // The viewport position has been pruned from scrollback.
+                // This typically happens during rapid output when scrollback_top
+                // advances past the user's scroll position.  Snap back to the
+                // bottom (follow output) instead of clamping to scrollback_top,
+                // which would pin the viewport at the very top of the buffer
+                // and cause a jarring "jump to top" visual effect.
+                None
+            }
+            Some(pos) => Some(pos),
             None => None,
         }
     }
@@ -5453,10 +5469,12 @@ mod tests {
     }
 
     #[test]
-    fn normalize_viewport_clamps_to_scrollback_top() {
+    fn normalize_viewport_snaps_to_bottom_when_pruned() {
+        // When viewport is below scrollback_top (pruned by scrollback rotation),
+        // snap to None (follow bottom) instead of clamping to scrollback_top
         assert_eq!(
             TermWindow::normalize_viewport(Some(90), dims(150, 100)),
-            Some(100)
+            None
         );
     }
 
