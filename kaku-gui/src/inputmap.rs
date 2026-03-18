@@ -197,6 +197,18 @@ impl InputMap {
                 ],
                 [
                     MouseEventTriggerMods {
+                        mods: Modifiers::SUPER,
+                        mouse_reporting: false,
+                        alt_screen: MouseEventAltScreen::Any,
+                    },
+                    MouseEventTrigger::Up {
+                        streak: 1,
+                        button: MouseButton::Left
+                    },
+                    OpenLinkAtMouseCursor
+                ],
+                [
+                    MouseEventTriggerMods {
                         mods: Modifiers::ALT,
                         mouse_reporting: false,
                         alt_screen: MouseEventAltScreen::Any,
@@ -453,6 +465,33 @@ impl InputMap {
     ) -> Option<KeyAssignment> {
         mods.mods = mods.mods.remove_positional_mods();
         self.mouse.get(&(event, mods)).cloned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InputMap;
+    use config::keyassignment::{KeyAssignment, MouseEventTrigger};
+    use config::{MouseEventAltScreen, MouseEventTriggerMods};
+    use wezterm_term::input::MouseButton;
+    use window::Modifiers;
+
+    #[test]
+    fn default_mouse_bindings_keep_cmd_click_link_opening() {
+        let input_map = InputMap::default_input_map();
+        let action = input_map.lookup_mouse(
+            MouseEventTrigger::Up {
+                streak: 1,
+                button: MouseButton::Left,
+            },
+            MouseEventTriggerMods {
+                mods: Modifiers::SUPER,
+                mouse_reporting: false,
+                alt_screen: MouseEventAltScreen::False,
+            },
+        );
+
+        assert_eq!(action, Some(KeyAssignment::OpenLinkAtMouseCursor));
     }
 }
 
