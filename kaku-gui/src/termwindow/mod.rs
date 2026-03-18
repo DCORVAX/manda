@@ -206,6 +206,61 @@ fn ai_toast_lifetime_ms(message: &str) -> u64 {
     }
 }
 
+fn normalize_bell_notification_source(value: &str) -> Option<String> {
+    let first_line = value.lines().next()?.trim();
+    if first_line.is_empty()
+        || first_line.eq_ignore_ascii_case("kaku")
+        || first_line.eq_ignore_ascii_case("wezterm")
+    {
+        return None;
+    }
+
+    let normalized = first_line.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.is_empty() {
+        return None;
+    }
+
+    const MAX_LEN: usize = 120;
+    let needs_truncation = normalized.chars().count() > MAX_LEN;
+    let mut text = normalized.chars().take(MAX_LEN).collect::<String>();
+    if needs_truncation {
+        text.push_str("...");
+    }
+    Some(text)
+}
+
+fn bell_notification_message(
+    last_command: Option<&str>,
+    reported_program: Option<&str>,
+    pane_title: &str,
+    foreground_process: Option<&str>,
+) -> String {
+    if let Some(command) = last_command.and_then(normalize_bell_notification_source) {
+        return format!("Bell from {}", command);
+    }
+
+    if let Some(program) = reported_program.and_then(normalize_bell_notification_source) {
+        return format!("Bell from {}", program);
+    }
+
+    if let Some(title) = normalize_bell_notification_source(pane_title) {
+        return format!("Bell from {}", title);
+    }
+
+    if let Some(process) = foreground_process
+        .and_then(|value| {
+            Path::new(value)
+                .file_name()
+                .map(|name| name.to_string_lossy().into())
+        })
+        .and_then(|value: String| normalize_bell_notification_source(&value))
+    {
+        return format!("Bell from {}", process);
+    }
+
+    "Bell from a background pane".to_string()
+}
+
 /// Lookup table for simple lazygit/yazi toast messages dispatched via EmitEvent.
 fn lookup_kaku_toast(event_name: &str) -> Option<&'static str> {
     const KAKU_TOAST_MAP: &[(&str, &str)] = &[
@@ -1957,17 +2012,27 @@ impl TermWindow {
 
                     // Show macOS system notification when window is not focused
                     if !window_has_focus {
-                        let pane_title = Mux::get()
-                            .get_pane(pane_id)
-                            .map(|p| p.get_title())
-                            .unwrap_or_default();
+                        let (last_command, reported_program, pane_title, foreground_process) =
+                            Mux::get()
+                                .get_pane(pane_id)
+                                .map(|pane| {
+                                    let user_vars = pane.copy_user_vars();
+                                    (
+                                        user_vars.get("kaku_last_cmd").cloned(),
+                                        user_vars.get("WEZTERM_PROG").cloned(),
+                                        pane.get_title(),
+                                        pane.get_foreground_process_name(CachePolicy::AllowStale),
+                                    )
+                                })
+                                .unwrap_or((None, None, String::new(), None));
                         ToastNotification {
-                            title: "Kaku".to_string(),
-                            message: if pane_title.is_empty() {
-                                "Task completed".to_string()
-                            } else {
-                                pane_title
-                            },
+                            title: "Kaku Bell".to_string(),
+                            message: bell_notification_message(
+                                last_command.as_deref(),
+                                reported_program.as_deref(),
+                                &pane_title,
+                                foreground_process.as_deref(),
+                            ),
                             url: None,
                             timeout: Some(Duration::from_secs(5)),
                         }
@@ -5383,7 +5448,7 @@ impl Drop for TermWindow {
 
 #[cfg(test)]
 mod tests {
-    use super::{InputBroadcastMode, RenderableDimensions, TermWindow};
+    use super::{bell_notification_message, InputBroadcastMode, RenderableDimensions, TermWindow};
     use mux::tab::TabId;
     use wezterm_term::StableRowIndex;
 
@@ -5478,6 +5543,43 @@ mod tests {
         assert_eq!(
             TermWindow::reconcile_viewport(Some(120), true, false, dims(40, 0)),
             None
+        );
+    }
+
+    #[test]
+    fn bell_notification_message_prefers_last_command() {
+        assert_eq!(
+            bell_notification_message(
+                Some("cargo test -p kaku-gui"),
+                Some("zsh"),
+                "kaku",
+                Some("/bin/zsh")
+            ),
+            "Bell from cargo test -p kaku-gui"
+        );
+    }
+
+    #[test]
+    fn bell_notification_message_uses_reported_program_before_default_title() {
+        assert_eq!(
+            bell_notification_message(None, Some("npm run build"), "kaku", None),
+            "Bell from npm run build"
+        );
+    }
+
+    #[test]
+    fn bell_notification_message_falls_back_to_process_basename() {
+        assert_eq!(
+            bell_notification_message(None, None, "kaku", Some("/opt/homebrew/bin/git")),
+            "Bell from git"
+        );
+    }
+
+    #[test]
+    fn bell_notification_message_uses_background_fallback_for_uninformative_values() {
+        assert_eq!(
+            bell_notification_message(Some("   "), Some("wezterm"), "kaku", None),
+            "Bell from a background pane"
         );
     }
 }
