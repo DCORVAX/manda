@@ -75,6 +75,39 @@ require_command() {
 	fi
 }
 
+is_developer_id_application_identity() {
+	[[ "$1" == Developer\ ID\ Application:* ]]
+}
+
+detect_signing_identity() {
+	local identities count
+
+	if [[ -n "${KAKU_SIGNING_IDENTITY:-}" ]]; then
+		if ! is_developer_id_application_identity "$KAKU_SIGNING_IDENTITY"; then
+			echo "Warning: KAKU_SIGNING_IDENTITY is not a Developer ID Application certificate: $KAKU_SIGNING_IDENTITY" >&2
+			echo "Notarization requires Developer ID Application signing." >&2
+		fi
+		return 0
+	fi
+
+	identities=$(security find-identity -v -p codesigning 2>/dev/null | awk -F '"' '/Developer ID Application/{print $2}' || true)
+	count=$(printf '%s\n' "$identities" | grep -c '^Developer ID Application:' || true)
+
+	if [[ "$count" -ge 1 ]]; then
+		KAKU_SIGNING_IDENTITY=$(printf '%s\n' "$identities" | head -n1)
+		export KAKU_SIGNING_IDENTITY
+		if [[ "$count" -gt 1 ]]; then
+			echo "Release build: found multiple Developer ID Application certificates, auto-selecting: $KAKU_SIGNING_IDENTITY"
+		else
+			echo "Release build: auto-detected signing identity: $KAKU_SIGNING_IDENTITY"
+		fi
+		return 0
+	fi
+
+	echo "Warning: no Developer ID Application certificate found in Keychain." >&2
+	return 1
+}
+
 codesign_with_retry() {
 	local max_attempts=3
 	local delay_seconds=15
@@ -251,9 +284,9 @@ xattr -cr "$APP_BUNDLE_OUT"
 echo "[5/7] Signing app bundle..."
 # Signing strategy:
 # - Dev builds (PROFILE=dev): Always use ad-hoc signing (-) for speed
-# - Release builds (PROFILE=release/release-opt): Use KAKU_SIGNING_IDENTITY if set, otherwise ad-hoc
+# - Release builds (PROFILE=release/release-opt): Use KAKU_SIGNING_IDENTITY or auto-detect a Developer ID Application certificate
 # Usage with developer certificate:
-#   KAKU_SIGNING_IDENTITY="Apple Development: Your Name" ./scripts/build.sh
+#   KAKU_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./scripts/build.sh
 if [[ "$KAKU_REQUIRE_SIGNED_RELEASE" == "1" && ( "$PROFILE" == "dev" || "$PROFILE" == "debug" ) ]]; then
 	echo "Error: signed release requires PROFILE=release or PROFILE=release-opt, got PROFILE=$PROFILE" >&2
 	exit 1
@@ -263,15 +296,16 @@ if [[ "$PROFILE" == "dev" || "$PROFILE" == "debug" ]]; then
 	SIGNING_IDENTITY="-"
 	echo "Dev build: using ad-hoc signing"
 else
-	SIGNING_IDENTITY="${KAKU_SIGNING_IDENTITY:--}"
-	if [[ "$SIGNING_IDENTITY" != "-" ]]; then
+	if detect_signing_identity; then
+		SIGNING_IDENTITY="$KAKU_SIGNING_IDENTITY"
 		echo "Release build: signing with developer certificate"
 	else
 		if [[ "$KAKU_REQUIRE_SIGNED_RELEASE" == "1" ]]; then
-			echo "Error: release build requires KAKU_SIGNING_IDENTITY with a Developer ID certificate" >&2
+			echo "Error: release build requires a Developer ID Application certificate. Set KAKU_SIGNING_IDENTITY or install one in Keychain." >&2
 			exit 1
 		fi
-		echo "Release build: using ad-hoc signing (set KAKU_SIGNING_IDENTITY for developer certificate)"
+		SIGNING_IDENTITY="-"
+		echo "Release build: using ad-hoc signing (set KAKU_SIGNING_IDENTITY or install a single Developer ID Application certificate for notarization)"
 	fi
 fi
 

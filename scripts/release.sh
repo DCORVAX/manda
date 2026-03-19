@@ -167,17 +167,13 @@ detect_signing_identity() {
     if [[ "$count" -eq 0 ]]; then
         die "No Developer ID Application certificate found in Keychain.\n" \
             "Install your certificate or set KAKU_SIGNING_IDENTITY environment variable."
-    elif [[ "$count" -gt 1 ]]; then
-        log_error "Multiple Developer ID Application certificates found:"
-        echo "$identities" | while read -r id; do
-            log_error "  - $id"
-        done
-        die "Set KAKU_SIGNING_IDENTITY to specify which one to use."
     fi
 
-    # Extract the identity
     KAKU_SIGNING_IDENTITY=$(echo "$identities" | grep "^Developer ID Application" | head -n1)
     export KAKU_SIGNING_IDENTITY
+    if [[ "$count" -gt 1 ]]; then
+        log_warn "Multiple Developer ID Application certificates found, auto-selecting the first match"
+    fi
     log_info "Auto-detected signing identity: $KAKU_SIGNING_IDENTITY"
 }
 

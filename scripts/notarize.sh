@@ -46,6 +46,7 @@ require_developer_id_signature() {
 
 	if ! grep -q "^Authority=Developer ID Application:" <<<"$metadata"; then
 		echo "Error: App must be signed with a Developer ID Application certificate before notarization." >&2
+		echo "Rebuild with ./scripts/build.sh after installing a single Developer ID Application certificate, or set KAKU_SIGNING_IDENTITY explicitly." >&2
 		echo "$metadata" | grep -E "^(Authority=|TeamIdentifier=|Signature=)" >&2 || true
 		return 1
 	fi
@@ -66,7 +67,7 @@ fi
 
 # Verify signing
 if ! codesign -v "$APP_BUNDLE" 2>/dev/null; then
-	echo "Error: App is not signed. Run build with KAKU_SIGNING_IDENTITY set."
+	echo "Error: App is not signed. Re-run ./scripts/build.sh with a Developer ID Application certificate available."
 	exit 1
 fi
 
