@@ -391,7 +391,7 @@ impl crate::TermWindow {
                                 })
                                 .margin(BoxDimension {
                                     left: Dimension::Cells(0.),
-                                    right: Dimension::Pixels(2.),
+                                    right: Dimension::Pixels(0.),
                                     top: Dimension::Cells(0.),
                                     bottom: Dimension::Cells(0.),
                                 });
