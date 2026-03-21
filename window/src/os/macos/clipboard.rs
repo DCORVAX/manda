@@ -1,5 +1,5 @@
-use crate::macos::{nsstring, nsstring_to_str};
 use crate::ClipboardData;
+use crate::macos::{nsstring, nsstring_to_str};
 use cocoa::appkit::{NSFilenamesPboardType, NSPasteboard, NSStringPboardType};
 use cocoa::base::*;
 use cocoa::foundation::NSArray;
@@ -32,29 +32,124 @@ impl Clipboard {
         Clipboard { pasteboard }
     }
 
-    fn read_image_data(&self) -> anyhow::Result<Option<(Vec<u8>, &'static str)>> {
+    fn read_pasteboard_data(&self, uti: &str) -> anyhow::Result<Option<Vec<u8>>> {
         unsafe {
-            for (uti, extension) in [(PNG_PASTEBOARD_TYPE, "png"), (TIFF_PASTEBOARD_TYPE, "tiff")] {
-                let data: id = msg_send![self.pasteboard, dataForType:*nsstring(uti)];
-                if data.is_null() {
-                    continue;
+            let data: id = msg_send![self.pasteboard, dataForType:*nsstring(uti)];
+            if data.is_null() {
+                return Ok(None);
+            }
+
+            let len: usize = msg_send![data, length];
+            if len == 0 {
+                return Ok(None);
+            }
+            anyhow::ensure!(
+                len <= MAX_CLIPBOARD_IMAGE_BYTES,
+                "clipboard image exceeds {} bytes",
+                MAX_CLIPBOARD_IMAGE_BYTES
+            );
+
+            let bytes: *const u8 = msg_send![data, bytes];
+            anyhow::ensure!(!bytes.is_null(), "clipboard image bytes returned null");
+
+            Ok(Some(std::slice::from_raw_parts(bytes, len).to_vec()))
+        }
+    }
+
+    fn convert_tiff_to_png(&self, tiff_data: &[u8]) -> anyhow::Result<Vec<u8>> {
+        const NS_BITMAP_IMAGE_FILE_TYPE_PNG: usize = 4;
+
+        unsafe {
+            let tiff_nsdata: id = msg_send![
+                class!(NSData),
+                dataWithBytes:tiff_data.as_ptr()
+                length:tiff_data.len()
+            ];
+            anyhow::ensure!(
+                !tiff_nsdata.is_null(),
+                "failed to create NSData for clipboard TIFF image"
+            );
+
+            let image_rep: id = msg_send![class!(NSBitmapImageRep), imageRepWithData:tiff_nsdata];
+            anyhow::ensure!(
+                !image_rep.is_null(),
+                "failed to decode clipboard TIFF image"
+            );
+
+            let png_data: id = msg_send![
+                image_rep,
+                representationUsingType:NS_BITMAP_IMAGE_FILE_TYPE_PNG
+                properties:nil
+            ];
+            anyhow::ensure!(
+                !png_data.is_null(),
+                "failed to encode clipboard TIFF image as PNG"
+            );
+
+            let len: usize = msg_send![png_data, length];
+            anyhow::ensure!(
+                len <= MAX_CLIPBOARD_IMAGE_BYTES,
+                "clipboard PNG image exceeds {} bytes",
+                MAX_CLIPBOARD_IMAGE_BYTES
+            );
+
+            let bytes: *const u8 = msg_send![png_data, bytes];
+            anyhow::ensure!(!bytes.is_null(), "clipboard PNG bytes returned null");
+
+            Ok(std::slice::from_raw_parts(bytes, len).to_vec())
+        }
+    }
+
+    fn ensure_png_pasteboard_data(&self, png_data: &[u8]) -> anyhow::Result<()> {
+        unsafe {
+            let _: isize = msg_send![
+                self.pasteboard,
+                addTypes:NSArray::arrayWithObject(nil, *nsstring(PNG_PASTEBOARD_TYPE))
+                owner:nil
+            ];
+
+            let png_nsdata: id = msg_send![
+                class!(NSData),
+                dataWithBytes:png_data.as_ptr()
+                length:png_data.len()
+            ];
+            anyhow::ensure!(
+                !png_nsdata.is_null(),
+                "failed to create NSData for clipboard PNG image"
+            );
+
+            let success: BOOL = msg_send![
+                self.pasteboard,
+                setData:png_nsdata
+                forType:*nsstring(PNG_PASTEBOARD_TYPE)
+            ];
+            anyhow::ensure!(success == YES, "failed to publish PNG clipboard image");
+        }
+
+        Ok(())
+    }
+
+    fn read_image_data(&self) -> anyhow::Result<Option<(Vec<u8>, &'static str)>> {
+        if let Some(png_data) = self.read_pasteboard_data(PNG_PASTEBOARD_TYPE)? {
+            return Ok(Some((png_data, "png")));
+        }
+
+        if let Some(tiff_data) = self.read_pasteboard_data(TIFF_PASTEBOARD_TYPE)? {
+            match self.convert_tiff_to_png(&tiff_data) {
+                Ok(png_data) => {
+                    if let Err(err) = self.ensure_png_pasteboard_data(&png_data) {
+                        log::warn!(
+                            "failed to add PNG clipboard flavor alongside TIFF image: {err:#}"
+                        );
+                    }
+                    return Ok(Some((png_data, "png")));
                 }
-
-                let len: usize = msg_send![data, length];
-                if len == 0 {
-                    continue;
+                Err(err) => {
+                    log::warn!(
+                        "failed to normalize clipboard TIFF image to PNG, using TIFF as-is: {err:#}"
+                    );
+                    return Ok(Some((tiff_data, "tiff")));
                 }
-                anyhow::ensure!(
-                    len <= MAX_CLIPBOARD_IMAGE_BYTES,
-                    "clipboard image exceeds {} bytes",
-                    MAX_CLIPBOARD_IMAGE_BYTES
-                );
-
-                let bytes: *const u8 = msg_send![data, bytes];
-                anyhow::ensure!(!bytes.is_null(), "clipboard image bytes returned null");
-
-                let data = std::slice::from_raw_parts(bytes, len).to_vec();
-                return Ok(Some((data, extension)));
             }
         }
 
