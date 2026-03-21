@@ -22,3 +22,6 @@
 16	Bundled shell setup now keeps helper paths working when Homebrew lives outside the standard macOS prefixes
 16	Background tabs now show a bell prefix in the bundled tab bar, and the previous duplicate unread-bell dot is disabled
 16	内置标签栏现在会为后台标签显示铃声前缀提示，并关闭原先重复的未读铃声圆点
+17	Fish shell is now fully supported; run kaku init to set up fish integration with prompt, yazi, and theme sync
+17	Zsh integration now handles ssh alias conflicts and autosuggest widget detection automatically
+17	Fish shell 现已完整支持，运行 kaku init 可自动配置 fish 环境，包含提示符、yazi 和主题同步

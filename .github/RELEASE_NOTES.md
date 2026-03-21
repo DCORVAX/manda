@@ -1,43 +1,43 @@
-# V0.7.1 Flow 🌊
+# V0.8.0 Fish 🐟
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/tw93/Kaku/main/assets/logo.png" alt="Kaku Logo" width="120" height="120" />
-  <h1 style="margin: 12px 0 6px;">Kaku V0.7.1</h1>
+  <h1 style="margin: 12px 0 6px;">Kaku V0.8.0</h1>
   <p><em>A fast, out-of-the-box terminal built for AI coding.</em></p>
 </div>
 
 ### Changelog
 
-1. **Auto Theme & Visual Polish**: Auto-switching between dark/light modes with macOS, improved transparency rendering, rounded scrollbars, and Yazi flavor sync.
+1. **Fish Shell Support**: Full fish shell bootstrap and lifecycle integration via `kaku init`, including Starship prompt, Yazi launcher, theme sync, and conf.d entrypoint. Run `kaku init` to set up.
 
-2. **Safer Close & Interaction**: Tab/pane close confirmations, double-click zoom no longer blocks title bar drag, and refreshed overlay styling.
+2. **Bell Tab Indicator**: Background tabs now show a bell prefix when tasks finish, with optional Dock badge (`bell_dock_badge`) and toggleable tab prefix (`bell_tab_indicator`).
 
-3. **Settings TUI Redesign**: Clearer grouped sections, pinned footer with contextual key hints, safer config parsing, and reliable config reload when the TUI exits.
+3. **Remember Last Directory**: Kaku now restores the last working directory on new tab and window open.
 
-4. **AI Config v2**: Antigravity model support, quota tracking, background loading, and more reliable OAuth token refresh.
+4. **Update & Doctor in Tabs**: `kaku update` and `kaku doctor` now open in a dedicated tab instead of blocking the current session.
 
-5. **Pane Input Broadcast**: Synchronized input across multiple panes with safeguards to prevent overlay input from being broadcast.
+5. **Basename-only Tab Titles**: New `tab_title_basename_only` option to show just the directory name instead of the full path.
 
-6. **File & Editor Workflow**: Enhanced file path link opening, remote files shortcut for SSH sessions, and `$EDITOR` environment respect.
+6. **Scrollback Fix**: Fixed viewport jumping to top during rapid output, and viewport snapping to bottom after scrolling up.
 
-7. **Bug Fixes & Stability**: Fixed AeroSpace/yabai window flickering on resize, hardened managed shell/tmux integration, Smart Tab scoped to Kaku sessions only, and Starship RPROMPT fallback fixes.
+7. **Bug Fixes & Stability**: Fixed macOS window actually closing instead of hiding, Cmd+Click link opening, clipboard image paste, OpenGL flush on sleep/wake, emoji width rendering, and SSH alias conflicts in zsh.
 
 ### 更新日志
 
-1. **自动主题与视觉优化**：跟随 macOS 自动切换深色/浅色模式，优化透明度渲染，新增圆角滚动条，Yazi 风格同步跟随。
+1. **Fish Shell 完整支持**：`kaku init` 现支持 fish shell 完整引导，含 Starship 提示符、Yazi 启动器、主题同步及 conf.d 入口。运行 `kaku init` 即可配置。
 
-2. **更安全的关闭与交互**：标签/窗格关闭确认，双击缩放不再干扰标题栏拖拽，关闭浮层样式重做。
+2. **铃声标签指示器**：后台标签任务完成时显示铃声前缀，支持可选 Dock badge（`bell_dock_badge`）和标签前缀开关（`bell_tab_indicator`）。
 
-3. **设置 TUI 重构**：`kaku config` 分组结构更清晰，底部操作区固定显示上下文快捷键，配置解析更稳健，TUI 退出后配置重载更可靠。
+3. **记住上次目录**：新标签和新窗口打开时自动恢复上次工作目录。
 
-4. **AI 配置升级**：支持 Antigravity 模型与额度追踪，后台加载，OAuth token 刷新更可靠。
+4. **Update/Doctor 在标签中运行**：`kaku update` 和 `kaku doctor` 现在在独立标签中打开，不阻塞当前会话。
 
-5. **窗格输入广播**：多窗格间同步输入，并防止浮层输入被错误广播。
+5. **仅显示目录名标签**：新增 `tab_title_basename_only` 选项，只显示目录名而非完整路径。
 
-6. **文件与编辑器工作流**：改进文件路径链接打开，SSH 会话增加远程文件快捷入口，尊重 `$EDITOR` 环境变量。
+6. **滚动修复**：修复快速输出时 viewport 跳到顶部，以及往上滚动后自动跳回底部的问题。
 
-7. **Bug 修复与稳定性**：修复 AeroSpace/yabai 调整窗口大小时的闪烁问题，加固托管 shell/tmux 集成，Smart Tab 默认仅限 Kaku 会话，修复 Starship RPROMPT 回退。
+7. **Bug 修复与稳定性**：修复 macOS 窗口实际关闭而非隐藏、Cmd+Click 链接打开、剪贴板图片粘贴、sleep/wake 时 OpenGL flush、emoji 宽度渲染，以及 zsh 中 SSH alias 冲突等问题。
 
-Special thanks to @frankekn, @crossly, @iwen-conf, and @zxh326 for their contributions to this release.
+Special thanks to @mystersu, @ddotz, @rookie-ricardo, @s010s, @anzksdk, @cynosurech, and @XinCao for their contributions to this release.
 
 > https://github.com/tw93/Kaku
