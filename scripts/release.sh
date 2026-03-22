@@ -339,11 +339,26 @@ create_github_release() {
     local release_edit_args=()
     local release_title_from_notes=""
 
+    # Build a cleaned notes file: strip the first heading line and remove blank
+    # lines between numbered list items so GitHub doesn't render extra spacing.
+    local notes_tmp
+    notes_tmp=$(mktemp /tmp/kaku-release-notes.XXXXXX.md)
+    # shellcheck disable=SC2064
+    trap "rm -f $notes_tmp" RETURN
+
     if [[ -f "$release_notes_file" ]]; then
-        # Extract just the changelog section (between ### Changelog and ### 更新日志)
-        local changelog
-        changelog=$(sed -n '/^### Changelog$/,/^### 更新日志$/p' "$release_notes_file" | sed '$d' | tail -n +2)
-        if [[ -n "$changelog" ]]; then
+        # Skip leading "# Title" line (and following blank line), then collapse
+        # blank lines that appear between numbered list items.
+        awk '
+            NR == 1 && /^# / { next }
+            NR == 2 && /^[[:space:]]*$/ { next }
+            /^[[:space:]]*$/ { blank=1; next }
+            blank { if (!/^[0-9]+\./) printf "\n"; blank=0 }
+            { print }
+            END { if (blank) printf "\n" }
+        ' "$release_notes_file" > "$notes_tmp"
+
+        if [[ -s "$notes_tmp" ]]; then
             notes_arg="--notes-file"
         else
             notes_arg="--generate-notes"
@@ -359,7 +374,7 @@ create_github_release() {
     log_info "Creating GitHub Release for $tag..."
 
     if [[ "$notes_arg" == "--notes-file" ]]; then
-        release_edit_args=(--title "$release_title" "$notes_arg" "$release_notes_file")
+        release_edit_args=(--title "$release_title" "$notes_arg" "$notes_tmp")
     else
         release_edit_args=(--title "$release_title")
     fi
@@ -384,7 +399,7 @@ create_github_release() {
                 "$OUT_DIR/kaku_for_update.zip" \
                 "$OUT_DIR/kaku_for_update.zip.sha256" \
                 --title "$release_title" \
-                "$notes_arg" "$release_notes_file"
+                "$notes_arg" "$notes_tmp"
         else
             gh release create "$tag" \
                 -R "$GITHUB_REPO" \
