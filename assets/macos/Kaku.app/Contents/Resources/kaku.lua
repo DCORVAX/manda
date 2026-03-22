@@ -2336,13 +2336,19 @@ local function launch_yazi(window, pane)
     return
   end
 
-  sync_managed_yazi_theme(window)
+  local remote_target = resolve_remote_target_from_pane(pane)
+  local send_command = "\x15y 2>/dev/null || yazi\r"
+  if not remote_target then
+    sync_managed_yazi_theme(window)
 
-  local yazi_cmd = resolve_yazi_command()
-  if not yazi_cmd then
-    set_yazi_mode_hint(pane, false)
-    show_yazi_toast(window, pane, "kaku-toast-yazi-missing")
-    return
+    local yazi_cmd = resolve_yazi_command()
+    if not yazi_cmd then
+      set_yazi_mode_hint(pane, false)
+      show_yazi_toast(window, pane, "kaku-toast-yazi-missing")
+      return
+    end
+
+    send_command = "\x15y 2>/dev/null || " .. yazi_cmd .. "\r"
   end
 
   set_yazi_mode_hint(pane, true)
@@ -2350,9 +2356,10 @@ local function launch_yazi(window, pane)
   update_window_config(window, dims.is_full_screen, pane)
 
   local ok = pcall(function()
-    -- Prefer the shell wrapper `y` for cwd sync, and fall back to raw yazi.
+    -- Prefer the shell wrapper `y` for cwd sync. Remote panes must not receive
+    -- a locally resolved absolute yazi path.
     window:perform_action(
-      wezterm.action.SendString("\x15y 2>/dev/null || " .. yazi_cmd .. "\r"),
+      wezterm.action.SendString(send_command),
       pane
     )
   end)
