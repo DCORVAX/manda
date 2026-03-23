@@ -808,6 +808,8 @@ fn notify_on_panic() {
     std::panic::set_hook(Box::new(move |info| {
         if let Some(s) = info.payload().downcast_ref::<&str>() {
             fatal_toast_notification("Kaku panic", s);
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            fatal_toast_notification("Kaku panic", s);
         }
         default_hook(info);
     }));

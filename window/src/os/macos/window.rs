@@ -83,6 +83,44 @@ extern "C" {
     ) -> i32;
 }
 
+/// Returns the macOS product version major number (e.g. 15, 26).
+/// Uses sysctlbyname("kern.osproductversion") to avoid msg_send! struct ABI issues.
+/// Result is cached for the process lifetime.
+fn macos_version_major() -> u32 {
+    static CACHED: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *CACHED.get_or_init(|| {
+        extern "C" {
+            fn sysctlbyname(
+                name: *const std::os::raw::c_char,
+                oldp: *mut std::os::raw::c_void,
+                oldlenp: *mut usize,
+                newp: *mut std::os::raw::c_void,
+                newlen: usize,
+            ) -> std::os::raw::c_int;
+        }
+        let mut buf = [0u8; 32];
+        let mut len = buf.len();
+        let ret = unsafe {
+            sysctlbyname(
+                b"kern.osproductversion\0".as_ptr() as *const _,
+                buf.as_mut_ptr() as *mut _,
+                &mut len,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if ret != 0 || len == 0 {
+            return 0;
+        }
+        std::str::from_utf8(&buf[..len.saturating_sub(1)])
+            .unwrap_or("0")
+            .split('.')
+            .next()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0)
+    })
+}
+
 fn round_away_from_zerof(value: f64) -> f64 {
     if value > 0. {
         value.max(1.).round()
@@ -1542,7 +1580,15 @@ impl WindowInner {
         if self.is_native_fullscreen() {
             true
         } else if let Some(window_view) = WindowView::get_this(unsafe { &**self.view }) {
-            window_view.inner.borrow().fullscreen.is_some()
+            // Use try_borrow to avoid a double-borrow panic when is_fullscreen is called
+            // while an event handler already holds borrow_mut on window_view.inner.
+            // simple_fullscreen_active is a Cell<bool> maintained in sync with
+            // inner.fullscreen and is safe to read without a borrow.
+            if let Ok(inner) = window_view.inner.try_borrow() {
+                inner.fullscreen.is_some()
+            } else {
+                window_view.simple_fullscreen_active.get()
+            }
         } else {
             false
         }
@@ -1719,6 +1765,65 @@ impl WindowInner {
                 is_opaque
             };
             self.window.setHasShadow_(shadow);
+
+            // On macOS 26+ (Liquid Glass) the window server clips corners at the
+            // compositor level.  The init code sets backgroundColor to clearColor,
+            // which leaves transparent arcs at the rounded corners.  Fill those
+            // corners by setting the window background to the theme color for
+            // opaque windows.  Transparent windows keep clearColor so
+            // see-through rendering is preserved.
+            if is_opaque == YES {
+                let bg = self
+                    .config
+                    .resolved_palette
+                    .background
+                    .unwrap_or(RgbaColor::from(SrgbaTuple(0., 0., 0., 1.0)));
+                let ns_bg: id = msg_send![class!(NSColor),
+                    colorWithSRGBRed: bg.0 as CGFloat
+                    green: bg.1 as CGFloat
+                    blue: bg.2 as CGFloat
+                    alpha: 1.0 as CGFloat
+                ];
+                let _: () = msg_send![*self.window, setBackgroundColor: ns_bg];
+            } else {
+                let clear: id = msg_send![class!(NSColor), clearColor];
+                let _: () = msg_send![*self.window, setBackgroundColor: clear];
+            }
+
+            // Match our Metal layer's corner radius to the window frame's corner
+            // radius so compositor-clipped corners don't leave transparent arcs.
+            // On macOS 26+ NSThemeFrame.layer.cornerRadius returns 0 because
+            // rounding is handled by the compositor, so fall back to 10pt.
+            if !APP_TERMINATING.load(Ordering::Relaxed) {
+                let layer: id = msg_send![*self.view, layer];
+                if !layer.is_null() {
+                    let content_view: id = msg_send![*self.window, contentView];
+                    let frame_view: id = msg_send![content_view, superview];
+                    let frame_layer: id = msg_send![frame_view, layer];
+                    let mut corner_radius: CGFloat = if !frame_layer.is_null() {
+                        msg_send![frame_layer, cornerRadius]
+                    } else {
+                        0.0
+                    };
+                    if corner_radius == 0.0 && macos_version_major() >= 26 {
+                        corner_radius = 10.0;
+                    }
+                    log::trace!(
+                        "update_window_shadow: applying corner_radius={corner_radius} to view layer and sublayers"
+                    );
+                    let () = msg_send![layer, setCornerRadius: corner_radius];
+                    let () = msg_send![layer, setMasksToBounds: (corner_radius > 0.0) as BOOL];
+                    let sublayers: id = msg_send![layer, sublayers];
+                    if !sublayers.is_null() {
+                        let count = sublayers.count();
+                        for i in 0..count {
+                            let sublayer = sublayers.objectAtIndex(i);
+                            let () = msg_send![sublayer, setCornerRadius: corner_radius];
+                            let () = msg_send![sublayer, setMasksToBounds: (corner_radius > 0.0) as BOOL];
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -2637,6 +2742,9 @@ fn simple_fullscreen_target_rect(screen: id, extend_behind_notch: bool) -> NSRec
 
 struct WindowView {
     inner: Rc<RefCell<Inner>>,
+    /// Window ID stored outside RefCell so window_will_close can access it even
+    /// when a borrow is already held by a caller higher on the stack.
+    window_id: Cell<usize>,
     /// Tracks simple fullscreen state without requiring RefCell borrow.
     simple_fullscreen_active: Cell<bool>,
     /// Tracks simple fullscreen transition state without requiring RefCell borrow.
@@ -3658,10 +3766,13 @@ impl WindowView {
         match action {
             Some(RepresentedItem::KeyAssignment(action)) => {
                 if let Some(this) = Self::get_this(this) {
-                    this.inner
-                        .borrow_mut()
-                        .events
-                        .dispatch(WindowEvent::PerformKeyAssignment(action));
+                    // Use try_borrow_mut to guard against re-entrant calls: dispatching
+                    // PerformKeyAssignment(QuitApplication) can cause NSApp terminate: to
+                    // spin the event loop synchronously, routing another Cmd+Q through
+                    // kaku_perform_key_assignment before the outer borrow_mut is released.
+                    if let Ok(mut inner) = this.inner.try_borrow_mut() {
+                        inner.events.dispatch(WindowEvent::PerformKeyAssignment(action));
+                    }
                 }
             }
             None => {}
@@ -3674,21 +3785,31 @@ impl WindowView {
         if let Some(this) = Self::get_this(this) {
             let conn = Connection::get();
             if !APP_TERMINATING.load(Ordering::Relaxed) {
-                if let Some(window) = this.inner.borrow().window.as_ref() {
-                    let window = window.load();
+                // Extract the raw window pointer while holding the borrow, then drop the
+                // borrow *before* calling into AppKit. persist_window_size_and_position
+                // and remember_last_closed_window_position both call Cocoa APIs that can
+                // spin the event loop and re-enter kaku_perform_key_assignment, which
+                // would fail with a double-borrow panic if we held the borrow here.
+                let raw_window = this.inner.borrow().window.as_ref().map(|w| w.load());
+                if let Some(window) = raw_window {
                     if !window.is_null() {
                         remember_last_closed_window_position(*window);
                         let _ = persist_window_size_and_position(*window);
                     }
                 }
             }
-            // Advise the window of its impending death
-            this.inner
-                .borrow_mut()
-                .events
-                .dispatch(WindowEvent::Destroyed);
+            // Advise the window of its impending death.
+            // Use try_borrow_mut to avoid a double-borrow panic when window_will_close
+            // fires synchronously inside a key event handler that already holds the borrow.
+            if let Ok(mut inner) = this.inner.try_borrow_mut() {
+                inner.events.dispatch(WindowEvent::Destroyed);
+            } else {
+                log::warn!("window_will_close: RefCell already borrowed, WindowEvent::Destroyed not dispatched for window {}", this.window_id.get());
+            }
             this.update_application_presentation(false);
-            let window_id = this.inner.borrow_mut().window_id;
+            // window_id is stored outside the RefCell so we can always remove the
+            // window from the connection map, even when a borrow is held upstream.
+            let window_id = this.window_id.get();
             if let Some(conn) = conn {
                 conn.windows.borrow_mut().remove(&window_id);
             }
@@ -4805,6 +4926,18 @@ impl WindowView {
             let () = msg_send![layer, setDelegate: view];
             let () = msg_send![layer, setContentsScale: 1.0];
             let () = msg_send![layer, setOpaque: NO];
+
+            // Apply corner radius so compositor-clipped window corners
+            // don't leave transparent arcs.  The radius set here will be
+            // refreshed later by update_window_shadow, but we need an
+            // initial value because that function may have already run
+            // before AppKit calls make_backing_layer.
+            if macos_version_major() >= 26 {
+                let corner_radius: CGFloat = 10.0;
+                let () = msg_send![layer, setCornerRadius: corner_radius];
+                let () = msg_send![layer, setMasksToBounds: YES];
+            }
+
             layer
         }
     }
@@ -4937,6 +5070,7 @@ impl WindowView {
 
         let view = Box::into_raw(Box::new(Self {
             inner: Rc::clone(&inner),
+            window_id: Cell::new(inner.borrow().window_id),
             simple_fullscreen_active: Cell::new(false),
             simple_fullscreen_transition_active: Cell::new(false),
             transition_hide_until: Cell::new(None),
