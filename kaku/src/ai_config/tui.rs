@@ -2737,17 +2737,8 @@ fn parse_kaku_assistant_config(raw: &str) -> KakuAssistantConfig {
         .and_then(|v| v.as_str())
         .unwrap_or("");
     let custom_headers = parse_custom_headers_toml(parsed.get("custom_headers"));
-    let provider = parsed
-        .get("provider")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
 
-    let mut cfg =
-        KakuAssistantConfig::new(enabled, api_key, model, base_url).with_custom_headers(custom_headers);
-    if !provider.is_empty() {
-        cfg = cfg.with_provider(provider);
-    }
-    cfg
+    KakuAssistantConfig::new(enabled, api_key, model, base_url).with_custom_headers(custom_headers)
 }
 
 fn get_kaku_assistant_api_key() -> Option<String> {
@@ -2812,7 +2803,6 @@ fn write_kaku_assistant_config(path: &Path, cfg: &KakuAssistantConfig) -> anyhow
     out.push_str(
         "# enabled: true enables command analysis suggestions; false disables requests.\n",
     );
-    out.push_str("# provider: preset name (VivGrid, MiniMax, OpenAI, Custom).\n");
     out.push_str("# api_key: provider API key, example: \"sk-xxxx\".\n");
     out.push_str("# model: model id, example: \"DeepSeek-V3.2\" or \"MiniMax-M2.7\".\n");
     out.push_str("# base_url: chat-completions API root URL.\n");
@@ -2826,10 +2816,6 @@ fn write_kaku_assistant_config(path: &Path, cfg: &KakuAssistantConfig) -> anyhow
     } else {
         "enabled = false\n"
     });
-    out.push_str(&format!(
-        "provider = {}\n",
-        render_toml_string(cfg.provider().trim())
-    ));
     if cfg.api_key().trim().is_empty() {
         out.push_str("# api_key = \"<your_api_key>\"\n");
     } else {
@@ -6385,7 +6371,6 @@ provider = "managed:kimi-code"
         write_kaku_assistant_config(&path, &updated).expect("write config");
 
         let saved = std::fs::read_to_string(&path).expect("read saved");
-        assert!(saved.contains("provider = \"MiniMax\""));
         assert!(saved.contains("model = \"MiniMax-M2.7\""));
         assert!(saved.contains("base_url = \"https://api.minimax.io/v1\""));
     }
@@ -6401,7 +6386,7 @@ provider = "managed:kimi-code"
         let path = dir.path().join("assistant.toml");
         write_kaku_assistant_config(&path, &cfg).expect("write config");
         let saved = std::fs::read_to_string(&path).expect("read saved");
-        assert!(saved.contains("provider = \"MiniMax\""));
+        assert!(!saved.contains("provider ="), "provider must not be written to TOML");
         assert!(saved.contains("custom_headers = [\"X-Foo: bar\"]"));
     }
 

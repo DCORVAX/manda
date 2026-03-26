@@ -16,9 +16,6 @@ pub const DEFAULT_MODEL: &str = "DeepSeek-V3.2";
 /// Default API base URL for the AI service.
 pub const DEFAULT_BASE_URL: &str = "https://api.vivgrid.com/v1";
 
-/// Default provider name.
-pub const DEFAULT_PROVIDER: &str = "VivGrid";
-
 /// A provider preset with its API base URL and available models.
 pub struct ProviderPreset {
     /// Display name for the provider.
@@ -73,13 +70,10 @@ pub fn provider_names() -> Vec<String> {
 /// Returns the matching preset name if the base URL matches a known provider,
 /// or `"Custom"` otherwise.
 pub fn detect_provider(base_url: &str) -> &'static str {
-    let normalized = base_url.trim().trim_end_matches('/');
+    let normalized = base_url.trim().trim_end_matches('/').to_ascii_lowercase();
     for preset in PROVIDER_PRESETS {
-        if !preset.base_url.is_empty() {
-            let preset_normalized = preset.base_url.trim_end_matches('/');
-            if normalized == preset_normalized {
-                return preset.name;
-            }
+        if !preset.base_url.is_empty() && normalized == preset.base_url.trim_end_matches('/') {
+            return preset.name;
         }
     }
     "Custom"
@@ -179,7 +173,6 @@ pub fn default_assistant_toml_template() -> String {
         "# Kaku Assistant configuration\n\
 #\n\
 # enabled: true enables command analysis suggestions; false disables requests.\n\
-# provider: preset name (VivGrid, MiniMax, OpenAI, Custom).\n\
 # api_key: provider API key, example: \"sk-xxxx\".\n\
 # model: model id, example: \"DeepSeek-V3.2\" or \"MiniMax-M2.7\".\n\
 # base_url: chat-completions API root URL.\n\
@@ -188,7 +181,6 @@ pub fn default_assistant_toml_template() -> String {
 #                 note: Authorization and Content-Type are reserved and cannot be overridden.\n\
 \n\
 enabled = true\n\
-provider = \"{DEFAULT_PROVIDER}\"\n\
 # api_key = \"<your_api_key>\"\n\
 model = \"{DEFAULT_MODEL}\"\n\
 base_url = \"{DEFAULT_BASE_URL}\"\n\
