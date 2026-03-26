@@ -29,11 +29,14 @@ fn block_cursor_vertical_bounds(
 }
 
 fn uses_full_cell_block_cursor(render_shape: CursorShape, effective_shape: CursorShape) -> bool {
-    render_shape == CursorShape::Default
+    matches!(
+        render_shape,
+        CursorShape::BlinkingBlock | CursorShape::SteadyBlock
+    ) || (render_shape == CursorShape::Default
         && matches!(
             effective_shape,
             CursorShape::BlinkingBlock | CursorShape::SteadyBlock
-        )
+        ))
 }
 
 impl crate::TermWindow {
@@ -959,6 +962,22 @@ mod tests {
         ));
         assert!(!uses_full_cell_block_cursor(
             CursorShape::Default,
+            CursorShape::SteadyBar,
+        ));
+    }
+
+    #[test]
+    fn directly_configured_block_cursor_uses_full_cell() {
+        assert!(uses_full_cell_block_cursor(
+            CursorShape::SteadyBlock,
+            CursorShape::SteadyBlock,
+        ));
+        assert!(uses_full_cell_block_cursor(
+            CursorShape::BlinkingBlock,
+            CursorShape::BlinkingBlock,
+        ));
+        assert!(!uses_full_cell_block_cursor(
+            CursorShape::SteadyBar,
             CursorShape::SteadyBar,
         ));
     }
