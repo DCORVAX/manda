@@ -972,13 +972,72 @@ impl crate::TermWindow {
     }
 }
 
+const HALF_INTENSITY_DIM_FACTOR: f32 = 0.75;
+
+fn dim_color_for_half_intensity(attrs: &CellAttributes, color: LinearRgba) -> LinearRgba {
+    if attrs.intensity() != wezterm_term::Intensity::Half {
+        return color;
+    }
+
+    let (r, g, b, a) = color.tuple();
+    LinearRgba::with_components(
+        r * HALF_INTENSITY_DIM_FACTOR,
+        g * HALF_INTENSITY_DIM_FACTOR,
+        b * HALF_INTENSITY_DIM_FACTOR,
+        a,
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::edge_to_edge_top_gap;
+    use super::{dim_color_for_half_intensity, edge_to_edge_top_gap, resolve_fg_color_attr};
+    use config::{configuration, use_test_configuration, TextStyle};
+    use wezterm_term::color::ColorAttribute;
+    use wezterm_term::{CellAttributes, Intensity};
 
     #[test]
     fn edge_to_edge_top_gap_excludes_os_borders() {
         assert_eq!(edge_to_edge_top_gap(18.0, 2.0, 2.0), 14.0);
+    }
+
+    #[test]
+    fn half_intensity_dims_resolved_foreground_color() {
+        use_test_configuration();
+        let config = configuration();
+        let palette = &config.resolved_palette;
+        let style = TextStyle::default();
+
+        let normal_attrs = CellAttributes::blank();
+        let mut half_attrs = CellAttributes::blank();
+        half_attrs.set_intensity(Intensity::Half);
+
+        let normal = resolve_fg_color_attr(
+            &normal_attrs,
+            ColorAttribute::Default,
+            palette,
+            &config,
+            &style,
+        );
+        let half = resolve_fg_color_attr(
+            &half_attrs,
+            ColorAttribute::Default,
+            palette,
+            &config,
+            &style,
+        );
+
+        let (normal_r, normal_g, normal_b, normal_a) = normal.tuple();
+        let (half_r, half_g, half_b, half_a) = half.tuple();
+        assert!(half_r < normal_r || half_g < normal_g || half_b < normal_b);
+        assert_eq!(half_a, normal_a);
+    }
+
+    #[test]
+    fn dim_helper_leaves_non_half_intensity_unchanged() {
+        let color = window::color::LinearRgba::with_components(0.8, 0.6, 0.4, 1.0);
+        let attrs = CellAttributes::blank();
+
+        assert_eq!(dim_color_for_half_intensity(&attrs, color), color);
     }
 }
 
@@ -989,31 +1048,34 @@ fn resolve_fg_color_attr(
     config: &ConfigHandle,
     style: &config::TextStyle,
 ) -> LinearRgba {
-    match fg {
-        wezterm_term::color::ColorAttribute::Default => {
-            if let Some(fg) = style.foreground {
-                fg.into()
-            } else {
-                palette.resolve_fg(attrs.foreground())
+    dim_color_for_half_intensity(
+        attrs,
+        match fg {
+            wezterm_term::color::ColorAttribute::Default => {
+                if let Some(fg) = style.foreground {
+                    fg.into()
+                } else {
+                    palette.resolve_fg(attrs.foreground())
+                }
             }
-        }
-        wezterm_term::color::ColorAttribute::PaletteIndex(idx)
-            if idx < 8 && config.bold_brightens_ansi_colors != BoldBrightening::No =>
-        {
-            // For compatibility purposes, switch to a brighter version
-            // of one of the standard ANSI colors when Bold is enabled.
-            // This lifts black to dark grey.
-            let idx = if attrs.intensity() == wezterm_term::Intensity::Bold {
-                idx + 8
-            } else {
-                idx
-            };
+            wezterm_term::color::ColorAttribute::PaletteIndex(idx)
+                if idx < 8 && config.bold_brightens_ansi_colors != BoldBrightening::No =>
+            {
+                // For compatibility purposes, switch to a brighter version
+                // of one of the standard ANSI colors when Bold is enabled.
+                // This lifts black to dark grey.
+                let idx = if attrs.intensity() == wezterm_term::Intensity::Bold {
+                    idx + 8
+                } else {
+                    idx
+                };
 
-            palette.resolve_fg(wezterm_term::color::ColorAttribute::PaletteIndex(idx))
+                palette.resolve_fg(wezterm_term::color::ColorAttribute::PaletteIndex(idx))
+            }
+            _ => palette.resolve_fg(fg),
         }
-        _ => palette.resolve_fg(fg),
-    }
-    .to_linear()
+        .to_linear(),
+    )
 }
 
 fn update_next_frame_time(storage: &mut Option<Instant>, next_due: Option<Instant>) {
