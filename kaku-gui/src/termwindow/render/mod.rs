@@ -992,7 +992,7 @@ fn dim_color_for_half_intensity(attrs: &CellAttributes, color: LinearRgba) -> Li
 mod tests {
     use super::{dim_color_for_half_intensity, edge_to_edge_top_gap, resolve_fg_color_attr};
     use config::{configuration, use_test_configuration, TextStyle};
-    use wezterm_term::color::ColorAttribute;
+    use wezterm_term::color::{ColorAttribute, ColorPalette};
     use wezterm_term::{CellAttributes, Intensity};
 
     #[test]
@@ -1004,7 +1004,7 @@ mod tests {
     fn half_intensity_dims_resolved_foreground_color() {
         use_test_configuration();
         let config = configuration();
-        let palette = &config.resolved_palette;
+        let palette: ColorPalette = config.resolved_palette.clone().into();
         let style = TextStyle::default();
 
         let normal_attrs = CellAttributes::blank();
@@ -1014,14 +1014,14 @@ mod tests {
         let normal = resolve_fg_color_attr(
             &normal_attrs,
             ColorAttribute::Default,
-            palette,
+            &palette,
             &config,
             &style,
         );
         let half = resolve_fg_color_attr(
             &half_attrs,
             ColorAttribute::Default,
-            palette,
+            &palette,
             &config,
             &style,
         );
