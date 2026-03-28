@@ -52,6 +52,16 @@ fn should_rebalance_bottom_tab_quantization_slack(
     !user_has_custom_padding && tab_bar_at_bottom
 }
 
+fn should_rebalance_maximized_quantization_slack(
+    user_has_custom_padding: bool,
+    uses_edge_to_edge_padding: bool,
+) -> bool {
+    // When maximized (edge-to-edge padding), absorb any quantization slack
+    // into top padding so terminal content fills to the bottom edge.
+    // This applies regardless of tab bar configuration.
+    !user_has_custom_padding && uses_edge_to_edge_padding
+}
+
 fn rebalance_top_padding_for_bottom_gap(
     padding_top: usize,
     padding_bottom: usize,
@@ -448,13 +458,20 @@ impl super::TermWindow {
             let rows = avail_height / cell_height;
             let cols = avail_width / self.render_metrics.cell_size.width as usize;
 
-            if should_rebalance_top_tab_visible_bottom_gap(
+            let row_quantization_slack = avail_height.saturating_sub(rows * cell_height);
+
+            if should_rebalance_maximized_quantization_slack(
+                user_has_custom_padding,
+                uses_edge_to_edge_padding,
+            ) {
+                // Maximized windows use edge-to-edge layout: absorb all slack into top.
+                padding_top = padding_top.saturating_add(row_quantization_slack);
+            } else if should_rebalance_top_tab_visible_bottom_gap(
                 user_has_custom_padding,
                 self.show_tab_bar,
                 self.config.tab_bar_at_bottom,
                 self.layout_is_effective_fullscreen(),
             ) {
-                let row_quantization_slack = avail_height.saturating_sub(rows * cell_height);
                 let (rebalanced_top, _) = rebalance_top_padding_for_bottom_gap(
                     padding_top,
                     padding_bottom,
@@ -466,7 +483,6 @@ impl super::TermWindow {
                 user_has_custom_padding,
                 self.config.tab_bar_at_bottom,
             ) {
-                let row_quantization_slack = avail_height.saturating_sub(rows * cell_height);
                 let (rebalanced_top, _) = rebalance_top_padding_for_bottom_gap(
                     padding_top,
                     padding_bottom,
