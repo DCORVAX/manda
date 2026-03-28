@@ -1047,9 +1047,41 @@ if ! (( \${+functions[_main_complete]} )) || ! (( \${+_comps} )); then
     fi
 fi
 
+# Auto-import zsh-z history if zoxide database is empty (first-time migration)
+_kaku_auto_import_zshz() {
+    # Only proceed if zoxide is available
+    if ! command -v zoxide &>/dev/null; then
+        return
+    fi
+
+    # Check if zoxide already has data
+    local db_dir="${XDG_DATA_HOME:-$HOME/.local/share}/zoxide"
+    local db_file="$db_dir/db.zo"
+    if [[ -s "$db_file" ]]; then
+        return  # zoxide already has entries, don't overwrite
+    fi
+
+    # Look for zsh-z database in common locations
+    local -a zshz_dbs=("$HOME/.z" "$HOME/.zsh-z" "$HOME/.zsh-z/zsh-z.data")
+    local zshz_db=""
+    for db in "${zshz_dbs[@]}"; do
+        if [[ -s "$db" ]]; then
+            zshz_db="$db"
+            break
+        fi
+    done
+
+    [[ -z "$zshz_db" ]] && return  # No zsh-z history found
+
+    # Import to zoxide silently
+    zoxide import --from=z "$zshz_db" &>/dev/null || true
+}
+_kaku_auto_import_zshz
+unset -f _kaku_auto_import_zshz
+
 # Load zoxide (smart directory jumping) if not already provided by user config.
-if command -v zoxide &>/dev/null && ! (( \${+functions[__zoxide_z]} )); then
-    eval "\$(zoxide init zsh)"
+if command -v zoxide &>/dev/null && ! (( ${+functions[__zoxide_z]} )); then
+    eval "$(zoxide init zsh)"
 fi
 
 # cd + Tab falls back to zoxide frecency history when filesystem completion

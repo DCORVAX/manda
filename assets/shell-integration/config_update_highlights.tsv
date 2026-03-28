@@ -26,3 +26,5 @@
 18	zoxide replaces zsh-z for faster directory jumping; run zi for interactive fzf-powered selection
 18	fast-syntax-highlighting replaces zsh-syntax-highlighting with richer colors and better performance
 18	zoxide is installed via Homebrew automatically; your existing z history is preserved after import
+18	zoxide uses frecency (frequency + recency): if z kaku goes to Kaku/kaku instead of Kaku, use z Kaku/ or zi to select
+
