@@ -394,7 +394,7 @@ impl CommandDef {
         fn is_rare_action(action: &KeyAssignment) -> bool {
             matches!(
                 action,
-                ShowDebugOverlay | OpenUri(_) | ScrollToTop | ScrollToBottom
+                ShowDebugOverlay | OpenUri(_) | ScrollToTop | ScrollToBottom | ToggleAlwaysOnBottom
             )
         }
 
@@ -741,7 +741,6 @@ impl CommandDef {
                     Hide => 10,
                     ToggleFullScreen => 12,
                     ToggleAlwaysOnTop => 13,
-                    ToggleAlwaysOnBottom => 14,
                     ActivateWindowRelative(-1) => 20,
                     ActivateWindowRelative(1) => 21,
                     ActivateWindow(_) => 22,
@@ -1144,9 +1143,9 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
         ToggleAlwaysOnBottom => CommandDef {
             brief: "Always on Bottom".into(),
             doc: "Keep window behind others".into(),
-            keys: vec![(Modifiers::SUPER.union(Modifiers::SHIFT), "DownArrow".into())],
+            keys: vec![],
             args: &[ArgType::ActiveWindow],
-            menubar: &["Window"],
+            menubar: &[],
             icon: None,
         },
         SetWindowLevel(WindowLevel::AlwaysOnTop) => CommandDef {
@@ -2558,7 +2557,6 @@ fn compute_default_actions() -> Vec<KeyAssignment> {
         ToggleFullScreen,
         Hide,
         ToggleAlwaysOnTop,
-        ToggleAlwaysOnBottom,
         Search(Pattern::CurrentSelectionOrEmptyString),
         PaneSelect(PaneSelectArguments {
             alphabet: String::new(),
