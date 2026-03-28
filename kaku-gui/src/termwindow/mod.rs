@@ -5290,23 +5290,21 @@ impl TermWindow {
         window
             .iter()
             .enumerate()
-            .map(|(idx, tab)| {
-                TabInformation {
-                    tab_index: idx,
-                    tab_id: tab.tab_id(),
-                    is_active: tab_index == idx,
-                    is_last_active: window
-                        .get_last_active_idx()
-                        .map(|last_active| last_active == idx)
-                        .unwrap_or(false),
-                    window_id: self.mux_window_id,
-                    tab_title: tab.get_title(),
-                    active_pane: tab
-                        .iter_panes()
-                        .into_iter()
-                        .find(|p| p.is_active)
-                        .map(|p| Self::pos_pane_to_pane_info(&p)),
-                }
+            .map(|(idx, tab)| TabInformation {
+                tab_index: idx,
+                tab_id: tab.tab_id(),
+                is_active: tab_index == idx,
+                is_last_active: window
+                    .get_last_active_idx()
+                    .map(|last_active| last_active == idx)
+                    .unwrap_or(false),
+                window_id: self.mux_window_id,
+                tab_title: tab.get_title(),
+                active_pane: tab
+                    .iter_panes()
+                    .into_iter()
+                    .find(|p| p.is_active)
+                    .map(|p| Self::pos_pane_to_pane_info(&p)),
             })
             .collect()
     }
