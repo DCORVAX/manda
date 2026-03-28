@@ -777,38 +777,38 @@ function __kaku_ai_precmd --on-event fish_prompt
     set -g _kaku_ai_cmd_pending 0
 end
 
-# === Common aliases ===
-alias ll='ls -lhF'
-alias la='ls -lAhF'
-alias l='ls -CF'
-alias grep='grep --color=auto'
-alias egrep='grep -E --color=auto'
-alias fgrep='grep -F --color=auto'
+# === Common abbreviations ===
+abbr -a ll 'ls -lhF'
+abbr -a la 'ls -lAhF'
+abbr -a l 'ls -CF'
+abbr -a grep 'grep --color=auto'
+abbr -a egrep 'grep -E --color=auto'
+abbr -a fgrep 'grep -F --color=auto'
 
-# Git aliases
-alias g='git'
-alias ga='git add'
-alias gaa='git add --all'
-alias gb='git branch'
-alias gbd='git branch -d'
-alias gc='git commit -v'
-alias gcmsg='git commit -m'
-alias gco='git checkout'
-alias gcb='git checkout -b'
-alias gd='git diff'
-alias gds='git diff --staged'
-alias gf='git fetch'
-alias gl='git pull'
-alias gp='git push'
-alias gst='git status'
-alias gss='git status -s'
-alias glo='git log --oneline --decorate'
-alias glg='git log --stat'
+# Git abbreviations
+abbr -a g git
+abbr -a ga 'git add'
+abbr -a gaa 'git add --all'
+abbr -a gb 'git branch'
+abbr -a gbd 'git branch -d'
+abbr -a gc 'git commit -v'
+abbr -a gcmsg 'git commit -m'
+abbr -a gco 'git checkout'
+abbr -a gcb 'git checkout -b'
+abbr -a gd 'git diff'
+abbr -a gds 'git diff --staged'
+abbr -a gf 'git fetch'
+abbr -a gl 'git pull'
+abbr -a gp 'git push'
+abbr -a gst 'git status'
+abbr -a gss 'git status -s'
+abbr -a glo 'git log --oneline --decorate'
+abbr -a glg 'git log --stat'
 
 # Directory navigation
-alias md='mkdir -p'
-alias ...='../..'
-alias ....='../../..'
+abbr -a md 'mkdir -p'
+abbr -a ... 'cd ../..'
+abbr -a .... 'cd ../../..'
 
 # yazi launcher — cd into the directory yazi is in when you exit.
 function y

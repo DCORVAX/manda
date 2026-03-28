@@ -1342,7 +1342,7 @@ fi
 # raises a syntax error ("defining function based on alias"). Unalias first.
 if ! typeset -f sudo > /dev/null 2>&1; then
 unalias sudo 2>/dev/null || true
-sudo() {
+function sudo {
     if [[ -z "\${KAKU_SUDO_SKIP_TERM_FIX-}" && "\$TERM" == "kaku" ]]; then
         TERM=xterm-256color command sudo "\$@"
     else
