@@ -740,6 +740,7 @@ impl CommandDef {
                 "Window" => match action {
                     Hide => 10,
                     ToggleFullScreen => 12,
+                    ToggleAlwaysOnTop => 13,
                     ActivateWindowRelative(-1) => 20,
                     ActivateWindowRelative(1) => 21,
                     ActivateWindow(_) => 22,
@@ -2555,6 +2556,7 @@ fn compute_default_actions() -> Vec<KeyAssignment> {
         // ----------------- Window
         ToggleFullScreen,
         Hide,
+        ToggleAlwaysOnTop,
         Search(Pattern::CurrentSelectionOrEmptyString),
         PaneSelect(PaneSelectArguments {
             alphabet: String::new(),
