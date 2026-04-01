@@ -299,10 +299,7 @@ fn summarize_bell_tokens(tokens: &[&str]) -> Option<String> {
         }
 
         let is_shell = matches!(token_lower.as_str(), "bash" | "zsh" | "sh" | "fish" | "nu");
-        if is_shell
-            && idx + 2 < tokens.len()
-            && matches!(tokens[idx + 1], "-c" | "-lc" | "-cl")
-        {
+        if is_shell && idx + 2 < tokens.len() && matches!(tokens[idx + 1], "-c" | "-lc" | "-cl") {
             return summarize_bell_tokens(&tokens[idx + 2..]);
         }
 
