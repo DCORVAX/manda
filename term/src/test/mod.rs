@@ -1508,6 +1508,43 @@ fn test_primary_peek_no_leak_across_sessions() {
 }
 
 #[test]
+fn test_cursor_visible_restored_after_alt_screen() {
+    let mut term = TestTerm::new(5, 10, 100);
+
+    // Cursor starts visible
+    assert_eq!(term.cursor_pos().visibility, CursorVisibility::Visible);
+
+    // Enter alt screen, hide cursor in it
+    term.set_mode("?1049", true);
+    assert!(term.is_alt_screen_active());
+    term.set_mode("?25", false);
+    assert_eq!(term.cursor_pos().visibility, CursorVisibility::Hidden);
+
+    // Exit alt screen -- cursor must be restored to visible
+    term.set_mode("?1049", false);
+    assert!(!term.is_alt_screen_active());
+    assert_eq!(term.cursor_pos().visibility, CursorVisibility::Visible);
+}
+
+#[test]
+fn test_cursor_hidden_before_alt_screen_stays_hidden() {
+    let mut term = TestTerm::new(5, 10, 100);
+
+    // Hide cursor on primary screen first
+    term.set_mode("?25", false);
+    assert_eq!(term.cursor_pos().visibility, CursorVisibility::Hidden);
+
+    // Enter alt screen, show cursor there
+    term.set_mode("?1049", true);
+    term.set_mode("?25", true);
+    assert_eq!(term.cursor_pos().visibility, CursorVisibility::Visible);
+
+    // Exit alt screen -- cursor must restore to hidden (as it was before entering)
+    term.set_mode("?1049", false);
+    assert_eq!(term.cursor_pos().visibility, CursorVisibility::Hidden);
+}
+
+#[test]
 fn test_alternate_scroll_mode_marks_mouse_grabbed() {
     let mut term = TestTerm::new(5, 10, 100);
     assert!(!term.is_mouse_grabbed());

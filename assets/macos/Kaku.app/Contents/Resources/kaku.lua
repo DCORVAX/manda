@@ -1417,6 +1417,7 @@ local function poll_ai_generate_job(window, pane, pane_id, job)
       inject_ai_status_and_finalize(pane, "Could not generate command right now.")
       return
     end
+    show_ai_generating_toast(window, pane)
     wezterm.time.call_after(ai_fix_poll_interval_secs, function()
       poll_ai_generate_job(window, pane, pane_id, job)
     end)
@@ -3059,8 +3060,19 @@ wezterm.on('user-var-changed', function(window, pane, name, value)
   ai_generate_state_by_pane[pane_id] = pane_state
 
   local fix_state = ai_fix_state_by_pane[pane_id]
-  if pane_state.inflight or (fix_state and fix_state.inflight) then
-    ai_debug_log("ai_generate skipped inflight pane_id=" .. pane_id)
+  local stale_deadline = ai_fix_poll_deadline_secs + 10
+  if pane_state.inflight then
+    if pane_state.inflight_since and (now_secs() - pane_state.inflight_since) > stale_deadline then
+      ai_debug_log("ai_generate reset stale inflight pane_id=" .. pane_id)
+      pane_state.inflight = false
+      pane_state.pending_job_id = nil
+    else
+      ai_debug_log("ai_generate skipped inflight pane_id=" .. pane_id)
+      return
+    end
+  end
+  if fix_state and fix_state.inflight then
+    ai_debug_log("ai_generate skipped fix inflight pane_id=" .. pane_id)
     return
   end
 
@@ -3081,6 +3093,7 @@ wezterm.on('user-var-changed', function(window, pane, name, value)
   end
 
   pane_state.inflight = true
+  pane_state.inflight_since = now_secs()
   pane_state.pending_job_id = nil
   show_ai_generating_toast(window, pane)
 

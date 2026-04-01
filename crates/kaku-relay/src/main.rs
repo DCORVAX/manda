@@ -10,6 +10,9 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::oneshot;
 use tracing::info;
 
+/// Maximum concurrent pending host connections to prevent memory exhaustion.
+const MAX_PENDING: usize = 1_000;
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 /// A host has connected and is waiting for a client.
@@ -32,7 +35,14 @@ async fn host_ws(
 ) -> Response {
     upgrade.on_upgrade(move |socket| async move {
         let (tx, rx) = oneshot::channel::<ws::WebSocket>();
-        state.pending.lock().insert(token.clone(), tx);
+        {
+            let mut map = state.pending.lock();
+            if map.len() >= MAX_PENDING {
+                info!("host rejected: pending map full ({})", MAX_PENDING);
+                return;
+            }
+            map.insert(token.clone(), tx);
+        }
 
         info!("host connected: {}", &token[..8.min(token.len())]);
 

@@ -22,7 +22,11 @@ use tokio::sync::broadcast;
 static TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 fn get_or_init_token() -> &'static str {
-    TOKEN.get_or_init(|| format!("{:016x}", fastrand::u64(..)))
+    TOKEN.get_or_init(|| {
+        let mut bytes = [0u8; 16];
+        getrandom::fill(&mut bytes).expect("getrandom failed");
+        bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    })
 }
 
 // ── Shared state ──────────────────────────────────────────────────────────────
@@ -33,6 +37,9 @@ type PaneSenders = Arc<Mutex<HashMap<usize, broadcast::Sender<ScreenUpdate>>>>;
 struct AppState {
     pane_senders: PaneSenders,
 }
+
+/// Maximum bytes accepted in a single client input message.
+const MAX_INPUT_LEN: usize = 65_536;
 
 // ── Wire protocol ─────────────────────────────────────────────────────────────
 
@@ -214,7 +221,17 @@ fn check_token(query: &WsQuery, headers: &axum::http::HeaderMap) -> bool {
 
 /// Returns an HTML page with an inline SVG QR code for the connection URL.
 /// The URL encodes: kakuremote://host:port?token=xxx
-async fn route_qr() -> Html<String> {
+/// Restricted to localhost: the token must never be served to LAN peers.
+async fn route_qr(
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<SocketAddr>,
+) -> Response {
+    if !addr.ip().is_loopback() {
+        return (StatusCode::FORBIDDEN, "QR endpoint only accessible from localhost").into_response();
+    }
+    route_qr_inner().await.into_response()
+}
+
+async fn route_qr_inner() -> Html<String> {
     let cfg = configuration();
     let port = cfg.remote.port;
     let token = get_or_init_token();
@@ -342,6 +359,10 @@ async fn handle_ws(
         };
 
         if let Ok(ClientMsg::Input { text: input, .. }) = serde_json::from_str(&text) {
+            if input.len() > MAX_INPUT_LEN {
+                log::warn!("kaku-remote: input too large ({} bytes), dropping", input.len());
+                continue;
+            }
             if let Some(mux) = Mux::try_get() {
                 if let Some(pane) = mux.get_pane(mux::pane::PaneId::from(pane_id)) {
                     if let Err(e) = pane.writer().write_all(input.as_bytes()) {
@@ -397,8 +418,15 @@ fn write_state(port: u16, token: &str, tunnel_relay: Option<&str>) {
         val["tunnel_relay"] = serde_json::Value::String(relay.to_string());
     }
     if let Ok(json) = serde_json::to_string(&val) {
-        if let Err(e) = std::fs::write(state_path(), json) {
+        let path = state_path();
+        if let Err(e) = std::fs::write(&path, json) {
             log::warn!("kaku-remote: failed to write state file: {}", e);
+        } else {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            }
         }
     }
 }
@@ -555,6 +583,10 @@ async fn run_tunnel_session(
                     text: input,
                 }) = serde_json::from_str::<ClientMsg>(text.as_str())
                 {
+                    if input.len() > MAX_INPUT_LEN {
+                        log::warn!("kaku-tunnel: input too large ({} bytes), dropping", input.len());
+                        continue;
+                    }
                     if let Some(mux) = Mux::try_get() {
                         // Route to the specified pane, falling back to the first pane.
                         let target = pane_id
@@ -650,7 +682,12 @@ pub fn start() {
                         return;
                     }
                 };
-                if let Err(e) = axum::serve(listener, app.into_make_service()).await {
+                if let Err(e) = axum::serve(
+                    listener,
+                    app.into_make_service_with_connect_info::<SocketAddr>(),
+                )
+                .await
+                {
                     log::error!("kaku-remote: server error: {e}");
                 }
             });

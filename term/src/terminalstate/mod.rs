@@ -375,6 +375,8 @@ pub struct TerminalState {
     current_mouse_buttons: Vec<MouseButton>,
     last_mouse_move: Option<MouseEvent>,
     cursor_visible: bool,
+    /// Saved cursor visibility for alt screen entry/exit (1049 mode only, not DECSC/DECRC)
+    saved_cursor_visible: bool,
 
     /// Whether to show primary screen content in alt screen (Primary Screen Peek mode)
     primary_peek: bool,
@@ -605,6 +607,7 @@ impl TerminalState {
             alternate_scroll: false,
             last_mouse_move: None,
             cursor_visible: true,
+            saved_cursor_visible: true,
             g0_charset: CharSet::Ascii,
             g1_charset: CharSet::Ascii,
             shift_out: false,
@@ -2028,6 +2031,7 @@ impl TerminalState {
                 DecPrivateModeCode::ClearAndEnableAlternateScreen,
             )) => {
                 if !self.screen.is_alt_screen_active() {
+                    self.saved_cursor_visible = self.cursor_visible;
                     self.dec_save_cursor();
                     self.screen.activate_alt_screen(self.seqno);
                     self.set_cursor_pos(&Position::Absolute(0), &Position::Absolute(0));
@@ -2042,6 +2046,7 @@ impl TerminalState {
                     self.primary_peek = false;
                     self.screen.activate_primary_screen(self.seqno);
                     self.dec_restore_cursor();
+                    self.cursor_visible = self.saved_cursor_visible;
                 }
             }
             Mode::SaveDecPrivateMode(DecPrivateMode::Code(n))
