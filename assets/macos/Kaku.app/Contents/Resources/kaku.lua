@@ -823,18 +823,6 @@ local function ai_fix_endpoint()
   return trim_trailing_whitespace(ai_fix_api_base_url):gsub("/+$", "") .. "/chat/completions"
 end
 
-local function ai_fix_user_agent_version()
-  local version = wezterm and wezterm.version
-  if type(version) ~= "string" or version == "" then
-    return "unknown"
-  end
-  local normalized = trim_surrounding_whitespace(version)
-  if normalized == "" then
-    return "unknown"
-  end
-  return normalized
-end
-
 local function ai_fix_curl_header_args()
   local args = {
     "-H",
@@ -848,8 +836,10 @@ local function ai_fix_curl_header_args()
     args[#args + 1] = header
   end
 
+  local _v = type(wezterm) == "table" and wezterm.version or ""
+  local _kaku_ver = trim_surrounding_whitespace(_v)
   args[#args + 1] = "-H"
-  args[#args + 1] = "User-Agent: Kaku/" .. ai_fix_user_agent_version()
+  args[#args + 1] = "User-Agent: Kaku/" .. (_kaku_ver ~= "" and _kaku_ver or "unknown")
 
   return args
 end
