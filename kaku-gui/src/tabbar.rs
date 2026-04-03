@@ -45,6 +45,96 @@ struct TitleText {
     items: Vec<FormatItem>,
 }
 
+fn parse_format_tab_title_result<'lua>(
+    v: mlua::Value<'lua>,
+    lua: &'lua mlua::Lua,
+) -> mlua::Result<Option<TitleText>> {
+    match &v {
+        mlua::Value::Nil => Ok(None),
+        mlua::Value::Table(_) => {
+            let items = <Vec<FormatItem>>::from_lua(v, lua)?;
+            // Validate table payload from Lua early so downstream
+            // format_as_escapes(...).expect() stays infallible.
+            let _ = format_as_escapes(items.clone()).map_err(mlua::Error::external)?;
+            Ok(Some(TitleText { items }))
+        }
+        _ => {
+            let s = String::from_lua(v, lua)?;
+            Ok(Some(TitleText {
+                items: vec![FormatItem::Text(s)],
+            }))
+        }
+    }
+}
+
+/// Calls format-tab-title for all tabs in a single Lua scope, serializing
+/// Config, tabs, and panes sequences only once instead of once per tab.
+/// Returns None for SSH tabs (which skip Lua) or when no callback is registered.
+fn call_format_tab_titles_batch(
+    tab_info: &[TabInformation],
+    pane_info: &[PaneInformation],
+    config: &ConfigHandle,
+    tab_max_width: usize,
+) -> Vec<Option<TitleText>> {
+    let n = tab_info.len();
+    match config::run_immediate_with_lua_config(|lua| {
+        let Some(lua) = lua else {
+            return Ok(vec![None; n]);
+        };
+        // Fast path: skip all serialization if no callback is registered.
+        let tbl: mlua::Value = lua.named_registry_value("wezterm-event-format-tab-title")?;
+        if !matches!(tbl, mlua::Value::Table(_)) {
+            return Ok(vec![None; n]);
+        }
+
+        // Serialize shared data once for all tabs.
+        let tabs = lua.create_sequence_from(tab_info.iter().cloned())?;
+        let panes = lua.create_sequence_from(pane_info.iter().cloned())?;
+        let lua_config = luahelper::to_lua(&*lua, (**config).clone())?;
+
+        let mut results = Vec::with_capacity(n);
+        for tab in tab_info {
+            // SSH tabs skip Lua; caller will use build_default_title fallback.
+            if let Some(pane) = &tab.active_pane {
+                if tab.tab_title.is_empty() && ssh_destination_for_pane(pane).is_some() {
+                    results.push(None);
+                    continue;
+                }
+            }
+
+            let result = config::lua::emit_sync_callback(
+                &*lua,
+                (
+                    "format-tab-title".to_string(),
+                    (
+                        tab.clone(),
+                        tabs.clone(),
+                        panes.clone(),
+                        lua_config.clone(),
+                        false,
+                        tab_max_width,
+                    ),
+                ),
+            )
+            .and_then(|v| parse_format_tab_title_result(v, &*lua));
+            match result {
+                Ok(title) => results.push(title),
+                Err(err) => {
+                    log::warn!("format-tab-title: {}", err);
+                    results.push(None);
+                }
+            }
+        }
+        Ok(results)
+    }) {
+        Ok(v) => v,
+        Err(err) => {
+            log::warn!("format-tab-title (batch): {}", err);
+            vec![None; n]
+        }
+    }
+}
+
 fn call_format_tab_title(
     tab: &TabInformation,
     tab_info: &[TabInformation],
@@ -72,22 +162,7 @@ fn call_format_tab_title(
                     ),
                 ),
             )?;
-            match &v {
-                mlua::Value::Nil => Ok(None),
-                mlua::Value::Table(_) => {
-                    let items = <Vec<FormatItem>>::from_lua(v, &*lua)?;
-                    // Validate table payload from Lua early so downstream
-                    // format_as_escapes(...).expect() stays infallible.
-                    let _ = format_as_escapes(items.clone())?;
-                    Ok(Some(TitleText { items }))
-                }
-                _ => {
-                    let s = String::from_lua(v, &*lua)?;
-                    Ok(Some(TitleText {
-                        items: vec![FormatItem::Text(s)],
-                    }))
-                }
-            }
+            Ok(parse_format_tab_title_result(v, &*lua)?)
         } else {
             Ok(None)
         }
@@ -146,6 +221,43 @@ fn compute_tab_title(
     let title = call_format_tab_title(tab, tab_info, pane_info, config, hover, tab_max_width);
 
     match title {
+        Some(title) => title,
+        None => {
+            if let Some(pane) = &tab.active_pane {
+                let title = if !tab.tab_title.is_empty() {
+                    tab.tab_title.clone()
+                } else if let Some(path_title) = pane_cwd_title(pane) {
+                    path_title
+                } else if let Some(ssh_host) = ssh_destination_for_pane(pane) {
+                    ssh_host
+                } else {
+                    pane.title.clone()
+                };
+                build_default_title(tab, config, &title, true, false)
+            } else {
+                TitleText {
+                    items: vec![FormatItem::Text(" no pane ".to_string())],
+                }
+            }
+        }
+    }
+}
+
+/// Like compute_tab_title but uses a pre-computed Lua result instead of calling Lua.
+/// Used by TabBarState::new to avoid redundant Lua calls in the per-tab loop.
+fn compute_tab_title_from_precomputed(
+    tab: &TabInformation,
+    config: &ConfigHandle,
+    precomputed: Option<TitleText>,
+) -> TitleText {
+    if let Some(pane) = &tab.active_pane {
+        if tab.tab_title.is_empty() {
+            if let Some(ssh_host) = ssh_destination_for_pane(pane) {
+                return build_default_title(tab, config, &ssh_host, false, true);
+            }
+        }
+    }
+    match precomputed {
         Some(title) => title,
         None => {
             if let Some(pane) = &tab.active_pane {
@@ -668,19 +780,22 @@ impl TabBarState {
             line.append_line(left_status_line, SEQ_ZERO);
         }
 
+        // Pre-compute all tab titles in a single Lua scope to avoid serializing
+        // Config, tabs, and panes sequences once per tab.
+        let precomputed_titles: Vec<Option<TitleText>> = if number_of_tabs > 0 {
+            call_format_tab_titles_batch(tab_info, pane_info, config, tab_title_max_width_for_callback)
+        } else {
+            vec![]
+        };
+
         for tab_idx in 0..number_of_tabs {
             let active = tab_idx == active_tab_no;
             let mut hover = false;
 
-            // Compute once with hover=false and only recompute when this tab is hovered.
-            // This avoids doubling Lua callback cost for every tab on every refresh.
-            let mut tab_title = compute_tab_title(
+            let mut tab_title = compute_tab_title_from_precomputed(
                 &tab_info[tab_idx],
-                tab_info,
-                pane_info,
                 config,
-                false,
-                tab_title_max_width_for_callback,
+                precomputed_titles.get(tab_idx).and_then(|t| t.clone()),
             );
             let mut cell_attrs = if active {
                 &active_cell_attrs

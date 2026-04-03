@@ -1062,6 +1062,7 @@ pub struct TermWindow {
     /// Toast notification: (start_time, message, lifetime)
     toast: Option<(Instant, String, Duration)>,
     selection_copy_disabled_hint_shown: bool,
+    last_window_title: String,
 }
 
 impl TermWindow {
@@ -1610,6 +1611,7 @@ impl TermWindow {
             opengl_info: None,
             toast: None,
             selection_copy_disabled_hint_shown: false,
+            last_window_title: String::new(),
             live_resizing: false,
             pending_screen_change_resize: false,
         };
@@ -3306,7 +3308,10 @@ impl TermWindow {
         };
 
         if let Some(window) = self.window.as_ref().cloned() {
-            window.set_title(&title);
+            if title != self.last_window_title {
+                self.last_window_title = title.clone();
+                window.set_title(&title);
+            }
 
             // If the number of tabs changed and caused the tab bar to
             // hide/show, then we'll need to resize things. We only update
