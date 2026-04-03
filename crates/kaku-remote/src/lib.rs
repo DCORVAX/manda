@@ -176,7 +176,13 @@ async fn route_config(
         font_size: cfg.font_size,
     };
 
-    axum::Json(serde_json::to_value(&info).unwrap_or_default()).into_response()
+    match serde_json::to_value(&info) {
+        Ok(v) => axum::Json(v).into_response(),
+        Err(e) => {
+            log::error!("kaku-remote: failed to serialize config: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "serialization error").into_response()
+        }
+    }
 }
 
 async fn route_panes(
@@ -204,7 +210,13 @@ async fn route_panes(
         })
         .unwrap_or_default();
 
-    axum::Json(serde_json::to_value(&panes).unwrap_or_default()).into_response()
+    match serde_json::to_value(&panes) {
+        Ok(v) => axum::Json(v).into_response(),
+        Err(e) => {
+            log::error!("kaku-remote: failed to serialize panes: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "serialization error").into_response()
+        }
+    }
 }
 
 fn check_token(query: &WsQuery, headers: &axum::http::HeaderMap) -> bool {

@@ -1526,6 +1526,8 @@ PATH_LINE='[[ ":$PATH:" != *":$HOME/.config/kaku/zsh/bin:"* ]] && export PATH="$
 SOURCE_LINE='[[ -f "$HOME/.config/kaku/zsh/kaku.zsh" ]] && source "$HOME/.config/kaku/zsh/kaku.zsh" # Kaku Shell Integration'
 LEGACY_INLINE_BLOCK_PRESERVED=0
 
+# SYNC: the heredoc below must stay in sync with KAKU_LEGACY_INLINE_KNOWN_LINES
+# in kaku/src/reset.rs. When adding or removing lines, update both places.
 legacy_inline_block_has_only_kaku_managed_lines() {
 	local line
 
