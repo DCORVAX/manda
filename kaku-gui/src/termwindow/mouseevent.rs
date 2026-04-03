@@ -1490,11 +1490,19 @@ impl super::TermWindow {
                             }
                         }
 
-                        let mut counter = CountArrows { from_col, to_col, count: 0 };
+                        let mut counter = CountArrows {
+                            from_col,
+                            to_col,
+                            count: 0,
+                        };
                         pane.with_lines_mut(stable_row..stable_row + 1, &mut counter);
 
                         if counter.count > 0 {
-                            let arrow: &[u8] = if column > cursor.x { b"\x1b[C" } else { b"\x1b[D" };
+                            let arrow: &[u8] = if column > cursor.x {
+                                b"\x1b[C"
+                            } else {
+                                b"\x1b[D"
+                            };
                             let bytes: Vec<u8> = arrow.repeat(counter.count);
                             if let Err(err) = self.write_terminal_input_bytes(&pane, &bytes) {
                                 log::debug!("option+click cursor move failed: {err:#}");
