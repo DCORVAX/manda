@@ -6,13 +6,11 @@ set -euo pipefail
 #
 # Prerequisites:
 # 1. App must be signed with Developer ID
-# 2. Set environment variables (or use macOS Keychain):
-#    - KAKU_NOTARIZE_APPLE_ID: Your Apple ID email
-#    - KAKU_NOTARIZE_TEAM_ID: Your Team ID (10 characters)
-#    - KAKU_NOTARIZE_PASSWORD: App-specific password (not your Apple ID password)
-#
-# To generate app-specific password:
-# https://appleid.apple.com/account/manage -> Sign-In and Security -> App-Specific Passwords
+# 2. Preferred: App Store Connect API Key (rcodesign, avoids notarytool SIGBUS on macOS 26):
+#    - Store the JSON key path in Keychain: security add-generic-password -s "kaku-asc-api-key-path" -a "kaku" -w "/path/to/asc_api_key.json"
+#    - Generate with: rcodesign encode-app-store-connect-api-key -o asc_api_key.json <issuer-id> <key-id> AuthKey_*.p8
+# 3. Fallback: Apple ID + app-specific password via Keychain:
+#    - KAKU_NOTARIZE_APPLE_ID, KAKU_NOTARIZE_TEAM_ID, KAKU_NOTARIZE_PASSWORD
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -76,7 +74,61 @@ require_developer_id_signature || exit 1
 echo "App: $APP_BUNDLE"
 echo "DMG: $DMG_PATH"
 
-# Get credentials from environment or Keychain
+# Resolve submission path
+if [[ -f "$DMG_PATH" ]]; then
+	SUBMISSION_PATH="$DMG_PATH"
+else
+	SUBMISSION_PATH="$APP_BUNDLE"
+fi
+
+if [[ "$STAPLE_ONLY" == "1" ]]; then
+	echo "Stapling existing notarization ticket..."
+	xcrun stapler staple "$APP_BUNDLE"
+	[[ -f "$DMG_PATH" ]] && xcrun stapler staple "$DMG_PATH"
+	echo "✅ Staple complete!"
+	echo ""
+	echo "Verifying notarization:"
+	spctl -a -vv "$APP_BUNDLE" 2>&1 || true
+	exit 0
+fi
+
+staple_and_verify() {
+	xcrun stapler staple "$APP_BUNDLE"
+	[[ -f "$DMG_PATH" ]] && xcrun stapler staple "$DMG_PATH"
+	echo ""
+	echo "✅ Done! App is notarized and ready for distribution."
+	echo ""
+	echo "Verifying notarization:"
+	spctl -a -vv "$APP_BUNDLE" 2>&1 || true
+}
+
+# Preferred: rcodesign with App Store Connect API Key (avoids notarytool SIGBUS on macOS 26)
+ASC_API_KEY_PATH="${KAKU_ASC_API_KEY_PATH:-}"
+if [[ -z "$ASC_API_KEY_PATH" ]]; then
+	ASC_API_KEY_PATH=$(security find-generic-password -s "kaku-asc-api-key-path" -w 2>/dev/null || true)
+fi
+
+if [[ -n "$ASC_API_KEY_PATH" && -f "$ASC_API_KEY_PATH" ]] && command -v rcodesign >/dev/null 2>&1; then
+	echo "Submitting via rcodesign (App Store Connect API Key)..."
+	echo "  Key: $ASC_API_KEY_PATH"
+	echo "  File: $SUBMISSION_PATH"
+	echo ""
+	if rcodesign notary-submit \
+		--api-key-path "$ASC_API_KEY_PATH" \
+		--staple \
+		--wait \
+		"$SUBMISSION_PATH"; then
+		echo ""
+		echo "✅ Notarization accepted! Stapling ticket..."
+		staple_and_verify
+	else
+		echo "❌ rcodesign notarization failed."
+		exit 1
+	fi
+	exit 0
+fi
+
+# Fallback: notarytool with Apple ID + app-specific password
 APPLE_ID="${KAKU_NOTARIZE_APPLE_ID:-}"
 TEAM_ID="${KAKU_NOTARIZE_TEAM_ID:-}"
 PASSWORD="${KAKU_NOTARIZE_PASSWORD:-}"
@@ -86,154 +138,47 @@ if [[ -n "$TEAM_ID" ]] && ! is_valid_team_id "$TEAM_ID"; then
 	TEAM_ID=""
 fi
 
-# If not set via env, try to read from Keychain
 if [[ -z "$APPLE_ID" ]]; then
 	echo "Checking Keychain for notarization credentials..."
 	APPLE_ID=$(security find-generic-password -s "kaku-notarize-apple-id" -w 2>/dev/null || true)
 fi
-
 if [[ -z "$PASSWORD" ]]; then
 	PASSWORD=$(security find-generic-password -s "kaku-notarize-password" -w 2>/dev/null || true)
 fi
-
 if [[ -z "$TEAM_ID" ]]; then
-	# Try to extract from signing identity
 	TEAM_ID=$(codesign -dv "$APP_BUNDLE" 2>&1 | grep TeamIdentifier | head -1 | awk -F= '{print $2}')
 	if [[ -n "$TEAM_ID" ]] && ! is_valid_team_id "$TEAM_ID"; then
-		echo "Warning: ignoring invalid TeamIdentifier from app signature: $TEAM_ID"
 		TEAM_ID=""
-	fi
-	if [[ -n "$TEAM_ID" ]]; then
-		echo "Using Team ID from signature: $TEAM_ID"
 	fi
 fi
 
 if [[ -z "$APPLE_ID" || -z "$PASSWORD" || -z "$TEAM_ID" ]]; then
 	echo ""
-	echo "Error: Notarization credentials not found."
+	echo "Error: No notarization credentials found."
 	echo ""
-	echo "Please set environment variables:"
-	echo "  export KAKU_NOTARIZE_APPLE_ID='your-apple-id@example.com'"
-	echo "  export KAKU_NOTARIZE_TEAM_ID='YOURTEAMID'"
-	echo "  export KAKU_NOTARIZE_PASSWORD='xxxx-xxxx-xxxx-xxxx'"
+	echo "Preferred (rcodesign, avoids notarytool SIGBUS on macOS 26):"
+	echo "  1. Create an API key at https://appstoreconnect.apple.com/access/integrations/api"
+	echo "  2. rcodesign encode-app-store-connect-api-key -o asc_api_key.json <issuer-id> <key-id> AuthKey_*.p8"
+	echo "  3. security add-generic-password -s 'kaku-asc-api-key-path' -a 'kaku' -w '/path/to/asc_api_key.json'"
 	echo ""
-	echo "Or store in Keychain:"
+	echo "Fallback (Apple ID + app-specific password):"
 	echo "  security add-generic-password -s 'kaku-notarize-apple-id' -a 'kaku' -w 'your-apple-id@example.com'"
 	echo "  security add-generic-password -s 'kaku-notarize-password' -a 'kaku' -w 'your-app-specific-password'"
-	echo ""
-	echo "To generate app-specific password: https://appleid.apple.com/account/manage"
 	exit 1
 fi
 
-if [[ "$STAPLE_ONLY" == "1" ]]; then
-	echo "Stapling existing notarization ticket..."
-
-	echo "Stapling app bundle..."
-	xcrun stapler staple "$APP_BUNDLE"
-
-	if [[ -f "$DMG_PATH" ]]; then
-		echo "Stapling DMG..."
-		xcrun stapler staple "$DMG_PATH"
-	fi
-
-	echo "✅ Staple complete!"
-	echo ""
-	echo "Verifying notarization:"
-	spctl -a -vv "$APP_BUNDLE" 2>&1 || true
-	exit 0
-fi
-
-is_transient_notary_failure() {
-	local output="$1"
-	local exit_code="${2:-0}"
-	# Transient Apple server errors
-	[[ "$output" == *"statusCode: Optional(500)"* ]] ||
-		[[ "$output" == *"statusCode\": 500"* ]] ||
-		[[ "$output" == *"code = \"UNEXPECTED_ERROR\""* ]] ||
-		[[ "$output" == *"title = \"Uncaught server exception\""* ]] ||
-		# SIGBUS (exit 138) / stack overflow in notarytool on macOS 26 beta: retry
-		[[ "$exit_code" == "138" ]] ||
-		# Network reset mid-upload: retry
-		[[ "$output" == *"Connection reset by peer"* ]]
-}
-
-# notarytool crashes with SIGBUS (stack overflow) on macOS 26 beta.
-# Wrap in a Python thread with 64 MB stack to work around the issue.
-_notarytool_submit() {
-	python3 - "$APPLE_ID" "$TEAM_ID" "$PASSWORD" "$SUBMISSION_PATH" <<'PYEOF'
-import threading, subprocess, sys, os
-
-apple_id, team_id, password, path = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
-
-result_holder = [None]
-
-def run():
-    result_holder[0] = subprocess.run(
-        ["xcrun", "notarytool", "submit", path,
-         "--apple-id", apple_id,
-         "--team-id", team_id,
-         "--password", password,
-         "--wait"],
-        capture_output=True, text=True
-    )
-
-threading.stack_size(64 * 1024 * 1024)
-t = threading.Thread(target=run)
-t.start()
-t.join()
-
-r = result_holder[0]
-if r is None:
-    sys.exit(138)
-print(r.stdout, end="")
-print(r.stderr, end="", file=sys.stderr)
-sys.exit(r.returncode)
-PYEOF
-}
-
-submit_for_notarization() {
-	local attempt=1
-	local delay="$NOTARY_SUBMIT_RETRY_DELAY"
-	local exit_code
-
-	while true; do
-		SUBMIT_OUTPUT=$(_notarytool_submit 2>&1)
-		exit_code=$?
-
-		if [[ "$exit_code" == "0" ]]; then
-			return 0
-		fi
-
-		if (( attempt >= NOTARY_SUBMIT_MAX_ATTEMPTS )) || ! is_transient_notary_failure "$SUBMIT_OUTPUT" "$exit_code"; then
-			return 1
-		fi
-
-		echo "Transient notarization error (attempt ${attempt}/${NOTARY_SUBMIT_MAX_ATTEMPTS}, exit ${exit_code}), retrying in ${delay}s..."
-		sleep "$delay"
-
-		attempt=$((attempt + 1))
-		delay=$((delay * 2))
-	done
-}
-
-# Submit for notarization
-echo "Submitting for notarization..."
+echo "Submitting via notarytool (Apple ID fallback)..."
 echo "  Apple ID: $APPLE_ID"
 echo "  Team ID: $TEAM_ID"
-
-# Submit the DMG if it exists, otherwise submit the app
-if [[ -f "$DMG_PATH" ]]; then
-	SUBMISSION_PATH="$DMG_PATH"
-	echo "  Submitting DMG..."
-else
-	SUBMISSION_PATH="$APP_BUNDLE"
-	echo "  Submitting app bundle..."
-fi
-
-# Submit and capture output
+echo "  File: $SUBMISSION_PATH"
 echo ""
 echo "Uploading to Apple notarization service (this may take a few minutes)..."
-submit_for_notarization || {
+
+SUBMIT_OUTPUT=$(xcrun notarytool submit "$SUBMISSION_PATH" \
+	--apple-id "$APPLE_ID" \
+	--team-id "$TEAM_ID" \
+	--password "$PASSWORD" \
+	--wait 2>&1) || {
 	echo "Notarization submission failed:"
 	echo "$SUBMIT_OUTPUT"
 	exit 1
@@ -241,38 +186,20 @@ submit_for_notarization || {
 
 echo "$SUBMIT_OUTPUT"
 
-# Check if accepted
 if echo "$SUBMIT_OUTPUT" | grep -q "Accepted"; then
 	echo ""
 	echo "✅ Notarization accepted! Stapling ticket..."
-
-	xcrun stapler staple "$APP_BUNDLE"
-
-	if [[ -f "$DMG_PATH" ]]; then
-		xcrun stapler staple "$DMG_PATH"
-	fi
-
-	echo ""
-	echo "✅ Done! App is notarized and ready for distribution."
-	echo ""
-	echo "Verifying notarization:"
-	spctl -a -vv "$APP_BUNDLE" 2>&1 || true
+	staple_and_verify
 else
 	echo ""
-	echo "❌ Notarization failed or returned unexpected status."
-	echo "Full output:"
-	echo "$SUBMIT_OUTPUT"
-
-	# Extract submission ID and fetch detailed log
+	echo "❌ Notarization failed."
 	SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | grep "id:" | head -1 | awk '{print $2}')
 	if [[ -n "$SUBMISSION_ID" ]]; then
-		echo ""
-		echo "Fetching detailed notarization log..."
+		echo "Fetching detailed log..."
 		xcrun notarytool log "$SUBMISSION_ID" \
 			--apple-id "$APPLE_ID" \
 			--team-id "$TEAM_ID" \
 			--password "$PASSWORD" 2>&1 || true
 	fi
-
 	exit 1
 fi
