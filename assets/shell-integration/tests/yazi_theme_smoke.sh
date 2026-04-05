@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+source "$SCRIPT_DIR/common.sh"
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/kaku-yazi-theme.XXXXXX")"
 cleanup() {
@@ -11,10 +12,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$tmp_dir/vendor/fast-syntax-highlighting" \
-	"$tmp_dir/vendor/zsh-autosuggestions" \
-	"$tmp_dir/vendor/zsh-completions" \
-	"$tmp_dir/vendor/zsh-z"
+create_stub_vendor_dir "$tmp_dir/vendor"
 
 run_setup() {
 	local home_dir="$1"

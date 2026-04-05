@@ -460,13 +460,11 @@ update_homebrew_tap() {
         -f "client_payload[version]=$version" \
         -f "client_payload[sha256]=$dmg_sha256" 2>&1
     ); then
-        if [[ "$REQUIRE_HOMEBREW_TAP_UPDATE" == "1" ]]; then
-            log_warn "Failed to dispatch Homebrew tap update for ${HOMEBREW_TAP_REPO}"
-            log_warn "$dispatch_output"
-            die "Homebrew tap update dispatch failed. Track the workflow here: $workflow_url"
-        fi
         log_warn "Failed to dispatch Homebrew tap update for ${HOMEBREW_TAP_REPO}"
         log_warn "$dispatch_output"
+        if [[ "$REQUIRE_HOMEBREW_TAP_UPDATE" == "1" ]]; then
+            die "Homebrew tap update dispatch failed. Track the workflow here: $workflow_url"
+        fi
         log_warn "Track the workflow here: $workflow_url"
         return 0
     fi
@@ -487,13 +485,30 @@ update_homebrew_tap() {
     if [[ "$REQUIRE_HOMEBREW_TAP_UPDATE" == "1" ]]; then
         local expected_version="$version"
         local remote_version=""
-        remote_version=$(gh api "repos/${HOMEBREW_TAP_REPO}/contents/Casks/kakuku.rb?ref=main" --jq '.download_url' 2>/dev/null \
-            | xargs -I{} curl -fsSL {} 2>/dev/null \
-            | sed -n 's/^  version "\([^"]*\)"$/\1/p' | head -n1 || true)
+        local attempt=0
+        local max_attempts=12
+        local sleep_seconds=15
+        while (( attempt < max_attempts )); do
+            attempt=$((attempt + 1))
+            remote_version=$(gh api "repos/${HOMEBREW_TAP_REPO}/contents/Casks/kakuku.rb?ref=main" --jq '.download_url' 2>/dev/null \
+                | xargs -I{} curl -fsSL {} 2>/dev/null \
+                | sed -n 's/^  version "\([^"]*\)"$/\1/p' | head -n1 || true)
+            if [[ "$remote_version" == "$expected_version" ]]; then
+                log_info "Homebrew tap verified at version ${remote_version}"
+                break
+            fi
+            if [[ -z "$remote_version" ]]; then
+                log_warn "Homebrew tap version check attempt ${attempt}/${max_attempts} returned empty result; waiting..."
+            else
+                log_info "Homebrew tap version check attempt ${attempt}/${max_attempts}: current=${remote_version}, expected=${expected_version}; waiting..."
+            fi
+            if (( attempt < max_attempts )); then
+                sleep "$sleep_seconds"
+            fi
+        done
         if [[ "$remote_version" != "$expected_version" ]]; then
-            die "Homebrew tap version verification failed: expected ${expected_version}, got ${remote_version:-<empty>}"
+            die "Homebrew tap version verification timed out: expected ${expected_version}, got ${remote_version:-<empty>}"
         fi
-        log_info "Homebrew tap verified at version ${remote_version}"
     fi
 }
 

@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+source "$SCRIPT_DIR/common.sh"
 
 echo "zshz_jump_provider: starting (zsh=$(command -v zsh 2>/dev/null || echo MISSING), bash=$BASH_VERSION)" >&2
 
@@ -18,10 +19,7 @@ ZDOTDIR="$HOME"
 mkdir -p "$HOME"
 
 vendor_dir="$tmp_dir/vendor"
-mkdir -p "$vendor_dir/fast-syntax-highlighting" \
-         "$vendor_dir/zsh-autosuggestions" \
-         "$vendor_dir/zsh-completions" \
-         "$vendor_dir/zsh-z"
+create_stub_vendor_dir "$vendor_dir"
 
 # Minimal fast-syntax-highlighting stub
 cat >"$vendor_dir/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh" <<'EOF'

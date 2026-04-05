@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+source "$SCRIPT_DIR/common.sh"
 
 echo "starship_rprompt: starting (zsh=$(command -v zsh 2>/dev/null || echo MISSING), bash=$BASH_VERSION)" >&2
 
@@ -47,9 +48,8 @@ mkdir -p "$HOME"
 # Provide stub vendor plugin dirs so setup_zsh.sh succeeds on CI where the
 # real downloads are not present in the checkout.
 vendor_dir="$tmp_dir/vendor"
-mkdir -p "$vendor_dir/zsh-z" "$vendor_dir/zsh-autosuggestions" \
-         "$vendor_dir/zsh-syntax-highlighting" "$vendor_dir/fast-syntax-highlighting" \
-         "$vendor_dir/zsh-completions"
+create_stub_vendor_dir "$vendor_dir"
+mkdir -p "$vendor_dir/zsh-syntax-highlighting"
 
 echo "starship_rprompt: running setup_zsh.sh" >&2
 setup_out=""
