@@ -27,3 +27,4 @@
 18	zsh-z is bundled for directory jumping; your existing ~/.z history works immediately
 18	cd+Tab falls back to zsh-z history when filesystem completion has no match
 18	Zsh updates now preserve custom inline Kaku blocks when they contain user changes
+19	Zsh integration now defers autosuggestions to Kiro and Amazon Q, and Global Hotkey accepts Space in the config TUI
