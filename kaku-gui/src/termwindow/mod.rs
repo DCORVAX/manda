@@ -4145,10 +4145,7 @@ impl TermWindow {
                         .get_current_working_dir(CachePolicy::AllowStale)
                         .map(|u| u.path().to_string())
                         .unwrap_or_default();
-                    let context = crate::overlay::ai_chat::TerminalContext {
-                        cwd,
-                        visible_lines,
-                    };
+                    let context = crate::overlay::ai_chat::TerminalContext { cwd, visible_lines };
                     let pane_id = pane.pane_id();
                     let (overlay, future) =
                         start_overlay_pane(self, &pane, move |pane_id, term| {
