@@ -834,19 +834,24 @@ bindkey -e
 
 # Prefix history search on Up/Down (e.g. type "curl" then press Up)
 # This is shell behavior, not terminal behavior, so Kaku configures it here.
-autoload -U up-line-or-beginning-search down-line-or-beginning-search
-zle -N up-line-or-beginning-search
-zle -N down-line-or-beginning-search
-zmodload zsh/terminfo 2>/dev/null || true
-for _kaku_keymap in emacs viins; do
-    [[ -n "\${terminfo[kcuu1]:-}" ]] && bindkey -M "\$_kaku_keymap" "\${terminfo[kcuu1]}" up-line-or-beginning-search
-    [[ -n "\${terminfo[kcud1]:-}" ]] && bindkey -M "\$_kaku_keymap" "\${terminfo[kcud1]}" down-line-or-beginning-search
-    bindkey -M "\$_kaku_keymap" '^[[A' up-line-or-beginning-search
-    bindkey -M "\$_kaku_keymap" '^[[B' down-line-or-beginning-search
-    bindkey -M "\$_kaku_keymap" '^[OA' up-line-or-beginning-search
-    bindkey -M "\$_kaku_keymap" '^[OB' down-line-or-beginning-search
-done
-unset _kaku_keymap
+# Skip if an external history navigator (atuin, mcfly, etc.) already owns the
+# Up key. After "bindkey -e" the emacs default for ^[[A is "up-line-or-history";
+# any other value means a third-party tool has already claimed it.
+if [[ "\$(bindkey -M emacs '^[[A' 2>/dev/null)" == *"up-line-or-history"* ]]; then
+    autoload -U up-line-or-beginning-search down-line-or-beginning-search
+    zle -N up-line-or-beginning-search
+    zle -N down-line-or-beginning-search
+    zmodload zsh/terminfo 2>/dev/null || true
+    for _kaku_keymap in emacs viins; do
+        [[ -n "\${terminfo[kcuu1]:-}" ]] && bindkey -M "\$_kaku_keymap" "\${terminfo[kcuu1]}" up-line-or-beginning-search
+        [[ -n "\${terminfo[kcud1]:-}" ]] && bindkey -M "\$_kaku_keymap" "\${terminfo[kcud1]}" down-line-or-beginning-search
+        bindkey -M "\$_kaku_keymap" '^[[A' up-line-or-beginning-search
+        bindkey -M "\$_kaku_keymap" '^[[B' down-line-or-beginning-search
+        bindkey -M "\$_kaku_keymap" '^[OA' up-line-or-beginning-search
+        bindkey -M "\$_kaku_keymap" '^[OB' down-line-or-beginning-search
+    done
+    unset _kaku_keymap
+fi
 
 # Kaku line-selection widgets for modified arrows in prompt editing.
 _kaku_select_left_char() {
