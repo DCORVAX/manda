@@ -79,7 +79,13 @@ struct App {
 }
 
 impl App {
-    fn new(context: TerminalContext, model: String, cols: usize, rows: usize, client: AiClient) -> Self {
+    fn new(
+        context: TerminalContext,
+        model: String,
+        cols: usize,
+        rows: usize,
+        client: AiClient,
+    ) -> Self {
         Self {
             messages: Vec::new(),
             input: String::new(),
