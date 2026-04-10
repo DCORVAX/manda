@@ -108,7 +108,10 @@ impl crate::TermWindow {
             }
         }
 
-        'pass: for pass in 0.. {
+        // Limit retries to prevent a busy-loop when render state cannot converge
+        // (e.g. during display reconfiguration after lock-screen return).
+        const MAX_PAINT_RETRIES: usize = 8;
+        'pass: for pass in 0..MAX_PAINT_RETRIES {
             match self.paint_pass() {
                 Ok(_) => match self.render_state.as_mut().unwrap().allocated_more_quads() {
                     Ok(allocated) => {
@@ -176,6 +179,14 @@ impl crate::TermWindow {
                     }
                 }
             }
+        }
+
+        if start.elapsed() > Duration::from_millis(200) {
+            log::warn!(
+                "paint_impl retry loop exceeded {}ms ({}ms), likely display reconfiguration",
+                200,
+                start.elapsed().as_millis()
+            );
         }
 
         log::debug!("paint_impl before call_draw elapsed={:?}", start.elapsed());

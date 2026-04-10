@@ -1942,8 +1942,22 @@ impl WindowInner {
                 }
                 inner.screen_changed = true;
                 // Trigger a repaint to ensure the window content is refreshed.
+                // Defer dispatch to the next run-loop turn so we don't re-enter
+                // AppKit from inside a CFNotificationCenter observer callout
+                // (triggered by _NSCGSDisplayConfigurationDidReconfigureNotificationHandler
+                // on lock-screen return). Doing heavy render work synchronously here
+                // can cause a main-thread busy-loop hang.
                 inner.invalidated = true;
-                inner.events.dispatch(WindowEvent::NeedRepaint);
+                Connection::with_window_inner(window_id, |inner| {
+                    if let Some(window_view) = WindowView::get_this(unsafe { &**inner.view }) {
+                        window_view
+                            .inner
+                            .borrow_mut()
+                            .events
+                            .dispatch(WindowEvent::NeedRepaint);
+                    }
+                    Ok(())
+                });
                 return true;
             }
         }
@@ -4845,16 +4859,46 @@ impl WindowView {
             };
 
             if !suppress_intermediate_resize {
-                inner.events.dispatch(WindowEvent::Resized {
-                    dimensions: Dimensions {
+                if screen_changed {
+                    // Defer the resize dispatch to the next run-loop turn when the resize
+                    // was triggered by a display reconfiguration (lock-screen return,
+                    // monitor connect/disconnect). Dispatching synchronously here means
+                    // we are still inside _NSCGSDisplayConfigurationDidReconfigureNotificationHandler
+                    // -> _setFrameCommon -> postNotification, and re-entering AppKit or
+                    // doing heavy render work in that context causes a main-thread hang.
+                    let dimensions = Dimensions {
                         pixel_width: width as usize,
                         pixel_height: height as usize,
                         dpi,
-                    },
-                    window_state,
-                    live_resizing,
-                    screen_changed,
-                });
+                    };
+                    let window_id = inner.window_id;
+                    Connection::with_window_inner(window_id, move |inner| {
+                        if let Some(window_view) = WindowView::get_this(unsafe { &**inner.view }) {
+                            window_view
+                                .inner
+                                .borrow_mut()
+                                .events
+                                .dispatch(WindowEvent::Resized {
+                                    dimensions,
+                                    window_state,
+                                    live_resizing,
+                                    screen_changed: true,
+                                });
+                        }
+                        Ok(())
+                    });
+                } else {
+                    inner.events.dispatch(WindowEvent::Resized {
+                        dimensions: Dimensions {
+                            pixel_width: width as usize,
+                            pixel_height: height as usize,
+                            dpi,
+                        },
+                        window_state,
+                        live_resizing,
+                        screen_changed,
+                    });
+                }
             }
 
             if simple_transition_active {

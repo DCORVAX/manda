@@ -74,6 +74,7 @@ dhat-heap.json
 .ace-tool/
 /.sisyphus/
 /log/
+long_text_*.txt
 
 # Changelog is managed in GitHub Releases only
 CHANGELOG.md
