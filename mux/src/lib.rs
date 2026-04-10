@@ -355,12 +355,7 @@ fn parse_buffered_data(
                     // or when a fast producer fills the buffer before the timeout fires.
                     let size_exceeded = action_size > 1_048_576;
                     if timed_out || size_exceeded {
-                        send_actions_to_mux(
-                            &pane,
-                            pane_id,
-                            &dead,
-                            std::mem::take(&mut actions),
-                        );
+                        send_actions_to_mux(&pane, pane_id, &dead, std::mem::take(&mut actions));
                         action_size = 0;
                         hold_start = Some(Instant::now());
                     }
