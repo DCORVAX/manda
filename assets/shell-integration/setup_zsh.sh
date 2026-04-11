@@ -1720,6 +1720,8 @@ if [[ -f "$KAKU_ZSH_DIR/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.
     # Defer loading until first prompt display
     zsh_syntax_highlighting_defer() {
         source "$KAKU_ZSH_DIR/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+        # Override comment color: default (fg=8) is invisible on dark backgrounds.
+        ZSH_HIGHLIGHT_STYLES[comment]='fg=244'
         # Remove this hook after first run
         precmd_functions=("${precmd_functions[@]:#zsh_syntax_highlighting_defer}")
     }

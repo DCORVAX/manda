@@ -29,3 +29,4 @@
 18	Zsh updates now preserve custom inline Kaku blocks when they contain user changes
 19	Zsh integration now defers autosuggestions to Kiro and Amazon Q
 19	Global Hotkey now accepts Space as a hotkey in the config TUI
+20	Zsh comment color is now visible in dark themes; no longer invisible against dark backgrounds
