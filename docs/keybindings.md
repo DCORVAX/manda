@@ -67,6 +67,7 @@ All keybindings use macOS-native modifier keys. `Opt` = Option/Alt, `Ctrl` = Con
 | Clear screen + scrollback | `Cmd + K` |
 | Open Settings panel | `Cmd + ,` |
 | Open AI panel | `Cmd + Shift + A` |
+| Open AI Chat | `Cmd + L` |
 | Apply Kaku Assistant suggestion | `Cmd + Shift + E` |
 | Open lazygit | `Cmd + Shift + G` |
 | Open yazi file manager | `Cmd + Shift + Y` |
@@ -91,6 +92,13 @@ table.insert(config.keys, {
   key = 'RightArrow',
   mods = 'CMD|SHIFT',
   action = wezterm.action.ActivatePaneDirection('Right'),
+})
+
+-- Example: rebind AI Chat to Cmd+Shift+Space (original default):
+table.insert(config.keys, {
+  key = 'Space',
+  mods = 'CMD|SHIFT',
+  action = wezterm.action.EmitEvent('kaku-ai-chat'),
 })
 ```
 

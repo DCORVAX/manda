@@ -2983,9 +2983,14 @@ fn should_intercept_special_shortcut(chars: &str, modifiers: Modifiers, virtual_
         && is_symbol_virtual_key(virtual_key)
         // Preserve macOS built-in Cmd+` and Cmd+Shift+` window cycling.
         && virtual_key != kVK_ANSI_Grave;
+    // Intercept Cmd+Shift+Space so the system "select previous input source"
+    // shortcut cannot consume it before Kaku's own kaku-ai-chat binding fires.
+    let command_shift_space =
+        modifiers == (Modifiers::SUPER | Modifiers::SHIFT) && virtual_key == kVK_Space;
 
     command_period
         || command_shift_symbol
+        || command_shift_space
         || (chars == "\u{1b}" && modifiers == Modifiers::CTRL)
         || (chars == "\t" && modifiers == Modifiers::CTRL)
         || (chars == "\x19"/* Shift-Tab: See issue #1902 */)

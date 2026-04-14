@@ -361,7 +361,15 @@ impl super::TermWindow {
         let user_has_custom_padding = user_has_custom_window_padding_assignment();
 
         let tab_bar_height = if self.show_tab_bar {
-            self.tab_bar_pixel_height().unwrap_or(0.)
+            // Use the real height only when title_font is already cached;
+            // fall back to the estimated value (cell_height * 1.75) to avoid
+            // triggering the expensive ~480ms CoreText first-load on the
+            // synthetic resize event that fires inside Window::new_window.
+            if self.fonts.is_title_font_loaded() {
+                self.tab_bar_pixel_height().unwrap_or(0.)
+            } else {
+                Self::estimated_tab_bar_pixel_height(&self.config, &self.render_metrics)
+            }
         } else {
             0.
         };

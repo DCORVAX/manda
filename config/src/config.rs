@@ -2096,9 +2096,9 @@ pub fn default_hyperlink_rules() -> Vec<hyperlink::Rule> {
     vec![
         // First handle URLs wrapped with punctuation (i.e. brackets)
         // e.g. [http://foo] (http://foo) <http://foo>
-        hyperlink::Rule::with_highlight(r"\((\w+://\S+)\)", "$1", 1).unwrap(),
-        hyperlink::Rule::with_highlight(r"\[(\w+://\S+)\]", "$1", 1).unwrap(),
-        hyperlink::Rule::with_highlight(r"<(\w+://\S+)>", "$1", 1).unwrap(),
+        hyperlink::Rule::with_highlight(r"\((\w+://[\x21-\x7e]+)\)", "$1", 1).unwrap(),
+        hyperlink::Rule::with_highlight(r"\[(\w+://[\x21-\x7e]+)\]", "$1", 1).unwrap(),
+        hyperlink::Rule::with_highlight(r"<(\w+://[\x21-\x7e]+)>", "$1", 1).unwrap(),
         // Then handle URLs not wrapped in brackets that
         // 1) have a balanced ending parenthesis or
         hyperlink::Rule::new(hyperlink::CLOSING_PARENTHESIS_HYPERLINK_PATTERN, "$0").unwrap(),

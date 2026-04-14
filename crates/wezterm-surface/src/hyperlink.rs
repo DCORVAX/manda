@@ -161,9 +161,12 @@ impl<'t> Match<'t> {
         result
     }
 }
+// Use ASCII-only visible character classes (\x21-\x7e) so that non-ASCII
+// characters such as full-width punctuation (e.g. U+FF0C ，) and CJK text
+// are treated as URL boundaries rather than being included in the link.
 pub const CLOSING_PARENTHESIS_HYPERLINK_PATTERN: &str =
-    r"\b\w+://[^\s()]*\(\S*\)(?=\s|$|[^_/a-zA-Z0-9-])";
-pub const GENERIC_HYPERLINK_PATTERN: &str = r"\b\w+://\S+[_/a-zA-Z0-9-]";
+    r"\b\w+://[\x21-\x27\x2a-\x7e]*\([\x21-\x7e]*\)(?=\s|$|[^_/a-zA-Z0-9-])";
+pub const GENERIC_HYPERLINK_PATTERN: &str = r"\b\w+://[\x21-\x7e]+[_/a-zA-Z0-9-]";
 
 impl Rule {
     /// Construct a new rule.  It may fail if the regex is invalid.
@@ -296,5 +299,36 @@ mod test {
             "http://example.com/(complete_parentheses)-((-)-()-_-",
             "Non-terminating parentheses should not impact matching the entire URL - Terminated with a valid character",
         );
+    }
+
+    #[test]
+    fn parse_stops_at_fullwidth_comma() {
+        let rules = vec![Rule::new(GENERIC_HYPERLINK_PATTERN, "$0").unwrap()];
+        let matches = Rule::match_hyperlinks(
+            "https://github.com/tw93/Mole/issues/739#issuecomment-4242295338\u{FF0C}issue",
+            &rules,
+        );
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            matches[0].link.uri(),
+            "https://github.com/tw93/Mole/issues/739#issuecomment-4242295338"
+        );
+    }
+
+    #[test]
+    fn parse_stops_at_chinese_period() {
+        let rules = vec![Rule::new(GENERIC_HYPERLINK_PATTERN, "$0").unwrap()];
+        let matches = Rule::match_hyperlinks("https://example.com/path\u{3002}", &rules);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].link.uri(), "https://example.com/path");
+    }
+
+    #[test]
+    fn parse_stops_at_cjk_text() {
+        let rules = vec![Rule::new(GENERIC_HYPERLINK_PATTERN, "$0").unwrap()];
+        let matches =
+            Rule::match_hyperlinks("https://github.com/foo/bar#anchor\u{4e2d}\u{6587}", &rules);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].link.uri(), "https://github.com/foo/bar#anchor");
     }
 }

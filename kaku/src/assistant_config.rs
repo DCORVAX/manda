@@ -13,6 +13,9 @@ use std::path::{Path, PathBuf};
 /// Default model for command analysis suggestions.
 pub const DEFAULT_MODEL: &str = "gpt-5.4-mini";
 
+/// Default model for the AI chat overlay. Stronger than the inline model.
+pub const DEFAULT_CHAT_MODEL: &str = "gpt-5.4";
+
 /// Default API base URL for the AI service.
 pub const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 
@@ -167,7 +170,13 @@ pub fn default_assistant_toml_template() -> String {
 #\n\
 # enabled: true enables command analysis suggestions; false disables requests.\n\
 # api_key: provider API key, example: \"sk-xxxx\".\n\
-# model: model id, example: \"deepseek-chat\" or \"gpt-4o\".\n\
+# model: inline command-completion model (fast + cheap).\n\
+# chat_model: chat overlay model (Cmd+L). Press Tab in-overlay to\n\
+#             cycle through available models. Omit to reuse `model`.\n\
+# chat_model_choices: optional curated list for the chat overlay. When set,\n\
+#                     Kaku skips auto-fetching from /models and cycles only\n\
+#                     through these entries.\n\
+#                     example: [\"gpt-5.4\", \"gpt-5.4-mini\", \"claude-sonnet-4-6\"]\n\
 # base_url: chat-completions API root URL.\n\
 # custom_headers: optional extra HTTP headers for enterprise proxies or API gateways.\n\
 #                 format: [\"Header-Name: value\", \"Another-Header: value\"]\n\
@@ -176,8 +185,22 @@ pub fn default_assistant_toml_template() -> String {
 enabled = true\n\
 # api_key = \"<your_api_key>\"\n\
 model = \"{DEFAULT_MODEL}\"\n\
+chat_model = \"{DEFAULT_CHAT_MODEL}\"\n\
 base_url = \"{DEFAULT_BASE_URL}\"\n\
-# custom_headers = [\"X-Customer-ID: your-customer-id\"]\n"
+# custom_headers = [\"X-Customer-ID: your-customer-id\"]\n\
+# web_search_provider: optional web search backend for the chat agent.\n\
+#   \"none\" (default) disables the web_search and read_url tools.\n\
+#   \"brave\" | \"pipellm\" | \"tavily\" enables both. Requires web_search_api_key.\n\
+#   Configure via `kaku ai` instead of editing this file directly.\n\
+#   Capabilities used per provider:\n\
+#     brave:   web/news search, extra_snippets, freshness filter\n\
+#     pipellm: simple-search, news-search, deep RAG search, page reader\n\
+#     tavily:  search with direct AI answer, advanced depth, topic, page extract\n\
+# web_search_api_key: API key for the chosen provider.\n\
+# web_fetch_script: optional path to a local shell script invoked as\n\
+#   `bash <script> <url>` when the agent fetches a web page.\n\
+#   SECURITY: only set this to a script you personally wrote and trust.\n\
+#   Never copy a web_fetch_script path from an untrusted source.\n"
     )
 }
 

@@ -1,7 +1,7 @@
 use crate::scripting::guiwin::GuiWin;
 use crate::spawn::SpawnWhere;
 use crate::termwindow::TermWindowNotif;
-use crate::TermWindow;
+use crate::{startup_trace, TermWindow};
 use ::window::*;
 use anyhow::{Context, Error};
 use config::keyassignment::{KeyAssignment, SpawnCommand, SpawnTabDomain};
@@ -301,11 +301,17 @@ pub fn set_default_terminal_with_feedback() {
 
 impl GuiFrontEnd {
     pub fn try_new() -> anyhow::Result<Rc<GuiFrontEnd>> {
+        startup_trace::mark("  Connection::init() start");
         let connection = Connection::init()?;
+        startup_trace::mark("  Connection::init() done");
         connection.set_event_handler(Self::app_event_handler);
+        startup_trace::mark("  flush_pending_service_events #1 start");
         connection.flush_pending_service_events();
+        startup_trace::mark("  flush_pending_service_events #1 done");
         ::window::connection::mark_app_event_handler_ready();
+        startup_trace::mark("  flush_pending_service_events #2 start");
         connection.flush_pending_service_events();
+        startup_trace::mark("  flush_pending_service_events #2 done");
 
         let mux = Mux::get();
         let client_id = mux.active_identity().expect("to have set my own id");

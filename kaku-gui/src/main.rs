@@ -89,6 +89,9 @@ use wezterm_mux_server_impl::update_mux_domains;
 use wezterm_toast_notification::*;
 
 mod ai_client;
+mod ai_conversations;
+mod ai_state;
+mod ai_tools;
 mod colorease;
 mod commands;
 mod customglyph;
@@ -219,6 +222,7 @@ async fn spawn_tab_in_domain_if_mux_is_empty(
         }
     }
 
+    startup_trace::mark("  mux.new_empty_window start");
     let window_id = {
         // Force the builder to notify the frontend early,
         // so that the attach await below doesn't block it.
@@ -231,11 +235,14 @@ async fn spawn_tab_in_domain_if_mux_is_empty(
         let builder = mux.new_empty_window(workspace.clone(), position);
         *builder
     };
+    startup_trace::mark("  mux.new_empty_window done (notification fired)");
 
     let config = config::configuration();
     config.update_ulimit()?;
 
+    startup_trace::mark("  domain.attach start");
     domain.attach(Some(window_id)).await?;
+    startup_trace::mark("  domain.attach done");
 
     if have_panes_in_domain_and_ws(&domain, &workspace) {
         trigger_and_log_gui_attached(MuxDomain(domain.domain_id())).await;
@@ -253,6 +260,7 @@ async fn spawn_tab_in_domain_if_mux_is_empty(
     });
 
     let dpi = config.dpi.unwrap_or_else(|| ::window::default_dpi());
+    startup_trace::mark("  domain.spawn start (PTY fork)");
     let _tab = domain
         .spawn(
             &mux,
@@ -265,7 +273,9 @@ async fn spawn_tab_in_domain_if_mux_is_empty(
             window_id,
         )
         .await?;
+    startup_trace::mark("  domain.spawn done (PTY forked)");
     trigger_and_log_gui_attached(MuxDomain(domain.domain_id())).await;
+    startup_trace::mark("  gui-attached event done");
     Ok(())
 }
 
@@ -326,7 +336,9 @@ async fn trigger_and_log_gui_attached(domain: MuxDomain) {
 }
 
 fn cell_pixel_dims(config: &ConfigHandle, dpi: f64) -> anyhow::Result<(usize, usize)> {
+    startup_trace::mark("  FontConfiguration#1 start");
     let fontconfig = Rc::new(FontConfiguration::new(Some(config.clone()), dpi as usize)?);
+    startup_trace::mark("  FontConfiguration#1 done");
     let render_metrics = RenderMetrics::new(&fontconfig)?;
     Ok((
         render_metrics.cell_size.width as usize,
@@ -345,10 +357,12 @@ async fn async_run_terminal_gui(
     wezterm_blob_leases::register_storage(Arc::new(
         wezterm_blob_leases::simple_tempdir::SimpleTempDir::new_in(&*config::CACHE_DIR)?,
     ))?;
+    startup_trace::mark("  register_storage done");
 
     if let Err(err) = spawn_mux_server(unix_socket_path, should_publish) {
         log::warn!("{:#}", err);
     }
+    startup_trace::mark("  spawn_mux_server done");
 
     #[cfg(feature = "remote")]
     kaku_remote::start();
@@ -406,7 +420,9 @@ async fn async_run_terminal_gui(
     };
 
     if !opts.attach {
+        startup_trace::mark("  trigger_and_log_gui_startup start");
         trigger_and_log_gui_startup(spawn_command).await;
+        startup_trace::mark("  trigger_and_log_gui_startup done");
     }
 
     let is_connecting = opts.attach;
@@ -446,7 +462,10 @@ async fn async_run_terminal_gui(
             trigger_and_log_gui_attached(MuxDomain(domain.domain_id())).await;
         }
     }
-    spawn_tab_in_domain_if_mux_is_empty(cmd, is_connecting, domain, opts.workspace).await
+    startup_trace::mark("  spawn_tab_in_domain_if_mux_is_empty start");
+    let res = spawn_tab_in_domain_if_mux_is_empty(cmd, is_connecting, domain, opts.workspace).await;
+    startup_trace::mark("  spawn_tab_in_domain_if_mux_is_empty done");
+    res
 }
 
 #[derive(Debug)]
@@ -950,6 +969,7 @@ fn run() -> anyhow::Result<()> {
     // This preserves config loading behavior while moving notify watcher
     // initialization off the first-paint critical path.
     config::defer_watchers_until_enabled();
+
     startup_trace::mark("common_init() start (config + lua load)");
     config::common_init(
         opts.config_file.as_ref(),

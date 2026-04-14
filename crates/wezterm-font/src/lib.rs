@@ -1092,6 +1092,12 @@ impl FontConfiguration {
         self.inner.title_font(&self.inner)
     }
 
+    /// Returns true if title_font has already been resolved and cached.
+    /// Used to avoid triggering the expensive first-load on the resize path.
+    pub fn is_title_font_loaded(&self) -> bool {
+        self.inner.title_font.borrow().is_some()
+    }
+
     pub fn command_palette_font(&self) -> anyhow::Result<Rc<LoadedFont>> {
         self.inner.command_palette_font(&self.inner)
     }

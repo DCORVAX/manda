@@ -288,6 +288,7 @@ impl WebGpuState {
         }
 
         if adapter.is_none() {
+            crate::startup_trace::mark("    wgpu request_adapter start");
             adapter = Some(
                 instance
                     .request_adapter(&wgpu::RequestAdapterOptions {
@@ -319,6 +320,7 @@ impl WebGpuState {
         let downlevel_caps = adapter.get_downlevel_capabilities();
         log::trace!("downlevel_caps: {downlevel_caps:?}");
 
+        crate::startup_trace::mark("    wgpu request_device start");
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 required_features: wgpu::Features::empty(),
@@ -383,7 +385,9 @@ impl WebGpuState {
         };
         surface.configure(&device, &config);
 
+        crate::startup_trace::mark("    wgpu create_shader_module start");
         let shader = device.create_shader_module(wgpu::include_wgsl!("../shader.wgsl"));
+        crate::startup_trace::mark("    wgpu create_shader_module done");
 
         let shader_uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

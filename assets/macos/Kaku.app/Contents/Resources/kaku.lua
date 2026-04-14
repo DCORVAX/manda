@@ -3637,7 +3637,10 @@ config.native_macos_fullscreen_mode = true
 config.quit_when_all_windows_are_closed = false
 
 -- ===== Key Bindings =====
-config.keys = {
+-- Wrapped in an IIFE so the ~50-entry table constructor gets its own function
+-- scope. The main chunk is near Lua 5.4's register budget, and inlining this
+-- table triggered `function or expression needs too many registers near ','`.
+config.keys = (function() return {
   -- Window & App
   -- Cmd+K: clear screen + scrollback
   {
@@ -3723,6 +3726,16 @@ config.keys = {
     key = 'E',
     mods = 'CMD|SHIFT',
     action = wezterm.action.EmitEvent('kaku-ai-apply-last-fix'),
+  },
+
+  -- Cmd+L: open AI chat overlay.
+  -- Default chosen to avoid the macOS system "select previous input source"
+  -- shortcut on Cmd+Shift+Space. To override, add your own binding in
+  -- ~/.config/kaku/kaku.lua with action = wezterm.action.EmitEvent('kaku-ai-chat').
+  {
+    key = 'l',
+    mods = 'CMD',
+    action = wezterm.action.EmitEvent('kaku-ai-chat'),
   },
 
   -- Cmd+Shift+G: launch lazygit in current pane
@@ -3972,7 +3985,7 @@ config.keys = {
   },
 
 
-}
+} end)()
 
 -- ===== Mouse Bindings =====
 -- Copy on select (equivalent to Kitty's copy_on_select)

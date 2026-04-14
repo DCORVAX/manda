@@ -1,31 +1,31 @@
-# V0.9.0 Spark ✨
+# V0.10.0 Polish 🪄
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/tw93/Kaku/main/assets/logo.png" alt="Kaku Logo" width="120" height="120" />
-  <h1 style="margin: 12px 0 6px;">Kaku V0.9.0</h1>
+  <h1 style="margin: 12px 0 6px;">Kaku V0.10.0</h1>
   <p><em>A fast, out-of-the-box terminal built for AI coding.</em></p>
 </div>
 
 ### Changelog
 
-1. **Natural Language to Command**: Type `# <description>` at the prompt, press Enter, and Kaku injects the generated command back ready to run. Saved to shell history. Works in zsh and fish.
-2. **Option+Click Cursor Movement**: Click anywhere on the current line to move the cursor to that position. Wide characters and multi-byte input are handled correctly.
-3. **Always on Top**: Pin any window above others via the Window menu. Toggle on or off at any time.
-4. **Traffic Lights Position**: New `traffic_lights` option in Settings to customize the macOS window control button position.
-5. **Performance**: Tab title Lua callbacks are batched with a single Config serialization pass. kaku-remote screen capture is throttled to 60 fps.
-6. **Stability Fixes**: Fixed a crash on Option+Click, divide-by-zero in split pane sizing, and unwrap panic in mouse event handling.
-7. **Shell and Assistant**: Fixed zsh-z update display and heredoc quoting edge cases.
+1. **AI Chat Panel**: A built-in chat overlay for interacting with AI directly inside the terminal window. Press `Cmd+L` to open it. Supports streaming output and scroll.
+2. **Tab Rename**: Single double-click to rename a tab; drag and hover now show the correct cursor to avoid accidental rename triggers.
+3. **macOS Stability**: Fixed a crash when closing a fullscreen window, a main-thread hang after lock-screen return, and incorrect terminal size after entering fullscreen.
+4. **Copy Improvement**: Visually-wrapped TUI rows are joined into a single line when `copy_unwrap_tui_lines = true`.
+5. **Shell Integration**: Fixed zsh-syntax-highlighting comment color invisibility in dark themes, autosuggest recursion with external providers, and `RUNEWIDTH_EASTASIAN` alignment with Kaku's width setting.
+6. **Performance**: Reduced input latency, lock contention, and memory overhead; macOS runloop and opacity optimizations lower idle power consumption.
+7. **Window Behavior**: On macOS, closing a window now hides it instead of destroying tabs, so state is preserved.
+8. **MacPorts Support**: Tool detection now works correctly with MacPorts and other non-Homebrew package managers.
 
 ### 更新日志
 
-1. **自然语言生成命令**：输入 `# <描述>` 后按回车，Kaku 将生成的命令注入回提示符，确认后即可运行，并保存到 shell 历史，支持 zsh 和 fish。
-2. **Option+Click 移动光标**：点击当前行任意位置即可将光标移动到该位置，正确处理宽字符和多字节输入。
-3. **窗口置顶**：通过 Window 菜单将窗口固定在最前，随时可切换开关。
-4. **Traffic Lights 位置**：设置中新增 `traffic_lights` 选项，可自定义 macOS 窗口控制按钮的位置。
-5. **性能优化**：Tab 标题 Lua 回调改为批量处理，单次序列化 Config；kaku-remote 屏幕捕获限速至 60fps。
-6. **稳定性修复**：修复 Option+Click 崩溃、分屏尺寸计算除零、鼠标事件 unwrap panic。
-7. **Shell 与 Assistant**：修复 zsh-z 更新显示和 heredoc 引号边界问题。
-
-Special thanks to @fanweixiao and @LanternCX for their contributions to this release.
+1. **AI 对话面板**：内置 AI Chat 悬浮层，按 `Cmd+L` 打开，支持流式输出和历史滚动。
+2. **Tab 重命名体验**：连续双击才进入重命名；拖拽和悬停时显示对应光标，避免误触重命名。
+3. **macOS 稳定性**：修复全屏关闭窗口崩溃、锁屏返回后主线程卡住、进入全屏后终端内容大小不变等问题。
+4. **复制优化**：开启 `copy_unwrap_tui_lines = true` 时，视觉换行的 TUI 行现在会正确拼接为一行复制。
+5. **Shell 集成**：修复深色主题下 zsh 注释颜色不可见、外部 autosuggest 递归调用、`RUNEWIDTH_EASTASIAN` 与 Kaku 宽字符设置不一致等问题。
+6. **性能优化**：降低输入延迟、锁竞争和内存占用；macOS runloop 与透明度优化减少空闲功耗。
+7. **窗口行为**：macOS 关闭窗口改为隐藏而非销毁 tabs，状态得以保留。
+8. **MacPorts 支持**：工具检测现在兼容 MacPorts 及其他非 Homebrew 包管理器。
 
 > https://github.com/tw93/Kaku

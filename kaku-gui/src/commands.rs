@@ -1522,7 +1522,7 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
                 CommandDef {
                     brief: "AI Chat".into(),
                     doc: "Open AI conversation in current terminal pane".into(),
-                    keys: vec![(Modifiers::SUPER.union(Modifiers::SHIFT), "Space".into())],
+                    keys: vec![(Modifiers::SUPER, "l".into())],
                     args: &[ArgType::ActivePane],
                     menubar: &["Shell"],
                     icon: None,

@@ -177,6 +177,25 @@ impl crate::TermWindow {
         }
     }
 
+    /// Cheap approximation of tab bar height that avoids the ~485ms cost of
+    /// resolving the title font on macOS cold start (CoreText substitution
+    /// lookup + HarfBuzz shaper init). Used only to compute initial window
+    /// dimensions; the real height is computed lazily on first render via
+    /// `tab_bar_pixel_height()`.
+    pub fn estimated_tab_bar_pixel_height(
+        config: &ConfigHandle,
+        render_metrics: &RenderMetrics,
+    ) -> f32 {
+        if config.use_fancy_tab_bar {
+            // Mirror tab_bar_pixel_height_impl's fancy-path formula, but use
+            // the terminal cell height as a stand-in for the title font cell
+            // height. The two differ by ~1-2 pixels in typical configs.
+            (render_metrics.cell_size.height as f32 * 1.75).ceil()
+        } else {
+            render_metrics.cell_size.height as f32
+        }
+    }
+
     pub fn tab_bar_pixel_height(&self) -> anyhow::Result<f32> {
         Self::tab_bar_pixel_height_impl(&self.config, &self.fonts, &self.render_metrics)
     }

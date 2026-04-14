@@ -37,14 +37,14 @@ else
 fi
 
 if [[ -n "$previous_config_version" ]]; then
-    expected_config_version=$((previous_config_version + 1))
-    echo "Expected config version for this release: $expected_config_version"
+    min_config_version=$((previous_config_version + 1))
+    echo "Minimum config version for this release: $min_config_version"
     echo ""
 
-    if [[ "$current_config_version" -ne "$expected_config_version" ]]; then
-        echo "Error: config version is incorrect"
+    if [[ "$current_config_version" -lt "$min_config_version" ]]; then
+        echo "Error: config version is too low"
         echo "  Repository value: $current_config_version"
-        echo "  Expected value:   $expected_config_version"
+        echo "  Minimum value:    $min_config_version"
         exit 1
     fi
 fi

@@ -89,13 +89,40 @@ impl Domain for TermWizTerminalDomain {
     }
 }
 
+/// Forwards bytes written via `pane.writer()` as `InputEvent::Paste` events
+/// into the overlay's input channel. This allows IME composed text (which the
+/// GUI routes through `write_terminal_input_bytes` → `target.writer()`) to
+/// reach overlays like AI Chat that poll `TermWizTerminal::poll_input`.
+struct ForwardWriter {
+    input_tx: Sender<InputEvent>,
+}
+
+impl std::io::Write for ForwardWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        let text = match std::str::from_utf8(buf) {
+            Ok(s) => s.to_string(),
+            Err(_) => String::from_utf8_lossy(buf).into_owned(),
+        };
+        self.input_tx
+            .send(InputEvent::Paste(text))
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::BrokenPipe, e))?;
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 pub struct TermWizTerminalPane {
     pane_id: PaneId,
     domain_id: DomainId,
     terminal: Mutex<wezterm_term::Terminal>,
     input_tx: Sender<InputEvent>,
     dead: Mutex<bool>,
-    writer: Mutex<Vec<u8>>,
+    writer: Mutex<ForwardWriter>,
     render_rx: FileDescriptor,
 }
 
@@ -121,7 +148,9 @@ impl TermWizTerminalPane {
             pane_id,
             domain_id,
             terminal,
-            writer: Mutex::new(Vec::new()),
+            writer: Mutex::new(ForwardWriter {
+                input_tx: input_tx.clone(),
+            }),
             render_rx,
             input_tx,
             dead: Mutex::new(false),

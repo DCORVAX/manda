@@ -303,15 +303,6 @@ impl App {
                 skip_write: false,
             },
             ConfigField {
-                section: "Integrations",
-                key: "Kaku Assistant",
-                lua_key: "__assistant_enabled__",
-                value: String::new(),
-                default: "On".into(),
-                options: vec!["On", "Off"],
-                skip_write: false,
-            },
-            ConfigField {
                 section: "Window",
                 key: "Tab Bar Position",
                 lua_key: "tab_bar_at_bottom",

@@ -419,12 +419,8 @@ fn summarize_tool_fields(
     }
 }
 
-fn should_collapse_kaku_assistant(fields: &[FieldEntry]) -> bool {
-    field_value(fields, "API Key").is_some_and(|value| value != "—")
-}
-
-fn kaku_assistant_visible() -> bool {
-    assistant_config::read_enabled().unwrap_or(true)
+fn should_collapse_kaku_assistant(_fields: &[FieldEntry]) -> bool {
+    false
 }
 
 struct CodexUsageSnapshot {
@@ -2632,6 +2628,10 @@ struct KakuAssistantConfig {
     provider: String,
     /// Optional extra request headers as `Name: Value`
     custom_headers: Vec<String>,
+    /// Web search backend: "none" (disabled), "brave", "pipellm", or "tavily".
+    web_search_provider: String,
+    /// API key for the web search provider (empty = not configured).
+    web_search_api_key: String,
 }
 
 impl KakuAssistantConfig {
@@ -2667,6 +2667,8 @@ impl KakuAssistantConfig {
             base_url: resolved_base_url,
             provider,
             custom_headers: vec![],
+            web_search_provider: "none".to_string(),
+            web_search_api_key: String::new(),
         }
     }
 
@@ -2704,6 +2706,20 @@ impl KakuAssistantConfig {
         self
     }
 
+    fn web_search_provider(&self) -> &str {
+        &self.web_search_provider
+    }
+
+    fn web_search_api_key(&self) -> &str {
+        &self.web_search_api_key
+    }
+
+    fn with_web_search(mut self, provider: impl Into<String>, api_key: impl Into<String>) -> Self {
+        self.web_search_provider = provider.into();
+        self.web_search_api_key = api_key.into();
+        self
+    }
+
     fn custom_headers(&self) -> &[String] {
         &self.custom_headers
     }
@@ -2738,7 +2754,22 @@ fn parse_kaku_assistant_config(raw: &str) -> KakuAssistantConfig {
         .unwrap_or("");
     let custom_headers = parse_custom_headers_toml(parsed.get("custom_headers"));
 
-    KakuAssistantConfig::new(enabled, api_key, model, base_url).with_custom_headers(custom_headers)
+    let web_search_provider = parsed
+        .get("web_search_provider")
+        .and_then(|v| v.as_str())
+        .filter(|s| matches!(*s, "brave" | "pipellm" | "tavily"))
+        .unwrap_or("none")
+        .to_string();
+
+    let web_search_api_key = parsed
+        .get("web_search_api_key")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    KakuAssistantConfig::new(enabled, api_key, model, base_url)
+        .with_custom_headers(custom_headers)
+        .with_web_search(web_search_provider, web_search_api_key)
 }
 
 fn get_kaku_assistant_api_key() -> Option<String> {
@@ -2765,7 +2796,13 @@ fn extract_kaku_assistant_fields(raw: &str) -> Vec<FieldEntry> {
         .map(|p| p.models.iter().map(|m| m.to_string()).collect())
         .unwrap_or_default();
 
-    vec![
+    let mut fields = vec![
+        FieldEntry {
+            key: "Enabled".into(),
+            value: if cfg.is_enabled() { "On" } else { "Off" }.into(),
+            options: vec!["On".into(), "Off".into()],
+            editable: true,
+        },
         FieldEntry {
             key: "Provider".into(),
             value: cfg.provider().to_string(),
@@ -2790,7 +2827,30 @@ fn extract_kaku_assistant_fields(raw: &str) -> Vec<FieldEntry> {
             options: vec![],
             editable: true,
         },
-    ]
+        FieldEntry {
+            key: "Web Search".into(),
+            value: cfg.web_search_provider().to_string(),
+            options: vec![
+                "none".into(),
+                "brave".into(),
+                "pipellm".into(),
+                "tavily".into(),
+            ],
+            editable: true,
+        },
+    ];
+
+    // Show Search Key entry only when a provider is selected.
+    if cfg.web_search_provider() != "none" {
+        fields.push(FieldEntry {
+            key: "Search Key".into(),
+            value: mask_key(cfg.web_search_api_key()),
+            options: vec![],
+            editable: true,
+        });
+    }
+
+    fields
 }
 
 fn render_toml_string(value: &str) -> String {
@@ -2843,6 +2903,25 @@ fn write_kaku_assistant_config(path: &Path, cfg: &KakuAssistantConfig) -> anyhow
         );
         out.push_str(&format!("custom_headers = {}\n", arr));
     }
+    // Web search: comment out when not configured to keep the file clean.
+    let provider = cfg.web_search_provider();
+    if provider == "none" || provider.is_empty() {
+        out.push_str("# web_search_provider = \"brave\"  # or pipellm, tavily\n");
+        out.push_str("# web_search_api_key = \"...\"\n");
+    } else {
+        out.push_str(&format!(
+            "web_search_provider = {}\n",
+            render_toml_string(provider)
+        ));
+        if cfg.web_search_api_key().trim().is_empty() {
+            out.push_str("# web_search_api_key = \"...\"\n");
+        } else {
+            out.push_str(&format!(
+                "web_search_api_key = {}\n",
+                render_toml_string(cfg.web_search_api_key().trim())
+            ));
+        }
+    }
     write_atomic(path, out.as_bytes()).with_context(|| format!("write {}", path.display()))?;
     Ok(())
 }
@@ -2878,16 +2957,18 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
     };
     let cfg = parse_kaku_assistant_config(&raw);
 
-    // Build updated config based on which field changed
+    // Build updated config based on which field changed.
+    // Every arm must round-trip ALL fields to avoid losing values not in the changed arm.
     let updated = match field_key {
         "Enabled" => {
             let enabled = matches!(new_val.trim(), "On" | "on" | "true" | "1");
             KakuAssistantConfig::new(enabled, cfg.api_key(), cfg.model(), cfg.base_url())
                 .with_provider(cfg.provider())
                 .with_custom_headers(cfg.custom_headers().to_vec())
+                .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key())
         }
         "Provider" => {
-            // When provider changes, auto-fill base_url and default model
+            // When provider changes, auto-fill base_url and default model.
             let provider_name = new_val.trim();
             if let Some(preset) = assistant_config::provider_preset(provider_name) {
                 let new_base_url = if preset.base_url.is_empty() {
@@ -2903,6 +2984,7 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
                 KakuAssistantConfig::new(cfg.is_enabled(), cfg.api_key(), new_model, new_base_url)
                     .with_provider(provider_name)
                     .with_custom_headers(cfg.custom_headers().to_vec())
+                    .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key())
             } else {
                 return Ok(());
             }
@@ -2916,6 +2998,7 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
             KakuAssistantConfig::new(cfg.is_enabled(), cfg.api_key(), model, cfg.base_url())
                 .with_provider(cfg.provider())
                 .with_custom_headers(cfg.custom_headers().to_vec())
+                .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key())
         }
         "Base URL" => {
             let base_url = if new_val.trim().is_empty() || new_val == "—" {
@@ -2926,6 +3009,7 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
             KakuAssistantConfig::new(cfg.is_enabled(), cfg.api_key(), cfg.model(), base_url)
                 .with_provider(assistant_config::detect_provider(base_url))
                 .with_custom_headers(cfg.custom_headers().to_vec())
+                .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key())
         }
         "API Key" => KakuAssistantConfig::new(
             cfg.is_enabled(),
@@ -2934,7 +3018,32 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
             cfg.base_url(),
         )
         .with_provider(cfg.provider())
-        .with_custom_headers(cfg.custom_headers().to_vec()),
+        .with_custom_headers(cfg.custom_headers().to_vec())
+        .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key()),
+        "Web Search" => {
+            const VALID: &[&str] = &["none", "brave", "pipellm", "tavily"];
+            let provider = if VALID.contains(&new_val.trim()) {
+                new_val.trim()
+            } else {
+                "none"
+            };
+            // Clearing to "none" also wipes the key to avoid stale credentials.
+            let key = if provider == "none" {
+                String::new()
+            } else {
+                cfg.web_search_api_key().to_string()
+            };
+            KakuAssistantConfig::new(cfg.is_enabled(), cfg.api_key(), cfg.model(), cfg.base_url())
+                .with_provider(cfg.provider())
+                .with_custom_headers(cfg.custom_headers().to_vec())
+                .with_web_search(provider, key)
+        }
+        "Search Key" => {
+            KakuAssistantConfig::new(cfg.is_enabled(), cfg.api_key(), cfg.model(), cfg.base_url())
+                .with_provider(cfg.provider())
+                .with_custom_headers(cfg.custom_headers().to_vec())
+                .with_web_search(cfg.web_search_provider(), new_val.trim())
+        }
         _ => return Ok(()),
     };
 
@@ -3937,8 +4046,7 @@ fn status_value_for_display(field_key: &str, new_val: &str) -> String {
 
 impl App {
     fn new() -> Self {
-        let show_assistant = kaku_assistant_visible();
-        let tools = Self::load_tools(show_assistant);
+        let tools = Self::load_tools();
         let assistant_collapsed = tools
             .iter()
             .find(|tool| tool.tool == Tool::KakuAssistant)
@@ -3968,14 +4076,11 @@ impl App {
         app
     }
 
-    fn load_tools(show_assistant: bool) -> Vec<ToolState> {
+    fn load_tools() -> Vec<ToolState> {
         ALL_TOOLS
             .iter()
             .map(|t| ToolState::load_without_remote_usage(*t))
-            .filter(|t| {
-                (t.tool != Tool::KakuAssistant || show_assistant)
-                    && (matches!(t.tool, Tool::KakuAssistant | Tool::Codex) || t.installed)
-            })
+            .filter(|t| t.tool == Tool::KakuAssistant || t.installed)
             .collect()
     }
 
@@ -4571,8 +4676,7 @@ impl App {
         }
 
         let models_refreshed = fetch_models_dev_json().is_some();
-        let show_assistant = kaku_assistant_visible();
-        self.tools = Self::load_tools(show_assistant);
+        self.tools = Self::load_tools();
         self.tool_index = self
             .tools
             .iter()
@@ -5482,9 +5586,11 @@ mod tests {
     }
 
     #[test]
-    fn kaku_assistant_fields_do_not_include_enabled_toggle() {
+    fn kaku_assistant_fields_include_enabled_toggle() {
         let fields = extract_kaku_assistant_fields("enabled = true\n");
-        assert!(fields.iter().all(|field| field.key != "Enabled"));
+        assert!(fields.iter().any(|field| field.key == "Enabled"));
+        let fields = extract_kaku_assistant_fields("enabled = false\n");
+        assert!(fields.iter().any(|field| field.key == "Enabled"));
     }
 
     #[test]
@@ -6286,11 +6392,11 @@ provider = "managed:kimi-code"
     }
 
     #[test]
-    fn kaku_assistant_collapses_only_when_ready() {
+    fn kaku_assistant_never_collapses() {
         let ready = extract_kaku_assistant_fields(
             "enabled = true\napi_key = \"sk-test\"\nmodel = \"gpt-5-mini\"\n",
         );
-        assert!(should_collapse_kaku_assistant(&ready));
+        assert!(!should_collapse_kaku_assistant(&ready));
 
         let not_ready = extract_kaku_assistant_fields("enabled = true\n");
         assert!(!should_collapse_kaku_assistant(&not_ready));
@@ -6398,9 +6504,15 @@ provider = "managed:kimi-code"
         let path = dir.path().join("assistant.toml");
         write_kaku_assistant_config(&path, &cfg).expect("write config");
         let saved = std::fs::read_to_string(&path).expect("read saved");
+        // The AI provider preset (e.g. "OpenAI") must not be persisted because
+        // it is derived from base_url at load time, not a stored field.
+        // Check only uncommented lines to avoid tripping on commented-out web_search_provider.
         assert!(
-            !saved.contains("provider ="),
-            "provider must not be written to TOML"
+            !saved.lines().any(|l| {
+                // Strip comments: only look at the text before the first '#'.
+                l.split('#').next().unwrap_or("").contains("provider =")
+            }),
+            "provider preset must not be written to TOML"
         );
         assert!(saved.contains("custom_headers = [\"X-Foo: bar\"]"));
     }
