@@ -21,6 +21,14 @@ struct BgProcess {
     output: Arc<Mutex<String>>,
 }
 
+impl Drop for BgProcess {
+    fn drop(&mut self) {
+        // Reap the child so it doesn't linger as a zombie on Unix if the user
+        // never called shell_poll after the process exited.
+        let _ = self.child.try_wait();
+    }
+}
+
 static BG_PROCS: OnceLock<Mutex<HashMap<u32, BgProcess>>> = OnceLock::new();
 
 fn bg_registry() -> &'static Mutex<HashMap<u32, BgProcess>> {
@@ -390,10 +398,32 @@ pub fn execute(
 ) -> Result<String> {
     let result = match name {
         "fs_read" => {
-            let path = resolve(args["path"].as_str().context("missing path")?, cwd)?;
-            let content = std::fs::read_to_string(&path)
+            let raw_path = args["path"].as_str().context("missing path")?;
+            let path = resolve(raw_path, cwd)?;
+            // For relative paths, ensure they don't escape the working directory
+            // (e.g. ../../.ssh/id_rsa). Absolute paths and ~/... are always allowed.
+            if !raw_path.starts_with('/') && !raw_path.starts_with("~/") {
+                if let (Ok(canon_path), Ok(canon_cwd)) =
+                    (std::fs::canonicalize(&path), std::fs::canonicalize(cwd))
+                {
+                    if !canon_path.starts_with(&canon_cwd) {
+                        anyhow::bail!(
+                            "path '{}' resolves outside the working directory; \
+                             use an absolute path to access it",
+                            raw_path
+                        );
+                    }
+                }
+            }
+            // Read at most MAX_RESULT_BYTES + 512 bytes to avoid OOM on large files.
+            // The +512 gives enough slack to find a valid UTF-8 char boundary.
+            let mut file =
+                std::fs::File::open(&path).with_context(|| format!("read {}", path.display()))?;
+            let mut buf = Vec::with_capacity(MAX_RESULT_BYTES + 512);
+            file.take((MAX_RESULT_BYTES + 512) as u64)
+                .read_to_end(&mut buf)
                 .with_context(|| format!("read {}", path.display()))?;
-            content
+            String::from_utf8_lossy(&buf).into_owned()
         }
         "fs_list" => {
             let path = resolve(args["path"].as_str().context("missing path")?, cwd)?;

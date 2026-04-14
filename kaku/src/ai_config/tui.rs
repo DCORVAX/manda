@@ -2797,6 +2797,7 @@ fn get_kaku_assistant_api_key() -> Option<String> {
 }
 
 /// Filter out non-chat model IDs (embeddings, TTS, image generation, etc.).
+// Keep in sync with kaku-gui/src/ai_client.rs::is_chat_model_id (cross-binary copy).
 fn is_chat_model_id(id: &str) -> bool {
     const BLOCK: &[&str] = &[
         "whisper",

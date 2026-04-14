@@ -400,6 +400,7 @@ struct ToolCallBuf {
 /// Returns false for model IDs that are clearly not conversational (embeddings,
 /// TTS, image generation, ASR, moderation). Everything else is assumed to be a
 /// chat model.
+// Keep in sync with kaku/src/ai_config/tui.rs::is_chat_model_id (cross-binary copy).
 fn is_chat_model_id(id: &str) -> bool {
     const BLOCK: &[&str] = &[
         "whisper",

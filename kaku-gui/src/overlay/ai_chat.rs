@@ -2393,7 +2393,7 @@ fn render_chat(term: &mut TermWizTerminal, app: &App) -> termwiz::Result<()> {
         format!("{}{}", app.current_model(), suffix)
     };
     let title = format!(" Kaku AI · {} · ⇧⇥ switch · ESC exit ", model_display);
-    let title_width = title.chars().count();
+    let title_width = unicode_column_width(&title, None);
     let border_fill = inner_w.saturating_sub(title_width);
     let top_line = format!("╭─{}{}─╮", title, "─".repeat(border_fill.saturating_sub(2)));
     changes.push(Change::CursorPosition {
@@ -2625,7 +2625,7 @@ fn render_picker(
 
     // Top border
     let title = format!(" Resume Conversation · {} saved · ESC cancel ", items.len());
-    let title_width = title.chars().count();
+    let title_width = unicode_column_width(&title, None);
     let border_fill = inner_w.saturating_sub(title_width);
     let top_line = format!("╭─{}{}─╮", title, "─".repeat(border_fill.saturating_sub(2)));
     changes.push(Change::CursorPosition {
@@ -3466,13 +3466,20 @@ fn char_to_byte_pos(s: &str, char_idx: usize) -> usize {
         .unwrap_or(s.len())
 }
 
+/// Truncate `s` to at most `max_cols` visual terminal columns.
+/// Accounts for wide characters (CJK = 2 cols per char).
 fn truncate(s: &str, max_cols: usize) -> String {
-    let count = s.chars().count();
-    if count <= max_cols {
-        s.to_string()
-    } else {
-        s.chars().take(max_cols).collect()
+    let mut w = 0usize;
+    let mut out = String::with_capacity(s.len());
+    for g in s.graphemes(true) {
+        let gw = unicode_column_width(g, None);
+        if w + gw > max_cols {
+            break;
+        }
+        w += gw;
+        out.push_str(g);
     }
+    out
 }
 
 /// Find the byte offset in `s` that corresponds to visual column `col`.
@@ -3524,20 +3531,21 @@ fn extract_selection_text(app: &App) -> Option<String> {
     for (i, line) in lines.iter().enumerate().skip(r0).take(r1 - r0 + 1) {
         // Reconstruct the exact string render() places on this row so that
         // selection column math stays consistent with what the user sees.
-        let rendered: String = match line {
+        // Returns (rendered_string, render_prefix) so the prefix can be stripped on copy.
+        let (rendered, render_prefix): (String, &str) = match line {
             DisplayLine::Header {
                 role: Role::User, ..
-            } => "  You".into(),
+            } => ("  You".into(), "  "),
             DisplayLine::Header {
                 role: Role::Assistant,
                 tools,
             } => {
                 let mut s = "  AI".to_string();
                 s.push_str(&format_tool_suffix(tools));
-                s
+                (s, "  ")
             }
             DisplayLine::AttachmentSummary { labels } => {
-                format!("  Attached: {}", labels.join(" "))
+                (format!("  Attached: {}", labels.join(" ")), "  ")
             }
             DisplayLine::Text {
                 segments,
@@ -3545,13 +3553,13 @@ fn extract_selection_text(app: &App) -> Option<String> {
                 block,
             } => {
                 let indent = match (role, block) {
-                    (Role::Assistant, BlockStyle::Quote) => "  │ ".to_string(),
-                    (Role::Assistant, BlockStyle::ListContinuation) => "    ".to_string(),
-                    _ => "  ".to_string(),
+                    (Role::Assistant, BlockStyle::Quote) => "  │ ",
+                    (Role::Assistant, BlockStyle::ListContinuation) => "    ",
+                    _ => "  ",
                 };
-                format!("{}{}", indent, segments_to_plain(segments))
+                (format!("{}{}", indent, segments_to_plain(segments)), indent)
             }
-            DisplayLine::Blank => String::new(),
+            DisplayLine::Blank => (String::new(), ""),
         };
 
         let total_w = unicode_column_width(&rendered, None);
@@ -3566,8 +3574,9 @@ fn extract_selection_text(app: &App) -> Option<String> {
         let sc_byte = byte_pos_at_visual_col(&rendered, sc);
         let ec_byte = byte_pos_at_visual_col(&rendered, ec).min(rendered.len());
         let slice = &rendered[sc_byte..ec_byte];
-        // Strip the leading "  " render prefix if it appears at the start of the slice.
-        result.push_str(slice.trim_start_matches(' '));
+        // Strip only the exact render prefix (not all leading spaces) so that
+        // code indentation beyond the prefix is preserved on copy.
+        result.push_str(slice.strip_prefix(render_prefix).unwrap_or(slice));
         if i < r1 {
             result.push('\n');
         }
