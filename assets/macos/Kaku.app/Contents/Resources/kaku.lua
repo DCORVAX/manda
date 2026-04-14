@@ -1402,14 +1402,14 @@ local function ctrl_ai_generate_spinner(pane, pane_state, clear)
   if not pane_state.spinner_line_active then
     local frame = frames[(pane_state.spinner_frame % n) + 1]
     pcall(function()
-      pane:inject_output("\r\n\27[38;5;244m" .. frame .. " Kaku AI is generating…\27[0m")
+      pane:inject_output("\r\27[K\27[38;5;244m" .. frame .. "\27[0m")
     end)
     pane_state.spinner_line_active = true
   else
     pane_state.spinner_frame = (pane_state.spinner_frame + 1) % n
     local frame = frames[pane_state.spinner_frame + 1]
     pcall(function()
-      pane:inject_output("\r\27[K\27[38;5;244m" .. frame .. " Kaku AI is generating…\27[0m")
+      pane:inject_output("\r\27[K\27[38;5;244m" .. frame .. "\27[0m")
     end)
   end
 end

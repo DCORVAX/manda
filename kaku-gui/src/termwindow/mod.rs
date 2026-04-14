@@ -4225,6 +4225,8 @@ impl TermWindow {
                         user_text: srgb(pal.foreground),
                         ai_text: srgb(pal.foreground),
                         dim_fg: srgb(pal.colors.0[7]),
+                        selection_fg: srgb(pal.selection_fg),
+                        selection_bg: srgb(pal.selection_bg),
                     };
                     let context = crate::overlay::ai_chat::TerminalContext {
                         cwd,

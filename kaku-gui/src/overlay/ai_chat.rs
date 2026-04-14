@@ -34,6 +34,8 @@ pub struct ChatPalette {
     pub user_text: SrgbaTuple,
     pub ai_text: SrgbaTuple,
     pub dim_fg: SrgbaTuple,
+    pub selection_fg: SrgbaTuple,
+    pub selection_bg: SrgbaTuple,
 }
 
 impl ChatPalette {
@@ -99,7 +101,10 @@ impl ChatPalette {
         self.make_attrs(self.dim_fg_attr(), self.bg_attr())
     }
     pub fn selection_cell(&self) -> CellAttributes {
-        self.make_attrs(self.bg_attr(), self.fg_attr())
+        self.make_attrs(
+            ColorAttribute::TrueColorWithDefaultFallback(self.selection_fg),
+            ColorAttribute::TrueColorWithDefaultFallback(self.selection_bg),
+        )
     }
     /// Cursor highlight used in pickers (e.g., resume list, model dropdown).
     /// Uses the accent color as background so it adapts to both dark and light themes.
@@ -1300,14 +1305,15 @@ impl App {
 
         // Phase 2: release graphemes with backpressure-adaptive pacing.
         //   queue ≤ 5  → 1/cycle  (~33 chars/sec, clearly streaming)
-        //   queue ≤ 30 → 3/cycle  (~100 chars/sec)
-        //   queue ≤ 80 → 6/cycle  (~200 chars/sec, catch-up)
-        //   queue > 80 → 12/cycle (don't fall behind on huge bursts)
+        //   queue ≤ 5  → 3/cycle  (~100 chars/sec, smooth streaming feel)
+        //   queue ≤ 30 → 8/cycle  (~267 chars/sec)
+        //   queue ≤ 80 → 16/cycle (~533 chars/sec, catch-up)
+        //   queue > 80 → 24/cycle (don't fall behind on huge bursts)
         let release = match self.grapheme_queue.len() {
-            0..=5 => 1,
-            6..=30 => 3,
-            31..=80 => 6,
-            _ => 12,
+            0..=5 => 3,
+            6..=30 => 8,
+            31..=80 => 16,
+            _ => 24,
         };
         for _ in 0..release {
             match self.grapheme_queue.pop_front() {
@@ -2548,15 +2554,23 @@ fn render_chat(term: &mut TermWizTerminal, app: &App) -> termwiz::Result<()> {
         changes.push(Change::Text("│".to_string()));
         None // hidden
     } else {
-        let streaming_prompt;
-        let prompt = if app.is_streaming {
-            streaming_prompt = format!("  {} ", app.spinner_char());
-            streaming_prompt.as_str()
-        } else {
-            "  > "
-        };
+        let prompt = "  > ";
         let input_display = format!("{}{}", prompt, app.input);
-        let input_padded = format!("{:<width$}", input_display, width = inner_w);
+        let input_padded = if app.is_streaming {
+            // Spinner at right edge: [content...][spaces] [spinner]
+            let content_w = inner_w.saturating_sub(2); // reserve 1 space + 1 spinner char
+            let truncated = truncate(&input_display, content_w);
+            let tw = unicode_column_width(&truncated, None);
+            let padding = content_w.saturating_sub(tw);
+            format!(
+                "{}{} {}",
+                truncated,
+                " ".repeat(padding),
+                app.spinner_char()
+            )
+        } else {
+            format!("{:<width$}", input_display, width = inner_w)
+        };
         changes.push(Change::AllAttributes(pal.input_cell()));
         changes.push(Change::Text(truncate(&input_padded, inner_w)));
         changes.push(Change::AllAttributes(pal.border_dim_cell()));
@@ -3619,6 +3633,8 @@ mod markdown_tests {
             user_text: SrgbaTuple::default(),
             ai_text: SrgbaTuple::default(),
             dim_fg: SrgbaTuple::default(),
+            selection_fg: SrgbaTuple::default(),
+            selection_bg: SrgbaTuple::default(),
         }
     }
 
