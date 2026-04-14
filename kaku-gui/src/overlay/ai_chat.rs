@@ -2457,23 +2457,33 @@ fn render_chat(term: &mut TermWizTerminal, app: &App) -> termwiz::Result<()> {
     let attach_options = app.attachment_picker_options();
     if !slash_options.is_empty() {
         let selected = app.attachment_picker_index.min(slash_options.len() - 1);
-        let mut runs: Vec<(CellAttributes, String)> = vec![(pal.input_cell(), "  Command: ".to_string())];
+        let mut runs: Vec<(CellAttributes, String)> =
+            vec![(pal.input_cell(), "  ↑↓ navigate · Enter select   ".to_string())];
         for (idx, (label, desc)) in slash_options.iter().enumerate() {
             if idx > 0 {
                 runs.push((pal.input_cell(), "  ".to_string()));
             }
-            let attr = if idx == selected { pal.picker_cursor_cell() } else { pal.ai_text_cell() };
+            let attr = if idx == selected {
+                pal.picker_cursor_cell()
+            } else {
+                pal.ai_text_cell()
+            };
             runs.push((attr, format!("{} {}", label, desc)));
         }
         push_picker_row(&mut changes, sep_row, inner_w, pal, runs);
     } else if !attach_options.is_empty() {
         let selected = app.attachment_picker_index.min(attach_options.len() - 1);
-        let mut runs: Vec<(CellAttributes, String)> = vec![(pal.input_cell(), "  Attach: ".to_string())];
+        let mut runs: Vec<(CellAttributes, String)> =
+            vec![(pal.input_cell(), "  ↑↓ navigate · Tab select   ".to_string())];
         for (idx, option) in attach_options.iter().enumerate() {
             if idx > 0 {
                 runs.push((pal.input_cell(), "  ".to_string()));
             }
-            let attr = if idx == selected { pal.picker_cursor_cell() } else { pal.ai_text_cell() };
+            let attr = if idx == selected {
+                pal.picker_cursor_cell()
+            } else {
+                pal.ai_text_cell()
+            };
             runs.push((attr, format!("{} {}", option.label, option.description)));
         }
         push_picker_row(&mut changes, sep_row, inner_w, pal, runs);
@@ -2607,12 +2617,15 @@ fn render_picker(
             let ts = chrono::DateTime::from_timestamp(meta.updated_at, 0)
                 .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
                 .unwrap_or_else(|| "unknown".to_string());
-            let line_text = format!(
-                " {} {} ({} msgs)",
-                ts,
-                meta.summary.chars().take(30).collect::<String>(),
-                meta.message_count
-            );
+            let summary = if meta.summary.trim_matches('…').is_empty()
+                || meta.summary == "…"
+                || meta.summary.is_empty()
+            {
+                "(no summary yet)".to_string()
+            } else {
+                meta.summary.chars().take(30).collect::<String>()
+            };
+            let line_text = format!(" {} {} ({} msgs)", ts, summary, meta.message_count);
             let padded = pad_to_visual_width(&line_text, inner_w);
             if i == cursor {
                 changes.push(Change::AllAttributes(pal.picker_cursor_cell()));
@@ -2722,9 +2735,12 @@ fn handle_key(key: &KeyEvent, app: &mut App) -> Action {
             Action::Quit
         }
 
-        // Submit
+        // Submit: accept slash selection then execute it immediately.
+        // Slash commands (/new, /resume) take no inline arguments, so there is
+        // no reason to keep the picker open after the user presses Enter.
         (KeyCode::Enter, Modifiers::NONE) if !slash_options.is_empty() => {
             app.accept_slash_picker();
+            app.submit();
             Action::Continue
         }
         (KeyCode::Enter, Modifiers::NONE) if !picker_options.is_empty() && !picker_exact_match => {

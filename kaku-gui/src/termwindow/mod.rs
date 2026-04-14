@@ -68,7 +68,7 @@ use termwiz::surface::SequenceNo;
 use wezterm_dynamic::Value;
 use wezterm_font::units::PixelLength;
 use wezterm_font::FontConfiguration;
-use wezterm_term::color::ColorPalette;
+use wezterm_term::color::{ColorPalette, SrgbaTuple};
 use wezterm_term::input::LastMouseClick;
 use wezterm_term::{Alert, Progress, StableRowIndex, TerminalConfiguration, TerminalSize};
 use wezterm_toast_notification::ToastNotification;
@@ -1387,15 +1387,19 @@ impl TermWindow {
     }
 
     pub async fn new_window(mux_window_id: MuxWindowId) -> anyhow::Result<()> {
+        crate::startup_trace::mark("TermWindow::new_window ENTER");
         let config = configuration();
         let dpi = config.dpi.unwrap_or_else(|| ::window::default_dpi()) as usize;
+        crate::startup_trace::mark("  FontConfiguration#2 start");
         let fontconfig = Rc::new(FontConfiguration::new(Some(config.clone()), dpi)?);
+        crate::startup_trace::mark("  FontConfiguration#2 done");
         let persisted_font_scale = resize::load_persisted_font_scale(&config);
         if let Some(font_scale) = persisted_font_scale {
             fontconfig.change_scaling(font_scale, dpi);
         }
 
         let mux = Mux::get();
+        crate::startup_trace::mark("    mux.get_active_tab_for_window start");
         let size = match mux.get_active_tab_for_window(mux_window_id) {
             Some(tab) => tab.get_size(),
             None => {
@@ -1403,21 +1407,30 @@ impl TermWindow {
                 Default::default()
             }
         };
+        crate::startup_trace::mark("    mux.get_active_tab_for_window done");
         let physical_rows = size.rows as usize;
         let physical_cols = size.cols as usize;
 
+        crate::startup_trace::mark("    render_metrics start");
         let (render_metrics, _metrics_cache_hit) =
             render_metrics_from_cache_or_compute(&fontconfig, &config, dpi, persisted_font_scale)?;
+        crate::startup_trace::mark("    render_metrics done");
         log::trace!("using render_metrics {:#?}", render_metrics);
 
         // Initially we have only a single tab, so take that into account
         // for the tab bar state.
         let show_tab_bar = config.enable_tab_bar && !config.hide_tab_bar_if_only_one_tab;
+        crate::startup_trace::mark("    tab_bar_pixel_height start");
+        // Use a cheap estimate based on terminal cell metrics to avoid paying
+        // the title-font resolution cost (~485ms on macOS cold start) during
+        // window creation. The real height is computed by the instance method
+        // tab_bar_pixel_height() on first render.
         let tab_bar_height = if show_tab_bar {
-            Self::tab_bar_pixel_height_impl(&config, &fontconfig, &render_metrics)? as usize
+            Self::estimated_tab_bar_pixel_height(&config, &render_metrics) as usize
         } else {
             0
         };
+        crate::startup_trace::mark("    tab_bar_pixel_height done");
 
         let terminal_size = TerminalSize {
             rows: physical_rows,
@@ -1489,7 +1502,9 @@ impl TermWindow {
         dimensions.pixel_height += (border.top + border.bottom).get() as usize;
         dimensions.pixel_width += (border.left + border.right).get() as usize;
 
+        crate::startup_trace::mark("    load_background_image start");
         let window_background = load_background_image(&config, &dimensions, &render_metrics);
+        crate::startup_trace::mark("    load_background_image done");
 
         log::trace!(
             "TermWindow::new_window called with mux_window_id {} {:?} {:?}",
@@ -1674,6 +1689,7 @@ impl TermWindow {
         };
         log::trace!("{:?}", geometry);
 
+        crate::startup_trace::mark("  Window::new_window start");
         let window = Window::new_window(
             &get_window_class(),
             "kaku",
@@ -1688,6 +1704,7 @@ impl TermWindow {
             },
         )
         .await?;
+        crate::startup_trace::mark("  Window::new_window done");
         tw.borrow_mut().window.replace(window.clone());
 
         // Show the window as early as possible so the user sees it while
@@ -4165,17 +4182,57 @@ impl TermWindow {
             EmitEvent(name) => {
                 if name == "kaku-ai-chat" {
                     let dims = pane.get_dimensions();
-                    // Collect only the last 20 visible rows for the system prompt context.
+                    // Collect only the last 20 visible rows for the implicit prompt context.
                     let bottom = dims.physical_top + dims.viewport_rows as StableRowIndex;
-                    let top = bottom.saturating_sub(20);
-                    let (_, lines) = pane.get_lines(top..bottom);
+                    let visible_top = bottom.saturating_sub(20);
+                    let (_, lines) = pane.get_lines(visible_top..bottom);
                     let visible_lines: Vec<String> =
                         lines.iter().map(|l| l.as_str().to_string()).collect();
+                    // Freeze a larger pane snapshot for explicit `@tab` attachment use.
+                    let tab_top = bottom.saturating_sub(120);
+                    let (_, tab_lines) = pane.get_lines(tab_top..bottom);
+                    let mut tab_snapshot = String::new();
+                    for line in tab_lines {
+                        let text = line.as_str();
+                        let next_len = tab_snapshot.len() + text.len() + 1;
+                        if next_len > 12 * 1024 {
+                            break;
+                        }
+                        if !tab_snapshot.is_empty() {
+                            tab_snapshot.push('\n');
+                        }
+                        tab_snapshot.push_str(&text);
+                    }
                     let cwd = pane
                         .get_current_working_dir(CachePolicy::AllowStale)
                         .map(|u| u.path().to_string())
                         .unwrap_or_default();
-                    let context = crate::overlay::ai_chat::TerminalContext { cwd, visible_lines };
+                    let selected_text = self.selection_text(pane);
+                    let pal = self.palette().clone();
+                    // Helper: wrap a resolved SrgbaTuple as a ChatPalette color field.
+                    fn srgb(t: SrgbaTuple) -> SrgbaTuple {
+                        t
+                    }
+                    // colors.0 layout: 0-7 = ANSI, 8-15 = bright ANSI.
+                    // bright cyan (14) for accent, bright black (8) for border,
+                    // bright yellow (11) for user header, dim/silver (7) for dim_fg.
+                    let chat_colors = crate::overlay::ai_chat::ChatPalette {
+                        bg: srgb(pal.background),
+                        fg: srgb(pal.foreground),
+                        accent: srgb(pal.colors.0[14]),
+                        border: srgb(pal.colors.0[8]),
+                        user_header: srgb(pal.colors.0[11]),
+                        user_text: srgb(pal.foreground),
+                        ai_text: srgb(pal.foreground),
+                        dim_fg: srgb(pal.colors.0[7]),
+                    };
+                    let context = crate::overlay::ai_chat::TerminalContext {
+                        cwd,
+                        visible_lines,
+                        tab_snapshot,
+                        selected_text,
+                        colors: chat_colors,
+                    };
                     let pane_id = pane.pane_id();
                     let (overlay, future) =
                         start_overlay_pane(self, &pane, move |pane_id, term| {
@@ -4998,22 +5055,41 @@ impl TermWindow {
                 overlay.resize(self.terminal_size).ok();
             }
         }
+        // Build a pane_id → TerminalSize map using the tab layout tree.
+        // iter_panes() returns visual/layout dimensions, which are kept up-to-date
+        // by resize_visual() during live dragging — unlike pane.get_dimensions(),
+        // which only reflects the last physical (non-live) resize.
+        let cell_h = self
+            .terminal_size
+            .pixel_height
+            .checked_div(self.terminal_size.rows)
+            .unwrap_or(1);
+        let cell_w = self
+            .terminal_size
+            .pixel_width
+            .checked_div(self.terminal_size.cols)
+            .unwrap_or(1);
+        let mut pane_sizes: HashMap<PaneId, TerminalSize> = HashMap::new();
+        if let Some(window) = mux.get_window(self.mux_window_id) {
+            for tab in window.iter() {
+                for pos in tab.iter_panes() {
+                    pane_sizes.insert(
+                        pos.pane.pane_id(),
+                        TerminalSize {
+                            cols: pos.width,
+                            rows: pos.height,
+                            dpi: self.terminal_size.dpi,
+                            pixel_width: pos.width * cell_w,
+                            pixel_height: pos.height * cell_h,
+                        },
+                    );
+                }
+            }
+        }
         for (pane_id, state) in self.pane_state.borrow().iter() {
             if let Some(overlay) = state.overlay.as_ref().map(|o| &o.pane) {
-                if let Some(pane) = mux.get_pane(*pane_id) {
-                    let dims = pane.get_dimensions();
-                    overlay
-                        .resize(TerminalSize {
-                            cols: dims.cols,
-                            rows: dims.viewport_rows,
-                            dpi: self.terminal_size.dpi,
-                            pixel_height: (self.terminal_size.pixel_height
-                                / self.terminal_size.rows)
-                                * dims.viewport_rows,
-                            pixel_width: (self.terminal_size.pixel_width / self.terminal_size.cols)
-                                * dims.cols,
-                        })
-                        .ok();
+                if let Some(size) = pane_sizes.get(pane_id) {
+                    overlay.resize(*size).ok();
                 }
             }
         }
