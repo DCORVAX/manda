@@ -2537,8 +2537,7 @@ fn render_chat(term: &mut TermWizTerminal, app: &App) -> termwiz::Result<()> {
     changes.push(Change::Text("│".to_string()));
 
     // Compute cursor state now; apply AFTER bottom border so it's the final position.
-    let cursor_state: Option<(usize, usize)> = if app.pending_approval.is_some() {
-        let (summary, _) = app.pending_approval.as_ref().unwrap();
+    let cursor_state: Option<(usize, usize)> = if let Some((summary, _)) = &app.pending_approval {
         let approval_text = format!("  Allow: {}  [Enter=yes  n=no]", summary);
         changes.push(Change::AllAttributes(pal.user_text_cell()));
         changes.push(Change::Text(truncate(

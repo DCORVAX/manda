@@ -299,27 +299,21 @@ impl SpawnQueue {
         // Drain both queues under a single lock each so the burst loop
         // does 2 lock acquisitions instead of up to 2*max_funcs.
         let mut batch: Vec<SpawnFunc> = {
-            let mut q =
-                Self::lock_recover(&self.spawned_funcs, "spawned_funcs");
+            let mut q = Self::lock_recover(&self.spawned_funcs, "spawned_funcs");
             let n = max_funcs.min(q.len());
             q.drain(..n)
                 .map(|f| {
-                    metrics::histogram!("executor.spawn_delay")
-                        .record(f.at.elapsed());
+                    metrics::histogram!("executor.spawn_delay").record(f.at.elapsed());
                     f.func
                 })
                 .collect()
         };
         let remaining = max_funcs.saturating_sub(batch.len());
         if remaining > 0 {
-            let mut q = Self::lock_recover(
-                &self.spawned_funcs_low_pri,
-                "spawned_funcs_low_pri",
-            );
+            let mut q = Self::lock_recover(&self.spawned_funcs_low_pri, "spawned_funcs_low_pri");
             let n = remaining.min(q.len());
             batch.extend(q.drain(..n).map(|f| {
-                metrics::histogram!("executor.spawn_delay.low_pri")
-                    .record(f.at.elapsed());
+                metrics::histogram!("executor.spawn_delay.low_pri").record(f.at.elapsed());
                 f.func
             }));
         }

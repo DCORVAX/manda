@@ -1,7 +1,8 @@
 use ratatui::layout::{Constraint, Layout, Margin, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
+use tui_skeleton::{AnimationMode, SkeletonList, SkeletonText};
 
 use super::{App, Tool};
 use crate::tui_core::theme::{accent, bg, muted, panel, primary, red, success, text_fg};
@@ -14,20 +15,44 @@ enum MainLayoutMode {
     Compact,
 }
 
-pub(super) fn loading_ui(frame: &mut ratatui::Frame) {
+pub(super) fn loading_ui(frame: &mut ratatui::Frame, elapsed_ms: u64) {
     let full = frame.area();
     if full.width < 2 || full.height < 2 {
         return;
     }
-    // Keep one column on the right to avoid edge-wrap artifacts, while using
-    // full height so the status bar can stick to the bottom.
     let area = Rect::new(full.x, full.y, full.width - 1, full.height);
 
     frame.render_widget(Clear, area);
     frame.render_widget(Block::default().style(Style::default().bg(bg())), area);
 
-    let chunks = Layout::vertical([Constraint::Length(2), Constraint::Fill(1)]).split(area);
-    render_header(frame, chunks[0], Some("Loading..."));
+    let chunks = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Fill(1),
+        Constraint::Length(1),
+    ])
+    .split(area);
+
+    render_header(frame, chunks[0], None);
+
+    // Skeleton tool list (mimics the real tool list rows).
+    let list_area = chunks[1].inner(Margin {
+        vertical: 0,
+        horizontal: 2,
+    });
+    let sk_list = SkeletonList::new(elapsed_ms)
+        .items(7)
+        .mode(AnimationMode::Sweep)
+        .base(Color::Rgb(35, 30, 55))
+        .highlight(Color::Rgb(60, 54, 90));
+    frame.render_widget(sk_list, list_area);
+
+    // Skeleton status bar at bottom.
+    let sk_status = SkeletonText::new(elapsed_ms)
+        .line_widths(&[0.35])
+        .mode(AnimationMode::Sweep)
+        .base(Color::Rgb(35, 30, 55))
+        .highlight(Color::Rgb(60, 54, 90));
+    frame.render_widget(sk_status, chunks[2]);
 }
 
 pub(super) fn ui(frame: &mut ratatui::Frame, app: &mut App) {
