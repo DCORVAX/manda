@@ -107,6 +107,7 @@ const FACTORY_DROID_REASONING_OPTIONS: [&str; 5] = ["off", "none", "low", "mediu
 const FACTORY_DROID_AUTONOMY_OPTIONS: [&str; 5] =
     ["normal", "spec", "auto-low", "auto-medium", "auto-high"];
 const USAGE_CACHE_TTL: Duration = Duration::from_secs(120);
+const ASSISTANT_MODELS_CACHE_TTL: Duration = Duration::from_secs(1800);
 const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const UI_STATUS_TTL: Duration = Duration::from_secs(3);
 const UI_ERROR_TTL: Duration = Duration::from_secs(5);
@@ -498,6 +499,13 @@ fn antigravity_usage_cache_path() -> PathBuf {
         .join(".cache")
         .join("kaku")
         .join("antigravity_usage.json")
+}
+
+fn assistant_models_cache_path() -> PathBuf {
+    config::HOME_DIR
+        .join(".cache")
+        .join("kaku")
+        .join("assistant_models.json")
 }
 
 fn antigravity_app_bundle_path() -> PathBuf {
@@ -2788,13 +2796,148 @@ fn get_kaku_assistant_api_key() -> Option<String> {
     }
 }
 
+/// Filter out non-chat model IDs (embeddings, TTS, image generation, etc.).
+fn is_chat_model_id(id: &str) -> bool {
+    const BLOCK: &[&str] = &[
+        "whisper",
+        "tts",
+        "dall-e",
+        "dalle",
+        "embedding",
+        "moderation",
+        "audio",
+        "image",
+        "davinci",
+        "babbage",
+        "ada-",
+    ];
+    let lower = id.to_ascii_lowercase();
+    !BLOCK.iter().any(|p| lower.contains(p))
+}
+
+fn parse_assistant_models_cache(path: &Path, base_url: &str) -> Option<Vec<String>> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    if v.get("base_url").and_then(|s| s.as_str())? != base_url {
+        return None;
+    }
+    let models: Vec<String> = v
+        .get("models")
+        .and_then(|a| a.as_array())?
+        .iter()
+        .filter_map(|s| s.as_str().map(String::from))
+        .collect();
+    if models.is_empty() {
+        None
+    } else {
+        Some(models)
+    }
+}
+
+fn load_assistant_models_cache(path: &Path, base_url: &str) -> Option<Vec<String>> {
+    let elapsed = path
+        .metadata()
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())?;
+    if elapsed >= ASSISTANT_MODELS_CACHE_TTL {
+        return None;
+    }
+    parse_assistant_models_cache(path, base_url)
+}
+
+fn load_assistant_models_stale_cache(path: &Path, base_url: &str) -> Vec<String> {
+    parse_assistant_models_cache(path, base_url).unwrap_or_default()
+}
+
+fn save_assistant_models_cache(path: &Path, base_url: &str, models: &[String]) {
+    let value = serde_json::json!({ "base_url": base_url, "models": models });
+    write_json_cache(path, &value);
+}
+
+/// Fetch available chat models from the assistant API's `/models` endpoint.
+///
+/// Uses a 3-second curl timeout. Results are cached to disk for 30 minutes
+/// per base URL. Returns an empty vec on any failure so the field gracefully
+/// falls back to free-text entry.
+fn fetch_kaku_assistant_models(api_key: &str, base_url: &str) -> Vec<String> {
+    let api_key = api_key.trim();
+    let base_url = base_url.trim().trim_end_matches('/');
+    if api_key.is_empty() || base_url.is_empty() {
+        return Vec::new();
+    }
+
+    let cache_path = assistant_models_cache_path();
+
+    if let Some(cached) = load_assistant_models_cache(&cache_path, base_url) {
+        return cached;
+    }
+
+    let url = format!("{}/models", base_url);
+    let auth = format!("Authorization: Bearer {}", api_key);
+    let output = match std::process::Command::new("/usr/bin/curl")
+        .args(["-sS", "--fail", "--max-time", "3", "-H", &auth, &url])
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            log::debug!("assistant models fetch: curl launch failed: {}", e);
+            return load_assistant_models_stale_cache(&cache_path, base_url);
+        }
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        log::debug!(
+            "assistant models fetch: curl failed ({}): {}",
+            output.status,
+            stderr.trim()
+        );
+        return load_assistant_models_stale_cache(&cache_path, base_url);
+    }
+
+    let raw = match String::from_utf8(output.stdout) {
+        Ok(s) => s,
+        Err(e) => {
+            log::debug!("assistant models fetch: non-utf8 response: {}", e);
+            return load_assistant_models_stale_cache(&cache_path, base_url);
+        }
+    };
+
+    let v: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            log::debug!("assistant models fetch: JSON parse failed: {}", e);
+            return load_assistant_models_stale_cache(&cache_path, base_url);
+        }
+    };
+
+    let mut models: Vec<String> = v
+        .get("data")
+        .and_then(|d| d.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| m.get("id").and_then(|s| s.as_str()).map(String::from))
+                .filter(|id| is_chat_model_id(id))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    models.sort();
+    models.dedup();
+    models.truncate(50);
+
+    if !models.is_empty() {
+        save_assistant_models_cache(&cache_path, base_url, &models);
+    }
+    models
+}
+
 fn extract_kaku_assistant_fields(raw: &str) -> Vec<FieldEntry> {
     let cfg = parse_kaku_assistant_config(raw);
 
-    // Resolve model options from the active provider preset
-    let model_options: Vec<String> = assistant_config::provider_preset(cfg.provider())
-        .map(|p| p.models.iter().map(|m| m.to_string()).collect())
-        .unwrap_or_default();
+    // Fetch live model list from the API; falls back to empty (free-text) on failure.
+    let model_options = fetch_kaku_assistant_models(cfg.api_key(), cfg.base_url());
 
     let mut fields = vec![
         FieldEntry {
@@ -4676,6 +4819,10 @@ impl App {
         }
 
         let models_refreshed = fetch_models_dev_json().is_some();
+        let assistant_cache = assistant_models_cache_path();
+        if let Err(e) = std::fs::remove_file(&assistant_cache) {
+            log::trace!("Could not remove assistant models cache: {}", e);
+        }
         self.tools = Self::load_tools();
         self.tool_index = self
             .tools
