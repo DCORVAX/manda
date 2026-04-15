@@ -4029,7 +4029,9 @@ impl TermWindow {
             }
             CopyTo(dest) => {
                 let text = self.selection_text(pane);
-                self.copy_to_clipboard_if_present(*dest, text);
+                if !text.is_empty() {
+                    self.copy_to_clipboard(*dest, text);
+                }
             }
             CopyTextTo { text, destination } => {
                 self.copy_to_clipboard(*destination, text.clone());
