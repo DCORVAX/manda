@@ -26,7 +26,7 @@ mod agent;
 mod approval;
 mod markdown;
 
-pub(crate) use agent::{generate_summary, run_agent};
+pub(crate) use agent::{generate_summary, maybe_extract_memories, run_agent};
 pub(crate) use approval::{approval_summary, build_system_prompt, build_visible_snapshot_message};
 pub(crate) use markdown::{
     parse_markdown_blocks, segments_to_plain, tokenize_inline, wrap_segments,
@@ -356,6 +356,9 @@ pub(crate) struct App {
     pub(crate) spinner_frame: usize,
     /// When the last spinner frame advance happened.
     pub(crate) spinner_tick: Instant,
+    /// True until the user submits their first message in a brand-new session.
+    /// Cleared (and flag file created) on first submit so onboarding never repeats.
+    pub(crate) onboarding_pending: bool,
 }
 
 impl App {
@@ -426,6 +429,26 @@ impl App {
             messages.push(Message::text(Role::Assistant, "", true, true));
         }
 
+        // Onboarding: fire when neither the memory file nor the flag file exist.
+        // Both files live under ~/.config/kaku/; presence of either means the user
+        // has been through setup before (memory exists) or has already seen the
+        // greeting (flag exists), so we skip.
+        let onboarding_pending = !crate::ai_tools::memory_file_path().exists()
+            && !crate::ai_tools::onboarding_flag_path().exists()
+            && messages.is_empty();
+        if onboarding_pending {
+            messages.push(Message::text(
+                Role::Assistant,
+                "Hi! I'm Kaku AI. Three quick things to help me help you:\n\n\
+                 1. What should I call you?\n\
+                 2. What reply style do you prefer? (e.g. concise, detailed, technical, casual)\n\
+                 3. What do you typically work on? (languages, tools, current projects)\n\n\
+                 Answer in one message, or just ask your question. You can tell me later.",
+                true,
+                false,
+            ));
+        }
+
         Self {
             mode: AppMode::Chat,
             messages,
@@ -458,6 +481,7 @@ impl App {
             attachment_picker_index: 0,
             spinner_frame: 0,
             spinner_tick: Instant::now(),
+            onboarding_pending,
         }
     }
 
@@ -1167,6 +1191,16 @@ impl App {
             return;
         }
 
+        // Mark onboarding complete on the user's first submit (whatever they typed).
+        if self.onboarding_pending {
+            self.onboarding_pending = false;
+            let flag = crate::ai_tools::onboarding_flag_path();
+            if let Some(parent) = flag.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&flag, b"");
+        }
+
         // Slash command dispatch
         if raw_input == "/new" {
             self.input.clear();
@@ -1398,6 +1432,14 @@ impl App {
             self.stream_pending_done = false;
             self.is_streaming = false;
             self.save_history();
+            // Auto-extract memories after successful completions.
+            if self.stream_pending_err.is_none() {
+                let client = self.client.clone();
+                let msgs = self.collect_persisted_messages();
+                std::thread::spawn(move || {
+                    maybe_extract_memories(&client, &msgs);
+                });
+            }
             changed = true;
         }
 
