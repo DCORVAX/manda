@@ -24,6 +24,8 @@ use config::window::WindowLevel;
 use config::{ConfigHandle, Dimension, GeometryOrigin};
 use promise::Future;
 use std::any::Any;
+use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::rc::Rc;
 use thiserror::Error;
@@ -259,27 +261,60 @@ pub enum WindowEvent {
     AdviseModifiersLedStatus(Modifiers, KeyboardLedStatus),
 }
 
-pub struct WindowEventSender {
-    handler: Box<dyn FnMut(WindowEvent, &Window)>,
+#[derive(Default)]
+struct WindowEventSenderState {
     window: Option<Window>,
+    pending: VecDeque<WindowEvent>,
+    dispatching: bool,
+}
+
+#[derive(Clone)]
+pub struct WindowEventSender {
+    handler: Rc<RefCell<Box<dyn FnMut(WindowEvent, &Window)>>>,
+    state: Rc<RefCell<WindowEventSenderState>>,
 }
 
 impl WindowEventSender {
     pub fn new<F: 'static + FnMut(WindowEvent, &Window)>(handler: F) -> Self {
         Self {
-            handler: Box::new(handler),
-            window: None,
+            handler: Rc::new(RefCell::new(Box::new(handler))),
+            state: Rc::new(RefCell::new(WindowEventSenderState::default())),
         }
     }
 
-    pub(crate) fn assign_window(&mut self, window: Window) {
-        self.window.replace(window);
+    pub(crate) fn assign_window(&self, window: Window) {
+        self.state.borrow_mut().window.replace(window);
     }
 
-    pub fn dispatch(&mut self, event: WindowEvent) {
-        if let Some(window) = self.window.as_ref() {
+    pub fn dispatch(&self, event: WindowEvent) {
+        {
+            let mut state = self.state.borrow_mut();
+            if state.window.is_none() {
+                return;
+            }
+            state.pending.push_back(event);
+            if state.dispatching {
+                return;
+            }
+            state.dispatching = true;
+        }
+
+        loop {
+            let Some((event, window)) = ({
+                let mut state = self.state.borrow_mut();
+                match state.pending.pop_front() {
+                    Some(event) => state.window.clone().map(|window| (event, window)),
+                    None => {
+                        state.dispatching = false;
+                        None
+                    }
+                }
+            }) else {
+                return;
+            };
+
             log::trace!("{:?}", event);
-            (self.handler)(event, window);
+            (self.handler.borrow_mut())(event, &window);
         }
     }
 }
@@ -444,5 +479,37 @@ impl ResizeIncrement {
             base_width: 0,
             base_height: 0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    #[test]
+    fn window_event_sender_queues_reentrant_dispatch() {
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let sender = Rc::new(RefCell::new(None::<WindowEventSender>));
+
+        let seen_clone = Rc::clone(&seen);
+        let sender_clone = Rc::clone(&sender);
+        let events = WindowEventSender::new(move |event, _window| {
+            seen_clone.borrow_mut().push(format!("{event:?}"));
+            if matches!(event, WindowEvent::MouseLeave) {
+                sender_clone
+                    .borrow()
+                    .as_ref()
+                    .expect("sender assigned")
+                    .dispatch(WindowEvent::NeedRepaint);
+            }
+        });
+        events.assign_window(Window::for_test(7));
+        sender.borrow_mut().replace(events.clone());
+
+        events.dispatch(WindowEvent::MouseLeave);
+
+        assert_eq!(seen.borrow().as_slice(), ["MouseLeave", "NeedRepaint"]);
     }
 }

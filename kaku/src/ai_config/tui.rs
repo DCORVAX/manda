@@ -2843,6 +2843,9 @@ fn save_assistant_models_cache(path: &Path, base_url: &str, models: &[String]) {
 /// Uses a 3-second curl timeout. Results are cached to disk for 30 minutes
 /// per base URL. Returns an empty vec on any failure so the field gracefully
 /// falls back to free-text entry.
+///
+/// The API key is passed via stdin (curl --config -) to avoid exposing it in
+/// process arguments visible to ps/audit logs.
 fn fetch_kaku_assistant_models(api_key: &str, base_url: &str) -> Vec<String> {
     let api_key = api_key.trim();
     let base_url = base_url.trim().trim_end_matches('/');
@@ -2857,14 +2860,31 @@ fn fetch_kaku_assistant_models(api_key: &str, base_url: &str) -> Vec<String> {
     }
 
     let url = format!("{}/models", base_url);
-    let auth = format!("Authorization: Bearer {}", api_key);
-    let output = match std::process::Command::new("/usr/bin/curl")
-        .args(["-sS", "--fail", "--max-time", "3", "-H", &auth, &url])
-        .output()
+    // Pass Authorization header via --config - (stdin) to avoid argv exposure.
+    let curl_config = format!("header = \"Authorization: Bearer {}\"", api_key);
+    let mut child = match std::process::Command::new("/usr/bin/curl")
+        .args(["-sS", "--fail", "--max-time", "3", "--config", "-", &url])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
     {
+        Ok(c) => c,
+        Err(e) => {
+            log::debug!("assistant models fetch: curl spawn failed: {}", e);
+            return load_assistant_models_stale_cache(&cache_path, base_url);
+        }
+    };
+
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        let _ = stdin.write_all(curl_config.as_bytes());
+    }
+
+    let output = match child.wait_with_output() {
         Ok(o) => o,
         Err(e) => {
-            log::debug!("assistant models fetch: curl launch failed: {}", e);
+            log::debug!("assistant models fetch: curl wait failed: {}", e);
             return load_assistant_models_stale_cache(&cache_path, base_url);
         }
     };

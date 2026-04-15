@@ -646,14 +646,27 @@ impl App {
                 if list.len() > 30 {
                     list.truncate(30);
                 }
-                // Restore saved model preference; fall back to the model that
-                // was active before the fetch (or index 0 if not in the list).
+                // Restore saved model preference. If the saved model is no longer
+                // in the returned list (e.g. provider removed it), surface an error
+                // rather than silently switching to index 0.
                 let saved =
                     crate::ai_state::load_last_model().unwrap_or_else(|| self.current_model());
-                let restored_idx = list.iter().position(|m| m == &saved).unwrap_or(0);
-                self.available_models = list;
-                self.model_index = restored_idx;
-                self.model_fetch = ModelFetch::Loaded;
+                match list.iter().position(|m| m == &saved) {
+                    Some(idx) => {
+                        self.available_models = list;
+                        self.model_index = idx;
+                        self.model_fetch = ModelFetch::Loaded;
+                    }
+                    None => {
+                        self.available_models = list;
+                        self.model_index = 0;
+                        self.model_fetch = ModelFetch::Failed(format!(
+                            "saved model '{}' is not in the server's model list; \
+                             please select a model manually",
+                            saved
+                        ));
+                    }
+                }
                 true
             }
             Ok(Err(e)) => {
@@ -1286,9 +1299,17 @@ impl App {
                             .rev()
                             .find(|m| m.is_tool() && !m.complete)
                         {
-                            last.content = error;
+                            last.content = error.clone();
                             last.complete = true;
                             last.tool_failed = true;
+                        } else {
+                            // No incomplete tool row: push a new error message so it's visible.
+                            self.messages.push(Message::text(
+                                Role::Assistant,
+                                format!("[tool error: {}]", error),
+                                true,
+                                false,
+                            ));
                         }
                         changed = true;
                     }
@@ -2088,7 +2109,7 @@ fn render_chat(term: &mut TermWizTerminal, app: &App) -> termwiz::Result<()> {
 
     // Compute cursor state now; apply AFTER bottom border so it's the final position.
     let cursor_state: Option<(usize, usize)> = if let Some((summary, _)) = &app.pending_approval {
-        let approval_text = format!("  Allow: {}  [Enter=yes  n=no]", summary);
+        let approval_text = format!("  Allow: {}  [y/Enter=yes  n/Esc=no]", summary);
         changes.push(Change::AllAttributes(pal.user_text_cell()));
         changes.push(Change::Text(truncate(
             &pad_to_visual_width(&approval_text, inner_w),
@@ -2285,14 +2306,27 @@ fn handle_key(key: &KeyEvent, app: &mut App) -> Action {
         app.selecting = false;
     }
 
-    // Handle approval prompt: y/Enter = approve, n/Esc = reject.
-    if let Some((_, reply_tx)) = app.pending_approval.take() {
-        let approved = matches!(
+    // Handle approval prompt: y/Enter = approve, n/Esc = reject, other keys ignored.
+    if let Some((summary, reply_tx)) = app.pending_approval.take() {
+        let is_approve = matches!(
             (&key.key, key.modifiers),
-            (KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter, _)
-        ) && !matches!((&key.key, key.modifiers), (KeyCode::Escape, _));
-        let _ = reply_tx.send(approved);
-        return Action::Continue;
+            (KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter, Modifiers::NONE)
+        );
+        let is_reject = matches!(
+            (&key.key, key.modifiers),
+            (KeyCode::Char('n') | KeyCode::Char('N'), Modifiers::NONE) | (KeyCode::Escape, _)
+        );
+        if is_approve {
+            let _ = reply_tx.send(true);
+            return Action::Continue;
+        } else if is_reject {
+            let _ = reply_tx.send(false);
+            return Action::Continue;
+        } else {
+            // Other key: restore the approval state and ignore the key.
+            app.pending_approval = Some((summary, reply_tx));
+            return Action::Continue;
+        }
     }
 
     let slash_options = if app.is_streaming {
@@ -3168,6 +3202,15 @@ mod markdown_tests {
         assert!(approval_summary("fs_patch", &args).is_some());
         assert!(approval_summary("fs_mkdir", &args).is_some());
         assert!(approval_summary("fs_delete", &args).is_some());
+        // http_request: mutating methods require approval
+        for method in ["POST", "PUT", "PATCH", "DELETE"] {
+            let args = serde_json::json!({"method": method, "url": "https://api.example.com/data"});
+            assert!(
+                approval_summary("http_request", &args).is_some(),
+                "expected {} to require approval",
+                method
+            );
+        }
     }
 
     #[test]
@@ -3179,6 +3222,9 @@ mod markdown_tests {
         assert!(approval_summary("pwd", &serde_json::json!({})).is_none());
         assert!(approval_summary("shell_poll", &serde_json::json!({"pid": 123})).is_none());
         assert!(approval_summary("unknown_tool", &args).is_none());
+        // http_request: GET is read-only
+        let args = serde_json::json!({"method": "GET", "url": "https://api.example.com/data"});
+        assert!(approval_summary("http_request", &args).is_none());
     }
 
     #[test]
@@ -3221,26 +3267,11 @@ mod markdown_tests {
             "git tag -l 'V0.*'",
             "git stash list",
             "git rev-parse --show-toplevel",
-            // git operations that modify local state are now allowed
-            "git checkout main",
-            "git branch new-feature",
-            "git tag V0.9.0",
-            "git remote add origin https://example.com/repo.git",
-            "git stash push -m test",
-            "git add .",
-            "git commit -m 'fix: update config'",
-            "git push origin main",
-            // other common dev commands now allowed
-            "npm install",
-            "npm run build",
+            // other common dev commands (read-only)
             "cargo build",
             "cargo test",
             "make",
             "make test",
-            "touch file.txt",
-            "mkdir -p src/new",
-            "cp Cargo.toml Cargo.toml.bak",
-            "mv old.txt new.txt",
             "echo hello",
             // syntax-check only interpreters (read-only)
             "perl -c script.pl",
@@ -3303,6 +3334,23 @@ mod markdown_tests {
             "git checkout -f main",
             // git with --output
             "git diff --output=out.patch",
+            // git write operations (modify local state)
+            "git checkout main",
+            "git branch new-feature",
+            "git tag V0.9.0",
+            "git remote add origin https://example.com/repo.git",
+            "git stash push -m test",
+            "git add .",
+            "git commit -m 'fix: update config'",
+            "git push origin main",
+            // filesystem write operations
+            "touch file.txt",
+            "mkdir -p src/new",
+            "cp Cargo.toml Cargo.toml.bak",
+            "mv old.txt new.txt",
+            // package managers (install/modify dependencies)
+            "npm install",
+            "npm run build",
             // pipeline hazards (already handled by split_shell_pipeline)
             "ls || wc",
             "cat a > b",

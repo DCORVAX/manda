@@ -19,8 +19,24 @@ pub(crate) fn approval_summary(name: &str, args: &serde_json::Value) -> Option<S
         "fs_patch" => Some(format!("patch file: {}", s("path"))),
         "fs_mkdir" => Some(format!("mkdir: {}", s("path"))),
         "fs_delete" => Some(format!("delete: {}", s("path"))),
+        "http_request" => http_request_approval_summary(args),
         _ => None,
     }
+}
+
+fn http_request_approval_summary(args: &serde_json::Value) -> Option<String> {
+    let method = args["method"].as_str().unwrap_or("GET").to_uppercase();
+    let url: String = args["url"]
+        .as_str()
+        .unwrap_or("")
+        .chars()
+        .take(60)
+        .collect();
+    // GET is read-only; all mutating methods require approval.
+    if method == "GET" {
+        return None;
+    }
+    Some(format!("http {}: {}", method, url))
 }
 
 fn shell_exec_approval_summary(command: &str) -> Option<String> {
@@ -117,12 +133,13 @@ fn split_shell_pipeline(command: &str) -> Option<Vec<String>> {
     Some(segments)
 }
 
-/// Returns true when the first token of a pipeline segment is a known-dangerous
-/// command. Pipeline-level hazards (`;`, `>`, `&`, `$()`, etc.) are already
-/// rejected by `split_shell_pipeline` before this is called.
+/// Returns true when a pipeline segment requires approval.
+/// Uses an allowlist: only known safe read-only commands skip approval.
+/// Everything not explicitly listed here requires approval.
 fn shell_tokens_are_dangerous(tokens: &[String]) -> bool {
     let cmd = tokens[0].as_str();
-    // mkfs.ext4, mkfs.vfat, etc. are all disk-formatting commands.
+
+    // Disk-level and privilege-escalation commands are always dangerous.
     if cmd == "dd"
         || cmd.starts_with("mkfs")
         || cmd == "fdisk"
@@ -133,21 +150,49 @@ fn shell_tokens_are_dangerous(tokens: &[String]) -> bool {
     {
         return true;
     }
+
     match cmd {
-        // Shell/interpreter invoked with an inline script can run arbitrary code.
-        // bash/sh/zsh/fish/python use -c for inline scripts.
-        "bash" | "sh" | "zsh" | "fish" | "python" | "python3" => tokens.iter().skip(1).any(|t| {
-            t == "-c" || (t.starts_with('-') && !t.starts_with("--") && t[1..].contains('c'))
-        }),
-        // perl/ruby use -e for inline eval; -c is a safe syntax-check only flag.
-        // node uses -e for inline eval; --check is a safe syntax-check only flag.
-        "perl" | "ruby" | "node" => tokens.iter().skip(1).any(|t| t == "-e"),
-        "rm" => rm_is_dangerous(tokens),
-        "find" => find_is_dangerous(tokens),
-        "git" => git_is_dangerous(tokens),
-        // sort/tree with -o/--output write to a file.
+        // Pure read-only informational commands — no filesystem writes possible.
+        "pwd" | "ls" | "cat" | "head" | "tail" | "wc" | "rg" | "grep"
+        | "which" | "whereis" | "cut" | "uniq" | "nl" | "stat" | "file"
+        | "realpath" | "readlink" | "basename" | "dirname" | "echo" | "tr"
+        | "awk" => false,
+
+        // sed: in-place edit (-i) modifies files; flag-less usage is a filter (safe).
+        "sed" => tokens
+            .iter()
+            .skip(1)
+            .any(|t| t.starts_with("-i") || t == "--in-place"),
+
+        // sort/tree: safe unless writing to an output file.
         "sort" | "tree" => has_output_flag(tokens, &["-o", "--output"]),
-        _ => false,
+
+        // find: safe unless it carries write/exec flags.
+        "find" => find_is_dangerous(tokens),
+
+        // rm: always requires approval when recursive or force flag is present.
+        "rm" => rm_is_dangerous(tokens),
+
+        // git: only an explicit read-only subcommand allowlist skips approval.
+        "git" => !git_is_read_only(tokens),
+
+        // perl/ruby: -c is a syntax-check (safe); -e runs inline code (dangerous).
+        "perl" | "ruby" => !tokens.iter().skip(1).any(|t| t == "-c"),
+
+        // node: --check is a syntax-check (safe); -e runs inline code (dangerous).
+        "node" => !tokens.iter().skip(1).any(|t| t == "--check"),
+
+        // bash/sh/zsh/fish/python with -c runs arbitrary code.
+        "bash" | "sh" | "zsh" | "fish" | "python" | "python3" => tokens
+            .iter()
+            .skip(1)
+            .any(|t| t == "-c" || (t.starts_with('-') && !t.starts_with("--") && t[1..].contains('c'))),
+
+        // Build tools: compile/test but do not modify project source files.
+        "cargo" | "make" => false,
+
+        // Everything else (touch, mkdir, cp, mv, npm, git write ops, etc.) requires approval.
+        _ => true,
     }
 }
 
@@ -182,28 +227,57 @@ fn find_is_dangerous(tokens: &[String]) -> bool {
     })
 }
 
-fn git_is_dangerous(tokens: &[String]) -> bool {
+/// Returns true if the git command is read-only (does not modify repo state).
+/// Only an explicit allowlist of read-only subcommands returns true.
+fn git_is_read_only(tokens: &[String]) -> bool {
+    // git with --output writes to a file, not read-only.
     if has_output_flag(tokens, &["-o", "--output"]) {
-        return true;
+        return false;
     }
     match tokens.get(1).map(String::as_str) {
-        // git push with --force or -f is irreversible.
-        Some("push") => tokens.iter().skip(2).any(|t| t == "--force" || t == "-f"),
-        // git reset --hard (or --merge / --keep) can destroy working tree changes.
-        Some("reset") => tokens
-            .iter()
-            .skip(2)
-            .any(|t| t == "--hard" || t == "--merge" || t == "--keep"),
-        // git clean removes untracked files; -f/--force is required for actual deletion.
-        Some("clean") => tokens.iter().skip(2).any(|t| {
-            t == "-f"
-                || t == "--force"
-                || (t.starts_with('-') && !t.starts_with("--") && t[1..].contains('f'))
-        }),
-        // git branch -D forces deletion without merge checks.
-        Some("branch") => tokens.iter().skip(2).any(|t| t == "-D"),
-        // git checkout -f discards local modifications.
-        Some("checkout") => tokens.iter().skip(2).any(|t| t == "-f" || t == "--force"),
+        // Read-only inspection commands.
+        Some("status" | "diff" | "show" | "log" | "grep" | "ls-files" | "rev-parse") => true,
+        // branch/tag/remote/stash: read-only only when listing (no positional args after flags).
+        Some("branch") => {
+            // git branch (no args) or git branch -a/-l/--list [pattern] is read-only.
+            // git branch new-name or git branch -d/-D/-m/-M is a write.
+            let has_write_flag = tokens.iter().skip(2).any(|t| {
+                t == "-d" || t == "-D" || t == "-m" || t == "-M" || t == "--delete" || t == "--move"
+            });
+            if has_write_flag {
+                return false;
+            }
+            // If --list is present, any following positional is a pattern (safe).
+            let has_list_flag = tokens.iter().skip(2).any(|t| t == "-l" || t == "--list");
+            if has_list_flag {
+                return true;
+            }
+            // Otherwise, any positional arg is a branch name to create (write).
+            !tokens.iter().skip(2).any(|t| !t.starts_with('-'))
+        }
+        Some("tag") => {
+            let has_write_flag = tokens.iter().skip(2).any(|t| {
+                t == "-d" || t == "-D" || t == "--delete"
+            });
+            if has_write_flag {
+                return false;
+            }
+            // git tag -l [pattern] is read-only; git tag new-tag is a write.
+            let has_list_flag = tokens.iter().skip(2).any(|t| t == "-l" || t == "--list");
+            if has_list_flag {
+                return true;
+            }
+            !tokens.iter().skip(2).any(|t| !t.starts_with('-'))
+        }
+        Some("remote") => {
+            // git remote (no args) or git remote -v is read-only.
+            // git remote add/remove/rename/set-url is a write.
+            !tokens.iter().skip(2).any(|t| {
+                t == "add" || t == "remove" || t == "rename" || t == "set-url"
+            }) && !tokens.iter().skip(2).any(|t| !t.starts_with('-'))
+        }
+        Some("stash") => tokens.get(2).map(String::as_str) == Some("list"),
+        // Everything else (checkout, add, commit, push, reset, clean, etc.) modifies state.
         _ => false,
     }
 }
