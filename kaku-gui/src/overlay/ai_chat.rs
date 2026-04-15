@@ -3345,10 +3345,7 @@ fn shell_tokens_are_dangerous(tokens: &[String]) -> bool {
         // Shell/interpreter invoked with an inline script (-c / -lc / -ic etc.) can run anything.
         "bash" | "sh" | "zsh" | "fish" | "python" | "python3" | "perl" | "ruby" | "node" => {
             tokens.iter().skip(1).any(|t| {
-                t == "-c"
-                    || (t.starts_with('-')
-                        && !t.starts_with("--")
-                        && t[1..].contains('c'))
+                t == "-c" || (t.starts_with('-') && !t.starts_with("--") && t[1..].contains('c'))
             })
         }
         "rm" => rm_is_dangerous(tokens),
