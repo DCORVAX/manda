@@ -94,6 +94,7 @@ impl super::TermWindow {
             tab_idx,
             start_event,
             has_dragged: false,
+            drag_offset_x: 0.0,
         });
     }
 
@@ -172,6 +173,9 @@ impl super::TermWindow {
         state.has_dragged = true;
         context.set_cursor(Some(MouseCursor::Grabbing));
 
+        // Update drag offset for real-time visual feedback
+        state.drag_offset_x = (event.coords.x - state.start_event.coords.x) as f32;
+
         let target_idx = self.drag_tab_target_idx(state.tab_idx, event.coords.x);
 
         if let Some(target_idx) = target_idx {
@@ -179,14 +183,91 @@ impl super::TermWindow {
                 if let Err(err) = self.move_tab(target_idx) {
                     log::debug!("move_tab({target_idx}) failed while dragging tab: {err:#}");
                 } else {
+                    // Trigger neighbor animation
+                    self.start_tab_swap_animation(state.tab_idx, target_idx);
+
                     state.tab_idx = target_idx;
+                    // Adjust start_event.coords.x so drag_offset_x is relative to new position
+                    if let Some(new_item) = self.tab_ui_item(target_idx) {
+                        state.start_event.coords.x = new_item.x as isize;
+                    }
                     context.invalidate();
                 }
             }
         }
 
+        // Invalidate even without swap to update dragged tab position
+        context.invalidate();
+
         self.tab_drag_state = Some(state);
         true
+    }
+
+    fn start_tab_swap_animation(&mut self, old_idx: usize, new_idx: usize) {
+        use crate::colorease::ColorEase;
+        use config::EasingFunction;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        use std::time::Instant;
+
+        let Some(old_item) = self.tab_ui_item(old_idx) else {
+            return;
+        };
+        let Some(new_item) = self.tab_ui_item(new_idx) else {
+            return;
+        };
+
+        let swap_distance = (new_item.x as f32 - old_item.x as f32).abs();
+
+        // After move_tab(), the displaced neighbor sits at old_idx. To make it
+        // appear to slide from its old position (new_idx) toward old_idx:
+        // - dragged right (new_idx > old_idx): neighbor came from the right, so
+        //   initial offset is positive (starts to the right of its new slot).
+        // - dragged left (new_idx < old_idx): neighbor came from the left, so
+        //   initial offset is negative (starts to the left of its new slot).
+        let start_offset = if new_idx > old_idx {
+            swap_distance
+        } else {
+            -swap_distance
+        };
+
+        let ease = Rc::new(RefCell::new(ColorEase::new(
+            150,
+            EasingFunction::EaseOut,
+            0,
+            EasingFunction::Linear,
+            Some(Instant::now()),
+        )));
+
+        // Animate the neighbor, which now lives at old_idx.
+        self.tab_position_animations
+            .insert(old_idx, (start_offset, ease));
+    }
+
+    fn start_tab_settle_animation(&mut self, tab_idx: usize, current_offset: f32) {
+        use crate::colorease::ColorEase;
+        use config::EasingFunction;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        use std::time::Instant;
+
+        if current_offset.abs() < 1.0 {
+            return;
+        }
+
+        let ease = Rc::new(RefCell::new(ColorEase::new(
+            120,
+            EasingFunction::EaseOut,
+            0,
+            EasingFunction::Linear,
+            Some(Instant::now()),
+        )));
+
+        // Animate from current_offset back to 0.
+        // start_offset is the actual drag position; the animation interpolates
+        // start_offset * intensity → 0, so the tab springs back from where it is.
+        self.tab_position_animations
+            .insert(tab_idx, (current_offset, ease));
     }
 
     fn resolve_ui_item(&self, event: &MouseEvent) -> Option<UIItem> {
@@ -385,7 +466,12 @@ impl super::TermWindow {
                     self.finish_mouse_release(*press);
                     return;
                 }
-                if press == &MousePress::Left && self.tab_drag_state.take().is_some() {
+                if press == &MousePress::Left {
+                    if let Some(state) = self.tab_drag_state.take() {
+                        if state.has_dragged {
+                            self.start_tab_settle_animation(state.tab_idx, state.drag_offset_x);
+                        }
+                    }
                     self.finish_mouse_release(*press);
                     return;
                 }

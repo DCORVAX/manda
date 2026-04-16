@@ -60,7 +60,8 @@ impl crate::TermWindow {
                 )?;
             }
 
-            self.ui_items.append(&mut self.paint_fancy_tab_bar()?);
+            let mut fancy_ui_items = self.paint_fancy_tab_bar()?;
+            self.ui_items.append(&mut fancy_ui_items);
             return Ok(());
         }
 

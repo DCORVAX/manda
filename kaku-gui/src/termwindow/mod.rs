@@ -919,6 +919,7 @@ struct TabDragState {
     tab_idx: usize,
     start_event: MouseEvent,
     has_dragged: bool,
+    drag_offset_x: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1037,6 +1038,9 @@ pub struct TermWindow {
     dragging: Option<(UIItem, MouseEvent)>,
     split_drag_state: Option<SplitDragState>,
     tab_drag_state: Option<TabDragState>,
+    /// Tab render offset animations: tab_idx -> (start_offset, ease)
+    /// start_offset is the pixel distance from which the tab animates back to 0.
+    tab_position_animations: HashMap<usize, (f32, Rc<RefCell<ColorEase>>)>,
 
     modal: RefCell<Option<Rc<dyn Modal>>>,
 
@@ -1650,6 +1654,7 @@ impl TermWindow {
             dragging: None,
             split_drag_state: None,
             tab_drag_state: None,
+            tab_position_animations: HashMap::new(),
             last_ui_item: None,
             is_click_to_focus_window: false,
             key_table_state: KeyTableState::default(),
@@ -3578,6 +3583,74 @@ impl TermWindow {
         self.update_scrollbar();
 
         Ok(())
+    }
+
+    /// Compute render offsets for all tabs (dragged + animated)
+    pub fn compute_tab_render_offsets(&mut self) -> HashMap<usize, f32> {
+        let mut offsets = HashMap::new();
+
+        // 1. Dragged tab offset
+        if let Some(ref state) = self.tab_drag_state {
+            if state.has_dragged {
+                offsets.insert(state.tab_idx, state.drag_offset_x);
+            }
+        }
+
+        // 2. Animated tab offsets.
+        // Never overwrite a live drag offset: if the dragged tab has a stale
+        // animation (e.g. from a swap that landed on the same slot), discard it.
+        let dragged_idx = self
+            .tab_drag_state
+            .as_ref()
+            .filter(|s| s.has_dragged)
+            .map(|s| s.tab_idx);
+        let mut to_remove = Vec::new();
+        for (&tab_idx, (start_offset, ease)) in self.tab_position_animations.iter() {
+            if Some(tab_idx) == dragged_idx {
+                to_remove.push(tab_idx);
+                continue;
+            }
+            let mut ease_mut = ease.borrow_mut();
+            if let Some((intensity, next_due)) = ease_mut.intensity_one_shot() {
+                if intensity > 0.0 {
+                    // Animate from start_offset to 0
+                    let current_offset = *start_offset * intensity;
+                    offsets.insert(tab_idx, current_offset);
+
+                    // Schedule next frame
+                    self.update_next_frame_time(Some(next_due));
+                } else {
+                    to_remove.push(tab_idx);
+                }
+            } else {
+                to_remove.push(tab_idx);
+            }
+        }
+
+        // Remove completed animations
+        for tab_idx in to_remove {
+            self.tab_position_animations.remove(&tab_idx);
+        }
+
+        offsets
+    }
+
+    pub fn cleanup_tab_animations(&mut self) {
+        let mux = Mux::get();
+        let Some(window) = mux.get_window(self.mux_window_id) else {
+            self.tab_position_animations.clear();
+            return;
+        };
+
+        let max_idx = window.len();
+        self.tab_position_animations.retain(|&idx, _| idx < max_idx);
+    }
+
+    pub fn is_tab_being_dragged(&self, tab_idx: usize) -> bool {
+        self.tab_drag_state
+            .as_ref()
+            .map(|s| s.has_dragged && s.tab_idx == tab_idx)
+            .unwrap_or(false)
     }
 
     fn show_input_selector(&mut self, args: &config::keyassignment::InputSelector) {

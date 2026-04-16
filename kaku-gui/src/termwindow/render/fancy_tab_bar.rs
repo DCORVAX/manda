@@ -515,15 +515,44 @@ impl crate::TermWindow {
         Ok(computed)
     }
 
-    pub fn paint_fancy_tab_bar(&self) -> anyhow::Result<Vec<UIItem>> {
+    pub fn paint_fancy_tab_bar(&mut self) -> anyhow::Result<Vec<UIItem>> {
+        // Clean up stale animations
+        self.cleanup_tab_animations();
+
+        // Compute tab offsets for drag animation (before borrowing fancy_tab_bar)
+        let tab_offsets = self.compute_tab_render_offsets();
+
+        // Apply offsets to tab elements
+        if !tab_offsets.is_empty() {
+            let computed = self.fancy_tab_bar.as_mut().ok_or_else(|| {
+                anyhow::anyhow!("paint_fancy_tab_bar called but fancy_tab_bar is None")
+            })?;
+            apply_tab_offsets(computed, &tab_offsets);
+        }
+
+        // Now borrow immutably for rendering
         let computed = self.fancy_tab_bar.as_ref().ok_or_else(|| {
             anyhow::anyhow!("paint_fancy_tab_bar called but fancy_tab_bar is None")
         })?;
+
         let ui_items = computed.ui_items();
 
         let gl_state = self.render_state.as_ref().unwrap();
-        self.render_element(&computed, gl_state, None)?;
+        let render_result = self.render_element(computed, gl_state, None);
+        // `computed` and `gl_state` borrows end here; NLL releases them before the restore below.
 
+        // Restore original positions (always, even on render error, to keep layout consistent).
+        if !tab_offsets.is_empty() {
+            let reverse_offsets: std::collections::HashMap<usize, f32> = tab_offsets
+                .iter()
+                .map(|(&idx, &offset)| (idx, -offset))
+                .collect();
+            if let Some(computed) = self.fancy_tab_bar.as_mut() {
+                apply_tab_offsets(computed, &reverse_offsets);
+            }
+        }
+
+        render_result?;
         Ok(ui_items)
     }
 }
@@ -586,4 +615,27 @@ fn make_x_button(
         top: Dimension::Cells(0.),
         bottom: Dimension::Cells(0.),
     })
+}
+
+/// Recursively apply horizontal offsets to tab elements
+fn apply_tab_offsets(
+    element: &mut super::super::box_model::ComputedElement,
+    offsets: &std::collections::HashMap<usize, f32>,
+) {
+    use crate::tabbar::TabBarItem;
+    use crate::termwindow::UIItemType;
+
+    // Check if this element is a tab
+    if let Some(UIItemType::TabBar(TabBarItem::Tab { tab_idx, .. })) = &element.item_type {
+        if let Some(&offset) = offsets.get(tab_idx) {
+            element.translate(euclid::vec2(offset, 0.0));
+        }
+    }
+
+    // Recurse into children
+    if let super::super::box_model::ComputedElementContent::Children(kids) = &mut element.content {
+        for kid in kids {
+            apply_tab_offsets(kid, offsets);
+        }
+    }
 }
