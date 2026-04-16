@@ -1,14 +1,15 @@
 //! Built-in tools for the Kaku AI chat overlay.
 //!
 //! Implements the OpenAI function-calling schema so the model can read/write files,
-//! list directories, run shell commands, and more — all without leaving the terminal.
+//! list directories, run shell commands, and more, all without leaving the terminal.
 
 use crate::ai_client::AssistantConfig;
 use anyhow::{Context, Result};
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{BufRead, Read};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -35,9 +36,20 @@ fn bg_registry() -> &'static Mutex<HashMap<u32, BgProcess>> {
     BG_PROCS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Spawn a reader thread that drains `reader` into `buf` in 4 KiB chunks.
-/// The thread exits when the pipe reaches EOF or returns an error.
-fn pump_reader<R: Read + Send + 'static>(reader: R, buf: Arc<Mutex<String>>) {
+/// Spawn a reader thread that drains `reader` into `buf`, up to `cap` bytes.
+///
+/// The shared `bytes_total` counter is incremented for every byte read (across
+/// all sibling reader threads). Once the cumulative total reaches `cap`, the
+/// thread continues reading from the pipe (to prevent the child from blocking
+/// on a full pipe buffer) but stops writing to `buf`.
+///
+/// Returns a `JoinHandle` so callers can wait for the thread to finish.
+fn pump_reader_capped<R: Read + Send + 'static>(
+    reader: R,
+    buf: Arc<Mutex<String>>,
+    bytes_total: Arc<AtomicUsize>,
+    cap: usize,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let mut r = reader;
         let mut chunk = [0u8; 4096];
@@ -45,14 +57,20 @@ fn pump_reader<R: Read + Send + 'static>(reader: R, buf: Arc<Mutex<String>>) {
             match r.read(&mut chunk) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    let text = String::from_utf8_lossy(&chunk[..n]).into_owned();
-                    if let Ok(mut g) = buf.lock() {
-                        g.push_str(&text);
+                    let prev = bytes_total.fetch_add(n, Ordering::Relaxed);
+                    if prev < cap {
+                        let writable = (cap - prev).min(n);
+                        let text = String::from_utf8_lossy(&chunk[..writable]).into_owned();
+                        if let Ok(mut g) = buf.lock() {
+                            g.push_str(&text);
+                        }
                     }
+                    // After cap is reached: keep reading so the child is not
+                    // stalled waiting for us to consume its pipe buffer.
                 }
             }
         }
-    });
+    })
 }
 
 /// JSON-schema description of one tool, ready to pass to the API.
@@ -83,11 +101,23 @@ pub fn all_tools(config: &AssistantConfig) -> Vec<ToolDef> {
     let mut tools = vec![
         ToolDef {
             name: "fs_read",
-            description: Cow::Borrowed("Read the full content of a file and return it as a string."),
+            description: Cow::Borrowed(
+                "Read a file and return its content. By default returns the whole file up to the \
+                 output cap. Use start_line / end_line to read a specific range (1-indexed, \
+                 inclusive). Efficient for large files when you only need a section.",
+            ),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Absolute or ~/relative path" }
+                    "path": { "type": "string", "description": "Absolute or ~/relative path" },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "First line to return (1 = first line of file). Optional."
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "description": "Last line to return (inclusive). Optional."
+                    }
                 },
                 "required": ["path"]
             }),
@@ -157,7 +187,9 @@ pub fn all_tools(config: &AssistantConfig) -> Vec<ToolDef> {
             name: "shell_exec",
             description: Cow::Borrowed(
                 "Run an arbitrary shell command via bash and return stdout + stderr. \
-                 Use for building, testing, grepping, git, npm, cargo, etc.",
+                 Use for building, testing, grepping, git, npm, cargo, etc. \
+                 Output is capped; for commands that produce large output or run \
+                 indefinitely, use shell_bg + shell_poll instead.",
             ),
             parameters: serde_json::json!({
                 "type": "object",
@@ -169,6 +201,12 @@ pub fn all_tools(config: &AssistantConfig) -> Vec<ToolDef> {
                     "cwd": {
                         "type": "string",
                         "description": "Working directory override (optional, defaults to pane cwd)"
+                    },
+                    "detail": {
+                        "type": "string",
+                        "enum": ["brief", "default", "full"],
+                        "description": "Output size: 'brief' for summaries, 'default' (standard cap), \
+                                        'full' for deep inspection. Default: 'default'."
                     }
                 },
                 "required": ["command"]
@@ -230,8 +268,8 @@ pub fn all_tools(config: &AssistantConfig) -> Vec<ToolDef> {
         name: "web_fetch",
         description: Cow::Borrowed(
             "Fetch a URL and return its content as Markdown. \
-                      Uses defuddle.md then r.jina.ai as free anonymous backends. \
-                      Use for reading documentation, articles, or any public web page.",
+             Uses defuddle.md then r.jina.ai as free anonymous backends. \
+             Use for reading documentation, articles, or any public web page.",
         ),
         parameters: serde_json::json!({
             "type": "object",
@@ -239,6 +277,11 @@ pub fn all_tools(config: &AssistantConfig) -> Vec<ToolDef> {
                 "url": {
                     "type": "string",
                     "description": "Full URL to fetch (must start with http:// or https://)"
+                },
+                "detail": {
+                    "type": "string",
+                    "enum": ["brief", "default", "full"],
+                    "description": "Output size. Default: 'default'."
                 }
             },
             "required": ["url"]
@@ -340,6 +383,11 @@ pub fn all_tools(config: &AssistantConfig) -> Vec<ToolDef> {
                 "max_results": {
                     "type": "integer",
                     "description": "Maximum number of matching lines to return (default 100)"
+                },
+                "detail": {
+                    "type": "string",
+                    "enum": ["brief", "default", "full"],
+                    "description": "Output size. Default: 'default'."
                 }
             },
             "required": ["pattern"]
@@ -419,8 +467,30 @@ pub fn to_api_schema(tool: &ToolDef) -> serde_json::Value {
     })
 }
 
-/// Maximum bytes returned from a single tool call to avoid overflowing the context window.
-const MAX_RESULT_BYTES: usize = 8_000;
+/// Fallback output cap for tools not matched in `budget_for`.
+const DEFAULT_RESULT_BYTES: usize = 8_000;
+
+/// Per-tool byte budgets for tool-call results.
+///
+/// `detail` maps to the budget tier:
+///   "brief"   -> half the default (faster, shorter answers)
+///   "default" -> normal cap (the zero-arg / unspecified case)
+///   "full"    -> expanded cap for deep inspection
+fn budget_for(tool: &str, detail: &str) -> usize {
+    let (default_bytes, max_bytes): (usize, usize) = match tool {
+        "fs_list" | "pwd" | "memory_read" => (2_000, 4_000),
+        "fs_read" | "grep_search" => (8_000, 16_000),
+        "shell_exec" | "shell_poll" => (12_000, 24_000),
+        "web_fetch" | "read_url" => (10_000, 20_000),
+        "shell_bg" => (8_000, 8_000),
+        _ => (DEFAULT_RESULT_BYTES, DEFAULT_RESULT_BYTES),
+    };
+    match detail {
+        "brief" => default_bytes / 2,
+        "full" => max_bytes,
+        _ => default_bytes,
+    }
+}
 
 /// Execute a tool by name. `args` is the parsed JSON from the model.
 /// `cwd` is the agent's current working directory; shell_exec updates it in-place
@@ -431,6 +501,10 @@ pub fn execute(
     cwd: &mut String,
     config: &AssistantConfig,
 ) -> Result<String> {
+    // Per-tool byte cap, honoring any optional `detail` argument.
+    let detail = args["detail"].as_str().unwrap_or("default");
+    let cap = budget_for(name, detail);
+
     let result = match name {
         "fs_read" => {
             let raw_path = args["path"].as_str().context("missing path")?;
@@ -450,15 +524,60 @@ pub fn execute(
                     }
                 }
             }
-            // Read at most MAX_RESULT_BYTES + 512 bytes to avoid OOM on large files.
-            // The +512 gives enough slack to find a valid UTF-8 char boundary.
             let file =
                 std::fs::File::open(&path).with_context(|| format!("read {}", path.display()))?;
-            let mut buf = Vec::with_capacity(MAX_RESULT_BYTES + 512);
-            file.take((MAX_RESULT_BYTES + 512) as u64)
-                .read_to_end(&mut buf)
-                .with_context(|| format!("read {}", path.display()))?;
-            String::from_utf8_lossy(&buf).into_owned()
+
+            let start_line = args["start_line"].as_u64().map(|n| n as usize);
+            let end_line = args["end_line"].as_u64().map(|n| n as usize);
+
+            if start_line.is_some() || end_line.is_some() {
+                // Line-range mode: stream with BufReader so we never load the
+                // whole file into memory.
+                let reader = std::io::BufReader::new(file);
+                let start = start_line.unwrap_or(1);
+                let end = end_line.unwrap_or(usize::MAX);
+                let mut out = String::new();
+                let mut line_num = 1usize;
+                for line_result in reader.lines() {
+                    let line = line_result.with_context(|| format!("read {}", path.display()))?;
+                    if line_num < start {
+                        line_num += 1;
+                        continue;
+                    }
+                    if line_num > end {
+                        break;
+                    }
+                    out.push_str(&line);
+                    out.push('\n');
+                    if out.len() >= cap {
+                        out.push_str(&format!(
+                            "[truncated: output exceeded {} bytes at line {}]",
+                            cap, line_num
+                        ));
+                        break;
+                    }
+                    line_num += 1;
+                }
+                if out.is_empty() {
+                    format!(
+                        "(no content in lines {}..={})",
+                        start,
+                        end_line
+                            .map(|n| n.to_string())
+                            .unwrap_or_else(|| "EOF".into())
+                    )
+                } else {
+                    out
+                }
+            } else {
+                // Full-file mode: read at most cap + 512 bytes from disk.
+                // The +512 gives slack to find a valid UTF-8 char boundary.
+                let mut buf = Vec::with_capacity(cap + 512);
+                file.take((cap + 512) as u64)
+                    .read_to_end(&mut buf)
+                    .with_context(|| format!("read {}", path.display()))?;
+                String::from_utf8_lossy(&buf).into_owned()
+            }
         }
         "fs_list" => {
             let path = resolve(args["path"].as_str().context("missing path")?, cwd)?;
@@ -521,52 +640,113 @@ pub fn execute(
                 .map(|p| resolve(p, cwd))
                 .transpose()?
                 .unwrap_or_else(|| PathBuf::from(cwd.as_str()));
-            // Append a marker so we can track the final working directory after any `cd`.
-            // bash evaluates $(pwd) at runtime, capturing the directory the command left off in.
+            // Write CWD to a temp file so it is never lost to output capping.
+            // The stdout stream may be truncated for high-output commands, but
+            // the temp file is written unconditionally after the command exits.
+            // PID + nanosecond timestamp avoids collisions between rapid calls.
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or(0);
+            let cwd_tmp_path =
+                std::env::temp_dir().join(format!("kaku_cwd_{}_{}.txt", std::process::id(), ts));
             let wrapped = format!(
-                "{}; __kaku_rc=$?; printf '__KAKU_CWD__:%s\\n' \"$(pwd)\"; exit $__kaku_rc",
-                command
+                "{}; __kaku_rc=$?; printf '%s' \"$(pwd)\" > {}; exit $__kaku_rc",
+                command,
+                cwd_tmp_path.display()
             );
             // Use the user's login shell so nvm/conda/pyenv etc. are available.
-            // $SHELL is set by the terminal; fall back to bash.
             let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into());
-            let output = std::process::Command::new(&shell)
+
+            // Reserve 512 bytes for tags/exit-code appended below, so the final
+            // result stays at or under `cap` and the bottom truncation code won't fire.
+            let streaming_cap = cap.saturating_sub(512);
+
+            let mut child = std::process::Command::new(&shell)
                 .arg("-l")
                 .arg("-c")
                 .arg(&wrapped)
                 .current_dir(&exec_cwd)
-                .output()
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
                 .with_context(|| format!("shell exec failed ({})", shell))?;
-            let stdout_raw = String::from_utf8_lossy(&output.stdout);
-            // Extract and strip the __KAKU_CWD__: marker line, update cwd in-place.
-            let mut stdout_lines: Vec<&str> = stdout_raw.lines().collect();
-            if let Some(pos) = stdout_lines
-                .iter()
-                .rposition(|l| l.starts_with("__KAKU_CWD__:"))
-            {
-                let new_dir = stdout_lines[pos]["__KAKU_CWD__:".len()..]
-                    .trim()
-                    .to_string();
+
+            // Shared byte counter across both reader threads. When the cumulative
+            // total reaches `streaming_cap`, readers drain the pipe but stop writing.
+            let bytes_total = Arc::new(AtomicUsize::new(0));
+            let stdout_buf = Arc::new(Mutex::new(String::new()));
+            let stderr_buf = Arc::new(Mutex::new(String::new()));
+
+            let h1 = child.stdout.take().map(|s| {
+                pump_reader_capped(s, stdout_buf.clone(), bytes_total.clone(), streaming_cap)
+            });
+            let h2 = child.stderr.take().map(|s| {
+                pump_reader_capped(s, stderr_buf.clone(), bytes_total.clone(), streaming_cap)
+            });
+
+            // Poll until the child exits naturally or output exceeds the cap.
+            // Do NOT kill the child on overflow: write operations (cargo build,
+            // npm install, git ...) must be allowed to finish. pump_reader_capped
+            // already drains the pipe without storing bytes past the cap, so the
+            // child never blocks on a full pipe buffer.
+            let overflowed = loop {
+                if bytes_total.load(Ordering::Relaxed) >= streaming_cap {
+                    break true;
+                }
+                match child.try_wait() {
+                    Ok(Some(_)) => break false,
+                    _ => {}
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            };
+            // Wait for the child to finish, then join reader threads.
+            let status = child.wait().ok();
+            if let Some(h) = h1 {
+                let _ = h.join();
+            }
+            if let Some(h) = h2 {
+                let _ = h.join();
+            }
+
+            let stdout_raw = stdout_buf.lock().map(|g| g.clone()).unwrap_or_default();
+            // Update CWD from the temp file (written regardless of output cap).
+            if let Ok(new_dir) = std::fs::read_to_string(&cwd_tmp_path) {
+                let new_dir = new_dir.trim().to_string();
                 if !new_dir.is_empty() {
                     *cwd = new_dir;
                 }
-                stdout_lines.remove(pos);
             }
+            let _ = std::fs::remove_file(&cwd_tmp_path);
+            // Strip any leftover inline __KAKU_CWD__ marker from stdout.
+            let mut stdout_lines: Vec<&str> = stdout_raw.lines().collect();
+            stdout_lines.retain(|l| !l.starts_with("__KAKU_CWD__:"));
             let mut out = stdout_lines.join("\n");
-            // Preserve trailing newline if original stdout had one.
             if stdout_raw.ends_with('\n') && !out.ends_with('\n') {
                 out.push('\n');
             }
-            if !output.stderr.is_empty() {
+            let stderr_str = stderr_buf.lock().map(|g| g.clone()).unwrap_or_default();
+            if !stderr_str.is_empty() {
                 if !out.is_empty() {
                     out.push('\n');
                 }
                 out.push_str("[stderr] ");
-                out.push_str(&String::from_utf8_lossy(&output.stderr));
+                out.push_str(&stderr_str);
             }
-            if !output.status.success() {
-                let code = output.status.code().unwrap_or(-1);
-                out.push_str(&format!("\n[exit {}]", code));
+            if overflowed {
+                let total = bytes_total.load(Ordering::Relaxed);
+                out.push_str(&format!(
+                    "\n[truncated: first ~{} bytes shown ({} total). \
+                     For large output, use shell_bg + shell_poll to avoid waiting.]",
+                    streaming_cap, total
+                ));
+            }
+            // Always report non-zero exit code so the model knows when a command failed.
+            if let Some(s) = status {
+                if !s.success() {
+                    let code = s.code().unwrap_or(-1);
+                    out.push_str(&format!("\n[exit {}]", code));
+                }
             }
             if out.trim().is_empty() {
                 "(no output)".into()
@@ -595,11 +775,15 @@ pub fn execute(
             let output = Arc::new(Mutex::new(String::new()));
             // Take stdout/stderr before inserting into the registry so the reader
             // threads own the pipes; shell_poll reads the shared buffer instead.
+            // Cap the combined output to avoid unbounded memory growth for long-running
+            // processes (e.g. `tail -f`, dev servers, `yes`).
+            let bg_cap = budget_for("shell_bg", "default");
+            let bg_bytes = Arc::new(AtomicUsize::new(0));
             if let Some(stdout) = child.stdout.take() {
-                pump_reader(stdout, output.clone());
+                let _ = pump_reader_capped(stdout, output.clone(), bg_bytes.clone(), bg_cap);
             }
             if let Some(stderr) = child.stderr.take() {
-                pump_reader(stderr, output.clone());
+                let _ = pump_reader_capped(stderr, output.clone(), bg_bytes.clone(), bg_cap);
             }
             bg_registry()
                 .lock()
@@ -773,8 +957,8 @@ pub fn execute(
 
     // Truncate oversized results so they don't exhaust the context window.
     // Spill the full content to a temp file so the model can fs_read it if needed.
-    if result.len() > MAX_RESULT_BYTES {
-        let boundary = (0..=MAX_RESULT_BYTES)
+    if result.len() > cap {
+        let boundary = (0..=cap)
             .rev()
             .find(|&i| result.is_char_boundary(i))
             .unwrap_or(0);
@@ -793,12 +977,20 @@ pub fn execute(
                 registry.push(tmp_path.clone());
             }
             format!(
-                "\n[... output truncated at {} bytes. Full content saved to {} — use fs_read to access it.]",
-                MAX_RESULT_BYTES,
+                "\n[truncated: {} of {} bytes shown]\
+                 \n[spill: {}]\
+                 \n[hint: use fs_read(\"{}\") to read the rest]",
+                cap,
+                result.len(),
+                tmp_path.display(),
                 tmp_path.display()
             )
         } else {
-            format!("\n[... truncated at {} bytes]", MAX_RESULT_BYTES)
+            format!(
+                "\n[truncated: {} bytes shown of {} total]",
+                cap,
+                result.len()
+            )
         };
         Ok(format!("{}{}", truncated, note))
     } else {
@@ -833,20 +1025,45 @@ fn web_client() -> &'static reqwest::blocking::Client {
     })
 }
 
+/// Maximum bytes we will buffer from any single HTTP fetch response.
+/// Upstream Markdown converters (defuddle, jina) return article text that is
+/// usually well under 100 KB, so this guard is mainly a safety net.
+const MAX_FETCH_BYTES: usize = 512 * 1024; // 512 KB
+
+/// Read at most `MAX_FETCH_BYTES` from a reqwest blocking Response.
+/// reqwest::blocking::Response implements std::io::Read, so we can cap at the
+/// source without buffering the full body.
+fn read_response_capped(resp: reqwest::blocking::Response) -> Result<String> {
+    let mut buf = Vec::with_capacity(MAX_FETCH_BYTES.min(64 * 1024));
+    resp.take(MAX_FETCH_BYTES as u64)
+        .read_to_end(&mut buf)
+        .context("read HTTP response body")?;
+    Ok(String::from_utf8_lossy(&buf).into_owned())
+}
+
+/// Read at most 4 KiB from an error response for logging / error messages.
+/// Prevents a malicious or misbehaving server from forcing large allocations
+/// on non-2xx paths where we only need a short diagnostic snippet.
+fn read_error_body(resp: reqwest::blocking::Response) -> String {
+    let mut buf = Vec::with_capacity(4096);
+    let _ = resp.take(4096).read_to_end(&mut buf);
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
 /// Fetch a URL as Markdown. Primary: defuddle.md. Fallback: r.jina.ai.
 fn fetch_markdown_default(url: &str) -> Result<String> {
     let client = web_client();
-    // Primary: defuddle.md — cleaner article extraction.
+    // Primary: defuddle.md, cleaner article extraction.
     if let Ok(resp) = client.get(format!("https://defuddle.md/{}", url)).send() {
         if resp.status().is_success() {
-            if let Ok(body) = resp.text() {
+            if let Ok(body) = read_response_capped(resp) {
                 if !body.trim().is_empty() {
                     return Ok(body);
                 }
             }
         }
     }
-    // Fallback: r.jina.ai — free anonymous Markdown converter.
+    // Fallback: r.jina.ai, free anonymous Markdown converter.
     let resp = client
         .get(format!("https://r.jina.ai/{}", url))
         .send()
@@ -857,7 +1074,7 @@ fn fetch_markdown_default(url: &str) -> Result<String> {
             resp.status()
         );
     }
-    resp.text().context("read fetch response body")
+    read_response_capped(resp).context("read fetch response body")
 }
 
 // ─── Web search providers ─────────────────────────────────────────────────────
@@ -885,7 +1102,7 @@ fn search_brave(
     let resp = req.send().context("brave search request failed")?;
     if !resp.status().is_success() {
         let status = resp.status();
-        let body = resp.text().unwrap_or_default();
+        let body = read_error_body(resp);
         anyhow::bail!(
             "brave search returned {}: {}",
             status,
@@ -955,7 +1172,7 @@ fn search_pipellm(query: &str, api_key: &str, kind: Option<&str>) -> Result<Stri
         };
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().unwrap_or_default();
+            let body = read_error_body(resp);
             last_err = format!(
                 "{} from {}: {}",
                 status,
@@ -1000,7 +1217,7 @@ fn search_tavily(
     search_depth: Option<&str>,
 ) -> Result<String> {
     // Auth: Authorization: Bearer header (not api_key in body).
-    // include_answer: true always — Tavily returns a direct AI-synthesized answer alongside results.
+    // include_answer: true always. Tavily returns a direct AI-synthesized answer alongside results.
     let mut body = serde_json::json!({
         "query": query,
         "max_results": 10,
@@ -1035,7 +1252,7 @@ fn search_tavily(
         .context("tavily search request failed")?;
     if !resp.status().is_success() {
         let status = resp.status();
-        let body = resp.text().unwrap_or_default();
+        let body = read_error_body(resp);
         anyhow::bail!(
             "tavily search returned {}: {}",
             status,
@@ -1087,7 +1304,9 @@ fn exec_grep_search(
         c.arg("--line-number")
             .arg("--no-heading")
             .arg("--color=never")
-            .arg(format!("--context={}", context_lines));
+            .arg(format!("--context={}", context_lines))
+            // Stop scanning each file early; post-filter caps the total.
+            .arg(format!("--max-count={}", max_results));
         if case_insensitive {
             c.arg("--ignore-case");
         }
@@ -1111,32 +1330,93 @@ fn exec_grep_search(
         c
     };
 
-    let output = cmd.output().context("grep_search exec failed")?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    if text.trim().is_empty() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stderr.trim().is_empty() {
-            return Ok(format!(
-                "No matches. ({})",
-                stderr.trim().chars().take(200).collect::<String>()
-            ));
+    // Stream stdout line by line to avoid buffering the full output in memory.
+    cmd.stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().context("grep_search exec failed")?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("grep stdout missing"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("grep stderr missing"))?;
+
+    // Drain stderr in a background thread to prevent the child from blocking
+    // on a full pipe buffer when it writes many errors (bad regex, permission
+    // denied while walking directories, etc.). Keep only the first 512 bytes.
+    let stderr_buf: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::with_capacity(512)));
+    let stderr_buf_clone = stderr_buf.clone();
+    let stderr_handle = std::thread::spawn(move || {
+        let mut err = stderr;
+        let mut chunk = [0u8; 512];
+        loop {
+            match err.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    if let Ok(mut g) = stderr_buf_clone.lock() {
+                        let remaining = 512usize.saturating_sub(g.len());
+                        if remaining > 0 {
+                            g.extend_from_slice(&chunk[..remaining.min(n)]);
+                        }
+                        // Keep draining past the cap so the child is not stalled.
+                    }
+                }
+            }
+        }
+    });
+
+    let reader = std::io::BufReader::new(stdout);
+
+    let mut result_lines: Vec<String> = Vec::new();
+    let mut match_count = 0usize;
+    let mut truncated = false;
+
+    for line_result in reader.lines() {
+        let line = match line_result {
+            Ok(l) => l,
+            Err(_) => break,
+        };
+        // Lines with ":" are matches; "--" are context separators.
+        if !line.starts_with("--") {
+            if match_count >= max_results {
+                truncated = true;
+                break;
+            }
+            match_count += 1;
+        }
+        result_lines.push(line);
+    }
+
+    // Only kill on truncation; otherwise let the child finish naturally.
+    if truncated {
+        let _ = child.kill();
+    }
+    child.wait().ok();
+    let _ = stderr_handle.join();
+
+    if result_lines.is_empty() {
+        // Surface any stderr hint (e.g. invalid regex, missing path).
+        let hint = stderr_buf
+            .lock()
+            .ok()
+            .map(|g| {
+                String::from_utf8_lossy(&g)
+                    .trim()
+                    .chars()
+                    .take(200)
+                    .collect::<String>()
+            })
+            .unwrap_or_default();
+        if !hint.is_empty() {
+            return Ok(format!("No matches. ({})", hint));
         }
         return Ok("No matches found.".into());
     }
 
-    // Cap at max_results matching lines (separators don't count).
-    let mut result_lines = Vec::new();
-    let mut match_count = 0usize;
-    for line in text.lines() {
-        if match_count >= max_results {
-            result_lines.push(format!("\n[... truncated at {} results]", max_results));
-            break;
-        }
-        // Lines with ":" are matches; "--" are context separators.
-        if !line.starts_with("--") {
-            match_count += 1;
-        }
-        result_lines.push(line.to_string());
+    if truncated {
+        result_lines.push(format!("\n[... truncated at {} results]", max_results));
     }
     Ok(result_lines.join("\n"))
 }
@@ -1202,7 +1482,7 @@ fn exec_http_request(
         })
         .map(|(k, v)| format!("{}: {}", k, v.to_str().unwrap_or("?")))
         .collect();
-    let body_text = resp.text().context("read http_request response body")?;
+    let body_text = read_response_capped(resp).context("read http_request response body")?;
 
     let mut out = format!("HTTP {}\n", status.as_u16());
     if !resp_headers.is_empty() {
@@ -1259,7 +1539,7 @@ fn exec_read_url(url: &str, provider: &str, api_key: &str) -> Result<String> {
                 };
                 if !resp.status().is_success() {
                     let status = resp.status();
-                    let body = resp.text().unwrap_or_default();
+                    let body = read_error_body(resp);
                     last_err = format!(
                         "{} from {}: {}",
                         status,
@@ -1282,7 +1562,7 @@ fn exec_read_url(url: &str, provider: &str, api_key: &str) -> Result<String> {
                 }
                 return Ok("Page returned empty content.".into());
             }
-            // Both domains failed — fall back to generic reader.
+            // Both domains failed; fall back to generic reader.
             log::warn!(
                 "pipellm reader failed ({}), falling back to generic fetch",
                 last_err
@@ -1299,7 +1579,7 @@ fn exec_read_url(url: &str, provider: &str, api_key: &str) -> Result<String> {
                 .context("tavily extract request failed")?;
             if !resp.status().is_success() {
                 let status = resp.status();
-                let body = resp.text().unwrap_or_default();
+                let body = read_error_body(resp);
                 // Fall back on failure rather than hard-erroring.
                 log::warn!(
                     "tavily extract returned {} ({}), falling back to generic fetch",
@@ -1374,18 +1654,20 @@ mod tests {
     #[test]
     fn fs_read_caps_large_files() {
         let mut tmp = tempfile::NamedTempFile::new().unwrap();
-        let huge = "x".repeat(MAX_RESULT_BYTES + 2000);
+        // fs_read default cap is DEFAULT_RESULT_BYTES (8 000). Write more than that.
+        let huge = "x".repeat(DEFAULT_RESULT_BYTES + 2000);
         tmp.write_all(huge.as_bytes()).unwrap();
         let path = tmp.path().to_string_lossy();
         let args = serde_json::json!({"path": path.to_string()});
         let mut cwd = "/tmp".to_string();
         let result = execute("fs_read", &args, &mut cwd, &dummy_config()).unwrap();
         assert!(
-            result.contains("truncated at"),
-            "expected truncation note in result"
+            result.contains("[truncated:"),
+            "expected truncation note in result, got: {}",
+            &result[..result.len().min(200)]
         );
-        // Truncated text + spill note should be a bit above MAX_RESULT_BYTES.
-        assert!(result.len() > MAX_RESULT_BYTES && result.len() < MAX_RESULT_BYTES + 500);
+        // Truncated content + structured note should be a bit above DEFAULT_RESULT_BYTES.
+        assert!(result.len() > DEFAULT_RESULT_BYTES && result.len() < DEFAULT_RESULT_BYTES + 500);
     }
 
     #[test]

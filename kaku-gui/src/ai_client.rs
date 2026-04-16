@@ -188,6 +188,12 @@ impl ApiMessage {
             "content": content.into()
         }))
     }
+
+    /// Approximate serialized byte size of this message. Used for history-budget
+    /// accounting in the agent loop; does not need to be exact.
+    pub fn byte_len(&self) -> usize {
+        serde_json::to_vec(&self.0).map(|v| v.len()).unwrap_or(0)
+    }
 }
 
 // ─── Tool calling ─────────────────────────────────────────────────────────────

@@ -51,10 +51,27 @@ pub(crate) fn run_agent(
     // ai_conversations used via fully-qualified path below
     use crate::ai_tools;
     const MAX_ROUNDS: usize = 15;
+    // Soft history budget: when the accumulated message bytes approach a
+    // large-context model limit (~200k tokens * ~4 bytes), nudge the model to
+    // wrap up. This is a hint, not a hard stop; MAX_ROUNDS is the hard stop.
+    const MAX_HISTORY_BYTES: usize = 120_000;
 
     for _ in 0..MAX_ROUNDS {
         if cancel.load(Ordering::Relaxed) {
             break;
+        }
+
+        // Soft history budget: check BEFORE calling chat_step so the warning
+        // message is appended after all tool results from the previous round,
+        // not between an assistant tool-call turn and its tool results (which
+        // would violate the OpenAI message-format contract).
+        let history_bytes: usize = messages.iter().map(|m| m.byte_len()).sum();
+        if history_bytes >= MAX_HISTORY_BYTES {
+            messages.push(ApiMessage::user(
+                "Your conversation context is nearly full. \
+                 Complete the current task as concisely as possible and stop using tools."
+                    .to_string(),
+            ));
         }
 
         let tx_c = tx.clone();
