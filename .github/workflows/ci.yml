@@ -4,7 +4,19 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '**.md'
+      - 'CONTRIBUTORS.svg'
+      - 'assets/screenshots/**'
+      - 'assets/logo.*'
+      - '.github/ISSUE_TEMPLATE/**'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'CONTRIBUTORS.svg'
+      - 'assets/screenshots/**'
+      - 'assets/logo.*'
+      - '.github/ISSUE_TEMPLATE/**'
 
 permissions:
   contents: read
@@ -135,6 +147,18 @@ jobs:
 
       - name: Check RELEASE_NOTES.md version
         run: ./scripts/check_release_notes.sh
+
+  config-check:
+    name: Config Version Check
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0 # check_release_config.sh reads previous version tags
+
+      - name: Check bundled config version
+        run: ./scripts/check_release_config.sh
 
   universal-build:
     name: Universal Build Validation
