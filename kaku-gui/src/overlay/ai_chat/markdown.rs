@@ -74,15 +74,11 @@ pub(crate) fn parse_markdown_blocks(content: &str) -> Vec<MdBlock> {
 
 fn parse_heading_prefix(s: &str) -> Option<(u8, &str)> {
     for level in (1u8..=4).rev() {
-        let marker_len = level as usize + 1; // "# " ... "#### "
         let pounds = "#".repeat(level as usize);
         let prefix = format!("{} ", pounds);
         if let Some(rest) = s.strip_prefix(&prefix) {
-            // Don't match if preceded by a # (that would be a higher level).
-            // Since we iterate highest first, this handles "##### " → level 4 + remainder.
             return Some((level, rest));
         }
-        let _ = marker_len;
     }
     None
 }

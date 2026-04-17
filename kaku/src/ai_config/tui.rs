@@ -420,10 +420,6 @@ fn summarize_tool_fields(
     }
 }
 
-fn should_collapse_kaku_assistant(_fields: &[FieldEntry]) -> bool {
-    false
-}
-
 struct CodexUsageSnapshot {
     summary: Option<String>,
 }
@@ -4193,17 +4189,12 @@ fn status_value_for_display(field_key: &str, new_val: &str) -> String {
 impl App {
     fn new() -> Self {
         let tools = Self::load_tools();
-        let assistant_collapsed = tools
-            .iter()
-            .find(|tool| tool.tool == Tool::KakuAssistant)
-            .map(|tool| should_collapse_kaku_assistant(&tool.fields))
-            .unwrap_or(false);
         let first = tools.iter().position(|t| !t.fields.is_empty()).unwrap_or(0);
         let mut app = App {
             tools,
             tool_index: first,
             field_index: 0,
-            assistant_collapsed,
+            assistant_collapsed: false,
             usage_update_rx: None,
             usage_update_tx: None,
             usage_update_generation: Arc::new(AtomicUsize::new(0)),
@@ -4780,9 +4771,7 @@ impl App {
             *tool = refreshed;
         }
         if tool_type == Tool::KakuAssistant {
-            if let Some(tool) = self.current_tool() {
-                self.assistant_collapsed = should_collapse_kaku_assistant(&tool.fields);
-            }
+            self.assistant_collapsed = false;
             self.field_index = 0;
         }
         self.schedule_usage_reload(tool_type);
@@ -6540,17 +6529,6 @@ provider = "managed:kimi-code"
             parse_claude_auth_status(&parsed),
             Some("✗ not signed in".into())
         );
-    }
-
-    #[test]
-    fn kaku_assistant_never_collapses() {
-        let ready = extract_kaku_assistant_fields(
-            "enabled = true\napi_key = \"sk-test\"\nmodel = \"gpt-5-mini\"\n",
-        );
-        assert!(!should_collapse_kaku_assistant(&ready));
-
-        let not_ready = extract_kaku_assistant_fields("enabled = true\n");
-        assert!(!should_collapse_kaku_assistant(&not_ready));
     }
 
     #[test]

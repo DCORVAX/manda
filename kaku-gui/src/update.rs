@@ -336,7 +336,9 @@ fn update_checker() {
                         }
                     }
 
-                    config::create_user_owned_dirs(update_file_name.parent().unwrap()).ok();
+                    if let Some(parent) = update_file_name.parent() {
+                        config::create_user_owned_dirs(parent).ok();
+                    }
 
                     // Record the time of this check
                     if let Ok(f) = std::fs::OpenOptions::new()

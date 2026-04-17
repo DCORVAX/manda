@@ -38,7 +38,7 @@ warn() { echo -e "${YELLOW}[nightly]${NC} $*"; }
 # Build
 if [[ "$UPLOAD_ONLY" -eq 0 ]]; then
     log "Building debug app bundle..."
-    PROFILE=debug ./scripts/build.sh --app-only 2>&1 | grep -v "ranlib: warning:.*has no symbols" || true
+    PROFILE=debug ./scripts/build.sh --app-only 2>&1 | grep -v 'ranlib: warning:.*has no symbols' || true
     log "Build complete: $OUT_DIR/Kaku.app"
 fi
 
