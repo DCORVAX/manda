@@ -1057,6 +1057,7 @@ pub struct TermWindow {
     pub last_frame_duration: Duration,
     last_fps_check_time: Instant,
     num_frames: usize,
+    pub first_paint_logged: bool,
     pub fps: f32,
 
     connection_name: String,
@@ -1534,6 +1535,7 @@ impl TermWindow {
             connection_name,
             last_fps_check_time: Instant::now(),
             num_frames: 0,
+            first_paint_logged: false,
             last_frame_duration: Duration::ZERO,
             fps: 0.,
             config_subscription: None,
@@ -1775,6 +1777,7 @@ impl TermWindow {
                 );
             }
 
+            crate::startup_trace::mark("  TermWindow::created start");
             if let Some(gl) = gl {
                 myself.gl.replace(Rc::clone(&gl));
                 myself.created(RenderContext::Glium(Rc::clone(&gl)))?;
@@ -1783,13 +1786,18 @@ impl TermWindow {
                 myself.webgpu.replace(Rc::clone(&webgpu));
                 myself.created(RenderContext::WebGpu(Rc::clone(&webgpu)))?;
             }
+            crate::startup_trace::mark("  TermWindow::created done");
             myself.subscribe_to_pane_updates();
+            crate::startup_trace::mark("  emit window-config-reloaded start");
             myself.emit_window_event("window-config-reloaded", None);
+            crate::startup_trace::mark("  emit window-config-reloaded done");
             myself.emit_status_event();
+            crate::startup_trace::mark("  emit_status_event done");
         }
 
         crate::update::start_update_checker();
         front_end().record_known_window(window, mux_window_id);
+        crate::startup_trace::mark("TermWindow::new_window EXIT");
 
         Ok(())
     }
@@ -4146,6 +4154,11 @@ impl TermWindow {
                 self.activate_window_relative(*n, false)?;
             }
             SendString(s) => self.write_terminal_input_bytes(pane, s.as_bytes())?,
+            SendStringIfNotAltScreen(s) => {
+                if !pane.is_alt_screen_active() {
+                    self.write_terminal_input_bytes(pane, s.as_bytes())?;
+                }
+            }
             SendKey(key) => {
                 use keyevent::Key;
                 let mods = key.mods;

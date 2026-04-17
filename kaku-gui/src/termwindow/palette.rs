@@ -139,6 +139,7 @@ fn build_commands(term_window: &mut TermWindow) -> Vec<ExpandedCommand> {
         matches!(
             action,
             KeyAssignment::SendString(_)
+                | KeyAssignment::SendStringIfNotAltScreen(_)
                 | KeyAssignment::SendKey(_)
                 | KeyAssignment::Nop
                 | KeyAssignment::Multiple(_)

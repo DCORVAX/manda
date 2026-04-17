@@ -758,11 +758,14 @@ fn run_terminal_gui(opts: StartCommand, default_domain_name: Option<String>) -> 
     // FontConfiguration::new() in new_window() hits warm caches instead of
     // blocking the async startup path.
     let font_dirs = config.font_dirs.clone();
+    startup_trace::mark("font-prewarm spawn");
     if let Err(err) = std::thread::Builder::new()
         .name("font-prewarm".into())
         .spawn(move || {
+            startup_trace::mark("  font-prewarm thread start");
             let _ = wezterm_font::db::FontDatabase::with_built_in();
             wezterm_font::db::FontDatabase::prewarm_font_dirs(&font_dirs);
+            startup_trace::mark("  font-prewarm thread done");
         })
     {
         log::warn!("Failed to start font prewarm thread: {}", err);
@@ -800,11 +803,13 @@ fn run_terminal_gui(opts: StartCommand, default_domain_name: Option<String>) -> 
     // First, let's see if we can ask an already running Kaku instance to do this.
     // We must do this before we start the gui frontend as the scheduler
     // requirements are different.
+    startup_trace::mark("Publish::resolve start");
     let mut publish = Publish::resolve(
         &mux,
         &config,
         opts.always_new_process || opts.position.is_some(),
     );
+    startup_trace::mark("Publish::resolve done");
     log::trace!("{:?}", publish);
     if publish.try_spawn(
         cmd.clone(),

@@ -2210,6 +2210,33 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             menubar: &[],
             icon: None,
         },
+        SendStringIfNotAltScreen(text) => CommandDef {
+            brief: if text == "\x1f" {
+                "Undo at the shell prompt".into()
+            } else {
+                format!("Sends `{text}` to the pane (normal screen only)").into()
+            },
+            doc: "Writes the given bytes to the pane only when the alt \
+                  screen is inactive. Used to forward Cmd+Z to the shell's \
+                  line-editor undo (zsh ZLE / bash readline) without \
+                  interfering with full-screen TUI apps like vim."
+                .into(),
+            keys: if text == "\x1f" {
+                #[cfg(target_os = "macos")]
+                {
+                    vec![(Modifiers::SUPER, "z".into())]
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    vec![]
+                }
+            } else {
+                vec![]
+            },
+            args: &[],
+            menubar: &[],
+            icon: None,
+        },
         SendKey(key) => CommandDef {
             brief: format!(
                 "Sends {key:?} to the active pane, \
@@ -2548,6 +2575,12 @@ fn compute_default_actions() -> Vec<KeyAssignment> {
         CopyTo(ClipboardCopyDestination::PrimarySelection),
         CopyTo(ClipboardCopyDestination::Clipboard),
         PasteFrom(ClipboardPasteSource::Clipboard),
+        // Cmd+Z at the shell prompt: forward Ctrl+_ (0x1f), which zsh (ZLE
+        // `undo`) and bash (readline `undo`) interpret as line-editor undo.
+        // Guarded against the alt screen so vim / less / htop / tmux keep
+        // owning the keystroke.
+        #[cfg(target_os = "macos")]
+        SendStringIfNotAltScreen("\x1f".to_string()),
         ClearScrollback(ScrollbackEraseMode::ScrollbackOnly),
         ClearScrollback(ScrollbackEraseMode::ScrollbackAndViewport),
         QuickSelect,

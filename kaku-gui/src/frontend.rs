@@ -299,6 +299,25 @@ pub fn set_default_terminal_with_feedback() {
     }
 }
 
+/// Runs one-shot GUI initialization that does not affect the first frame
+/// (AppKit menubar construction, global hotkey registration). Called from
+/// the first `paint_impl` completion so it does not block path-to-first-
+/// pixel. Idempotent: subsequent calls are no-ops.
+pub fn run_deferred_first_window_init() {
+    static DONE: AtomicBool = AtomicBool::new(false);
+    if DONE.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    startup_trace::mark("deferred recreate_menubar start");
+    crate::commands::CommandDef::recreate_menubar(&config::configuration());
+    startup_trace::mark("deferred recreate_menubar done");
+    if let Some(conn) = Connection::get() {
+        startup_trace::mark("deferred sync_global_hotkey start");
+        conn.sync_global_hotkey();
+        startup_trace::mark("deferred sync_global_hotkey done");
+    }
+}
+
 impl GuiFrontEnd {
     pub fn try_new() -> anyhow::Result<Rc<GuiFrontEnd>> {
         startup_trace::mark("  Connection::init() start");
@@ -494,17 +513,31 @@ impl GuiFrontEnd {
             }
             true
         });
-        // Re-evaluate config only if it queried `wezterm.gui.get_appearance()`
-        // before the GUI connection was ready during initial config load.
+        startup_trace::mark("    mux.subscribe registered");
+        // When `wezterm.gui.get_appearance()` is called during initial Lua
+        // load, the GUI connection does not yet exist and the helper returns
+        // `Appearance::Light` unconditionally. Re-parsing the whole Lua
+        // config after the connection is ready costs ~38ms, so only do it
+        // when the real appearance differs from that assumption.
         if window_funcs::take_appearance_queried_before_gui_ready() {
-            config::reload();
+            let real_appearance = front_end.connection.get_appearance();
+            if real_appearance != Appearance::Light {
+                startup_trace::mark(
+                    "    config::reload start (real appearance != Light)",
+                );
+                config::reload();
+                startup_trace::mark("    config::reload done");
+            } else {
+                startup_trace::mark("    config::reload skipped (Light)");
+            }
         }
         refresh_fast_config_snapshot();
+        startup_trace::mark("    refresh_fast_config_snapshot done");
 
-        // Build the initial menubar synchronously so AppKit has selectors
-        // registered before users hit menu actions or key equivalents.
-        crate::commands::CommandDef::recreate_menubar(&config::configuration());
-        front_end.connection.sync_global_hotkey();
+        // recreate_menubar + sync_global_hotkey are deferred to the first
+        // paint completion via run_deferred_first_window_init(); see
+        // paint_impl. They do not affect the first frame, and running them
+        // synchronously here added ~18ms to path-to-first-pixel.
 
         Ok(front_end)
     }

@@ -330,6 +330,7 @@ impl LauncherState {
                     KeyAssignment::ActivateTabRelative(_)
                         | KeyAssignment::ActivateTab(_)
                         | KeyAssignment::SendString(_)
+                        | KeyAssignment::SendStringIfNotAltScreen(_)
                         | KeyAssignment::SendKey(_)
                         | KeyAssignment::Nop
                         | KeyAssignment::Multiple(_)
@@ -357,6 +358,7 @@ impl LauncherState {
                     KeyAssignment::ActivateTabRelative(_)
                         | KeyAssignment::ActivateTab(_)
                         | KeyAssignment::SendString(_)
+                        | KeyAssignment::SendStringIfNotAltScreen(_)
                         | KeyAssignment::SendKey(_)
                         | KeyAssignment::Nop
                         | KeyAssignment::Multiple(_)

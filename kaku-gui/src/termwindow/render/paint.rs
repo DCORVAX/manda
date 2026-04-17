@@ -90,6 +90,10 @@ fn toast_colors_for_palette(
 impl crate::TermWindow {
     pub fn paint_impl(&mut self, frame: &mut RenderFrame) -> anyhow::Result<()> {
         self.num_frames += 1;
+        let is_first_paint = !self.first_paint_logged;
+        if is_first_paint {
+            crate::startup_trace::mark("first paint_impl start");
+        }
         // If nothing on screen needs animating, then we can avoid
         // invalidating as frequently
         *self.has_animation.borrow_mut() = None;
@@ -229,6 +233,19 @@ impl crate::TermWindow {
                     }
                 }
             }
+        }
+
+        if is_first_paint {
+            self.first_paint_logged = true;
+            crate::startup_trace::mark("first paint_impl done");
+            // AppKit menubar + global hotkey registration take ~18ms and
+            // do not affect the first frame; defer them out of the
+            // path-to-first-pixel critical path. spawn_into_main_thread
+            // queues them for the next runloop iteration.
+            promise::spawn::spawn_into_main_thread(async {
+                crate::frontend::run_deferred_first_window_init();
+            })
+            .detach();
         }
 
         Ok(())
