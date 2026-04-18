@@ -4800,6 +4800,15 @@ impl WindowView {
     }
 
     extern "C" fn did_resize(this: &mut Object, _sel: Sel, _notification: id) {
+        // Matches the early-return guard used by did_enter_fullscreen /
+        // did_exit_fullscreen. AppKit may fire windowDidResize: while the
+        // window is being torn down; dispatching Resized into an
+        // already-destroyed TermWindow is pointless and noisy.
+        if let Some(view) = Self::get_this(this) {
+            if view.is_closing.get() {
+                return;
+            }
+        }
         let view_id = this as *mut Object;
         let frame = unsafe { NSView::frame(this as *mut _) };
         let backing_frame = unsafe { NSView::convertRectToBacking(this as *mut _, frame) };
