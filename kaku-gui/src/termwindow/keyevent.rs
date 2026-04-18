@@ -679,6 +679,17 @@ impl super::TermWindow {
             return false;
         }
 
+        // Skip entirely when the pane is on the alternate screen (a TUI app
+        // such as Claude Code, vim, less, htop). This path is tailored for
+        // zsh + setup_zsh.sh shell widgets: it rewrites Shift/Option/Cmd
+        // arrow keys into Kaku-specific sequences (`\x1b[99X~`, Ctrl-B/F/A/E)
+        // and tracks an internal selection anchor. In a TUI those bytes are
+        // gibberish and the anchor state leaks, breaking plain arrow keys.
+        if pane.is_alt_screen_active() {
+            self.clear_line_editor_selection();
+            return false;
+        }
+
         self.ensure_line_editor_selection_for_pane(pane.pane_id());
 
         let mods = window_key.modifiers.remove_positional_mods();
