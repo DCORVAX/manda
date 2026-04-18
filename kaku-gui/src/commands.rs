@@ -831,12 +831,15 @@ impl CommandDef {
                 let group = separator_group_for_menu(title, rank);
 
                 let mut submenu = main_menu.get_or_create_sub_menu(&cmd.menubar[0], |menu| {
-                    if cmd.menubar[0] == "Window" {
-                        menu.assign_as_windows_menu();
-                        // macOS will insert stuff at the top and bottom, so we add
-                        // a separator to tidy things up a bit
-                        menu.add_item(&MenuItem::new_separator());
-                    } else if cmd.menubar[0] == "Kaku" {
+                    // Do not call setWindowsMenu: / setHelpMenu: on our
+                    // submenus: on macOS 26, AppKit inserts auto-managed
+                    // items (Tile/Move & Resize/Bring All to Front; Help
+                    // Search field) whose NSMenuItem lifetime AppKit
+                    // mis-handles, PAC-faulting during key-equivalent
+                    // routing. Kaku owns its own tab/window switcher and
+                    // has no help book, so the AppKit-managed children
+                    // have no value here.
+                    if cmd.menubar[0] == "Kaku" {
                         menu.assign_as_app_menu();
 
                         let about_item = MenuItem::new_with(
@@ -902,8 +905,6 @@ impl CommandDef {
                         services_item.set_sub_menu(&services_menu);
 
                         menu.add_item(&MenuItem::new_separator());
-                    } else if cmd.menubar[0] == "Help" {
-                        menu.assign_as_help_menu();
                     }
                 });
 
