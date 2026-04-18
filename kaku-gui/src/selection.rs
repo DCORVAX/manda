@@ -184,7 +184,8 @@ impl SelectionRange {
                     start: SelectionCoordinate::x_y(0, logical.first_row),
                     end: SelectionCoordinate::x_y(
                         usize::max_value(),
-                        logical.first_row + (logical.physical_lines.len() - 1) as StableRowIndex,
+                        logical.first_row
+                            + logical.physical_lines.len().saturating_sub(1) as StableRowIndex,
                     ),
                 };
             }
