@@ -131,10 +131,21 @@ pub(crate) fn run_agent(
                 .unwrap_or_default();
             // All state-mutating tools require user approval before running.
             if let Some(summary) = approval_summary(&tc.name, &args) {
+                const APPROVAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
                 let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel::<bool>(0);
                 let _ = tx.send(StreamMsg::ApprovalRequired { summary, reply_tx });
-                // Block until the user responds or cancels.
-                let approved = reply_rx.recv().unwrap_or(false);
+                // Block until the user responds, cancels, or the 10-minute
+                // safety cap fires (prevents the agent from pinning itself if
+                // the overlay path somehow leaves pending_approval dangling).
+                let approved = match reply_rx.recv_timeout(APPROVAL_TIMEOUT) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        let _ = tx.send(StreamMsg::ToolFailed {
+                            error: "Approval timed out; operation cancelled.".into(),
+                        });
+                        false
+                    }
+                };
                 if !approved {
                     let _ = tx.send(StreamMsg::ToolFailed {
                         error: "Operation rejected by user.".into(),
