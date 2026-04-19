@@ -299,7 +299,6 @@ pub fn set_default_terminal_with_feedback() {
     }
 }
 
-
 impl GuiFrontEnd {
     pub fn try_new() -> anyhow::Result<Rc<GuiFrontEnd>> {
         startup_trace::mark("  Connection::init() start");
