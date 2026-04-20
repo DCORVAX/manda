@@ -555,6 +555,13 @@ impl super::TermWindow {
                     tab.resize(size);
                 }
             }
+            for tab in window.iter() {
+                for pos in tab.iter_panes_ignoring_zoom() {
+                    let dims = pos.pane.get_dimensions();
+                    let mut state = self.pane_state(pos.pane.pane_id());
+                    state.viewport = Self::normalize_viewport(state.viewport, dims);
+                }
+            }
         };
         if live {
             self.pending_pty_flush_after_resize = true;

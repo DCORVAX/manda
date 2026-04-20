@@ -3568,6 +3568,17 @@ impl WindowView {
             */
             inner.ime_last_event.take();
             inner.ime_state = ImeDisposition::Acted;
+
+            // Dispatch preedit status so composition text is visible immediately,
+            // even without a preceding keyDown event (e.g. voice input)
+            let status = if inner.ime_text.is_empty() {
+                DeadKeyStatus::None
+            } else {
+                DeadKeyStatus::Composing(inner.ime_text.clone())
+            };
+            let events = inner.events.clone();
+            drop(inner);
+            events.dispatch(WindowEvent::AdviseDeadKeyStatus(status));
         }
     }
 
