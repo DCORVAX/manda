@@ -58,7 +58,7 @@ Full keybinding reference: [docs/keybindings.md](docs/keybindings.md)
 
 ## Kaku AI
 
-Kaku includes a built-in assistant with two modes, plus a single settings page for AI coding tools.
+Kaku has a built-in assistant with two modes and a settings page for AI coding tools.
 
 - **Error recovery**: When a command fails, Kaku automatically suggests a fix. Press `Cmd + Shift + E` to apply.
 - **Natural language to command**: Type `# <description>` at the prompt and press Enter. Kaku sends the query to the LLM and injects the resulting command back into the prompt, ready to review and run.
@@ -66,14 +66,12 @@ Kaku includes a built-in assistant with two modes, plus a single settings page f
 
 ### Provider Presets
 
-Kaku Assistant supports built-in provider presets for quick setup. Select a provider from the dropdown in `kaku ai` to auto-fill the API base URL and available models:
+Select a provider in `kaku ai` to auto-fill the base URL and models:
 
 | Provider | Base URL | Models |
 | :--- | :--- | :--- |
 | OpenAI | `https://api.openai.com/v1` | (free text) |
 | Custom | (manual) | (manual) |
-
-When Kaku Assistant has a suggestion ready after a command error, press `Cmd + Shift + E` to apply it.
 
 Full AI assistant docs: [docs/features.md](docs/features.md)
 
@@ -95,8 +93,6 @@ So I built Kaku to be that environment: fast, polished, and ready to work.
 | **Resources Volume** | ~100 MB | ~80 MB | Asset optimization & lazy-loaded assets |
 | **Launch Latency** | Standard | Instant | Just-in-time initialization |
 | **Shell Bootstrap** | ~200ms | ~100ms | Optimized environment provisioning |
-
-Achieved through aggressive stripping of unused features, lazy loading of color schemes, and shell optimizations.
 
 ## FAQ
 
@@ -127,7 +123,7 @@ Big thanks to all contributors who helped build Kaku. Go follow them! ❤️
 ## Support
 
 - If Kaku helped you, [share it](https://twitter.com/intent/tweet?url=https://github.com/tw93/Kaku&text=Kaku%20-%20A%20fast%20terminal%20built%20for%20AI%20coding.) with friends or give it a star.
-- Got ideas or bugs? Open an issue or PR, feel free to contribute your best AI model.
+- Got ideas or bugs? Open an issue or PR.
 - I have two cats, TangYuan and Coke. If you think Kaku delights your life, you can feed them <a href="https://miaoyan.app/cats.html?name=Kaku" target="_blank">canned food 🥩</a>.
 
 <a href="https://miaoyan.app/cats.html?name=Kaku"><img src="https://cdn.jsdelivr.net/gh/tw93/MiaoYan@main/assets/sponsors.svg" width="1000" loading="lazy" /></a>
