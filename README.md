@@ -18,6 +18,9 @@
   Kaku is a deeply customized fork of <a href="https://github.com/wez/wezterm">WezTerm</a>, designed for an out-of-the-box experience.
 </p>
 
+Part of a trilogy: [Kaku](https://github.com/tw93/Kaku) (書く) writes code, [Waza](https://github.com/tw93/Waza) (技) drills habits, [Kami](https://github.com/tw93/Kami) (紙) ships documents.
+Kaku is the father of the family, Waza the older sister, Kami the youngest.
+
 ## Features
 
 - **Zero Config**: Defaults with JetBrains Mono, macOS font rendering, and low-res font sizing.
@@ -83,7 +86,7 @@ I used Alacritty for years and learned to value speed and simplicity. As my work
 
 WezTerm is robust and highly hackable, and I am grateful for its engine and ecosystem. Kaku builds on that foundation with practical defaults for day one use, while keeping full Lua-based customization and a fast, lightweight feel.
 
-So I built Kaku to be that environment: fast, polished, and ready to work. Kaku is part of a trilogy: [Kaku](https://github.com/tw93/Kaku) (書く) writes code, [Waza](https://github.com/tw93/Waza) (技) drills habits, [Kami](https://github.com/tw93/Kami) (紙) ships documents.
+So I built Kaku to be that environment: fast, polished, and ready to work.
 
 ### Performance
 
