@@ -46,7 +46,6 @@ pub struct ChatPalette {
     pub user_header: SrgbaTuple,
     pub user_text: SrgbaTuple,
     pub ai_text: SrgbaTuple,
-    pub dim_fg: SrgbaTuple,
     pub selection_fg: SrgbaTuple,
     pub selection_bg: SrgbaTuple,
 }
@@ -72,9 +71,6 @@ impl ChatPalette {
     }
     fn fg_attr(&self) -> ColorAttribute {
         ColorAttribute::TrueColorWithDefaultFallback(self.fg)
-    }
-    fn dim_fg_attr(&self) -> ColorAttribute {
-        ColorAttribute::TrueColorWithDefaultFallback(self.dim_fg)
     }
 
     fn make_attrs(&self, fg: ColorAttribute, bg: ColorAttribute) -> CellAttributes {
@@ -111,7 +107,7 @@ impl ChatPalette {
         self.make_attrs(self.ai_text_attr(), self.bg_attr())
     }
     pub fn input_cell(&self) -> CellAttributes {
-        self.make_attrs(self.dim_fg_attr(), self.bg_attr())
+        self.make_attrs(self.fg_attr(), self.bg_attr())
     }
     pub fn selection_cell(&self) -> CellAttributes {
         self.make_attrs(
@@ -816,6 +812,7 @@ impl App {
                 pending_tools.push(ToolRef {
                     name: msg.tool_name.clone().unwrap_or_default(),
                     args: msg.tool_args.clone().unwrap_or_default(),
+                    result: msg.content.clone(),
                     complete: msg.complete,
                     failed: msg.tool_failed,
                 });
@@ -1739,26 +1736,98 @@ impl App {
 pub(crate) struct ToolRef {
     name: String,
     args: String,
+    result: String,
     complete: bool,
     failed: bool,
 }
 
+/// Map a tool name to a human-readable verb. `in_progress` selects the
+/// present participle; false selects the simple past.
+fn tool_verb(name: &str, in_progress: bool) -> &str {
+    match (name, in_progress) {
+        ("fs_read", true) => "reading",
+        ("fs_read", false) => "read",
+        ("fs_write", true) => "writing",
+        ("fs_write", false) => "wrote",
+        ("fs_patch", true) => "patching",
+        ("fs_patch", false) => "patched",
+        ("fs_delete", true) => "deleting",
+        ("fs_delete", false) => "deleted",
+        ("fs_list", true) => "listing",
+        ("fs_list", false) => "listed",
+        ("grep_search", true) => "searching",
+        ("grep_search", false) => "searched",
+        ("shell_exec", true) => "running",
+        ("shell_exec", false) => "ran",
+        ("web_fetch", true) => "fetching",
+        ("web_fetch", false) => "fetched",
+        ("web_search", true) => "searching",
+        ("web_search", false) => "searched",
+        (name, _) => name,
+    }
+}
+
 /// Format the tool-call suffix appended to an AI header row.
-/// Returns "  ✓ fs_list /path  ● shell" (leading spaces, no trailing newline).
-fn format_tool_suffix(tools: &[ToolRef]) -> String {
-    let mut s = String::new();
+/// Groups consecutive same-name tools. Uses verb tenses and result previews.
+/// The `spinner_char` is substituted for the in-progress icon on incomplete tools.
+fn format_tool_suffix(tools: &[ToolRef], spinner_char: &str) -> String {
+    if tools.is_empty() {
+        return String::new();
+    }
+
+    // Group consecutive tools by name.
+    let mut groups: Vec<(&str, Vec<&ToolRef>)> = Vec::new();
     for t in tools {
-        let icon = if !t.complete {
-            "●"
-        } else if t.failed {
+        if let Some(last) = groups.last_mut() {
+            if last.0 == t.name.as_str() {
+                last.1.push(t);
+                continue;
+            }
+        }
+        groups.push((t.name.as_str(), vec![t]));
+    }
+
+    let mut s = String::new();
+    for (name, group) in &groups {
+        let any_failed = group.iter().any(|t| t.complete && t.failed);
+        let any_pending = group.iter().any(|t| !t.complete);
+        let icon = if any_pending {
+            spinner_char
+        } else if any_failed {
             "✗"
         } else {
             "✓"
         };
-        if t.args.is_empty() {
-            s.push_str(&format!("  {} {}", icon, t.name));
+        let in_progress = any_pending;
+        let verb = tool_verb(name, in_progress);
+
+        if group.len() == 1 {
+            let t = group[0];
+            if t.args.is_empty() {
+                s.push_str(&format!("  {} {}", icon, verb));
+            } else {
+                s.push_str(&format!("  {} {} {}", icon, verb, t.args));
+            }
+            // Append result preview for completed non-failed tools.
+            if t.complete && !t.failed && !t.result.is_empty() {
+                s.push_str(&format!(" -> {}", t.result));
+            }
         } else {
-            s.push_str(&format!("  {} {} {}", icon, t.name, t.args));
+            // Multiple same-name tools: fold into count summary.
+            let count = group.len();
+            // Pick a plural noun from the last part of the verb for readability.
+            let noun = match *name {
+                "fs_read" => "files",
+                "fs_write" => "files",
+                "fs_patch" => "files",
+                "fs_delete" => "files",
+                "fs_list" => "dirs",
+                "grep_search" => "patterns",
+                "shell_exec" => "commands",
+                "web_fetch" | "web_search" => "requests",
+                _ => "calls",
+            };
+            s.push_str(&format!("  {} {} {} {}", icon, verb, count, noun));
         }
     }
     s
@@ -1904,13 +1973,22 @@ fn build_line_runs(
             runs.push((pal.ai_header_cell(), "  AI".to_string()));
             if !tools.is_empty() {
                 // Render tool status in a dimmer tone so the "AI" header still pops.
-                // If the full tool list overflows one line, show only the latest tool
-                // so the user always sees the current operation without truncation.
-                let suffix = format_tool_suffix(tools);
+                let suffix = format_tool_suffix(tools, spinner_char);
                 let avail = content_width.saturating_sub(4); // 4 = "  AI"
                 let suffix = if unicode_column_width(&suffix, None) > avail {
+                    // Overflow: try showing only the last tool before falling back.
                     // Safe: guarded by `!tools.is_empty()` above.
-                    format_tool_suffix(std::slice::from_ref(tools.last().unwrap()))
+                    let last_suffix = format_tool_suffix(
+                        std::slice::from_ref(tools.last().unwrap()),
+                        spinner_char,
+                    );
+                    if unicode_column_width(&last_suffix, None) <= avail {
+                        last_suffix
+                    } else {
+                        // Even the last tool overflows; hard-truncate the suffix.
+                        let chars: Vec<char> = last_suffix.chars().collect();
+                        chars[..avail.min(chars.len())].iter().collect()
+                    }
                 } else {
                     suffix
                 };
@@ -1957,7 +2035,10 @@ fn build_line_runs(
             }
         }
         DisplayLine::LoadingDot => {
-            runs.push((pal.ai_header_cell(), format!("  {}", spinner_char)));
+            runs.push((
+                pal.ai_header_cell(),
+                format!("  {}  Thinking...", spinner_char),
+            ));
         }
         DisplayLine::Blank => {}
     }
@@ -2626,6 +2707,11 @@ fn handle_key(key: &KeyEvent, app: &mut App) -> Action {
             Action::Continue
         }
 
+        // Cmd+W: close the AI chat overlay (restores normal window close behavior).
+        (KeyCode::Char('w'), Modifiers::SUPER) | (KeyCode::Char('W'), Modifiers::SUPER) => {
+            Action::Quit
+        }
+
         // Copy selection to clipboard (Cmd+C on macOS)
         (KeyCode::Char('c'), Modifiers::SUPER) | (KeyCode::Char('C'), Modifiers::SUPER) => {
             if let Some(text) = extract_selection_text(app) {
@@ -3157,7 +3243,7 @@ fn extract_selection_text(app: &App) -> Option<String> {
                 tools,
             } => {
                 let mut s = "  AI".to_string();
-                s.push_str(&format_tool_suffix(tools));
+                s.push_str(&format_tool_suffix(tools, "●"));
                 (s, "  ")
             }
             DisplayLine::AttachmentSummary { labels } => {
@@ -3235,7 +3321,6 @@ mod markdown_tests {
             user_header: SrgbaTuple::default(),
             user_text: SrgbaTuple::default(),
             ai_text: SrgbaTuple::default(),
-            dim_fg: SrgbaTuple::default(),
             selection_fg: SrgbaTuple::default(),
             selection_bg: SrgbaTuple::default(),
         }

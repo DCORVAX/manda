@@ -4344,7 +4344,7 @@ impl TermWindow {
                     }
                     // colors.0 layout: 0-7 = ANSI, 8-15 = bright ANSI.
                     // bright cyan (14) for accent, bright black (8) for border,
-                    // bright yellow (11) for user header, dim/silver (7) for dim_fg.
+                    // bright yellow (11) for user header.
                     let chat_colors = crate::overlay::ai_chat::ChatPalette {
                         bg: srgb(pal.background),
                         fg: srgb(pal.foreground),
@@ -4353,7 +4353,6 @@ impl TermWindow {
                         user_header: srgb(pal.colors.0[11]),
                         user_text: srgb(pal.foreground),
                         ai_text: srgb(pal.foreground),
-                        dim_fg: srgb(pal.colors.0[7]),
                         selection_fg: srgb(pal.selection_fg),
                         selection_bg: srgb(pal.selection_bg),
                     };

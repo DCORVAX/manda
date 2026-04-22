@@ -6,6 +6,71 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, OnceLock};
 
+/// Middle-truncate a string to at most `max` characters.
+/// For path-like strings (containing '/'), keeps the first segment and the
+/// filename, joining with "...". For plain text, splits evenly around the
+/// middle. Strings already within the limit are returned unchanged.
+fn middle_truncate(s: &str, max: usize) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= max {
+        return s.to_string();
+    }
+    if max <= 4 {
+        return chars[..max].iter().collect();
+    }
+    if s.contains('/') {
+        // Path: keep first segment + filename
+        let first = s.split('/').next().unwrap_or("");
+        let last = s.split('/').last().unwrap_or("");
+        let candidate = format!("{}/.../{}", first, last);
+        if candidate.chars().count() <= max {
+            return candidate;
+        }
+        // Fallback: just truncate the filename with ellipsis
+        let avail = max.saturating_sub(4);
+        let last_chars: Vec<char> = last.chars().collect();
+        if last_chars.len() <= avail {
+            return format!(".../{}", last);
+        }
+        return format!(".../{}", last_chars[..avail].iter().collect::<String>());
+    }
+    // Plain text: front half + "..." + back half
+    let half = (max.saturating_sub(3)) / 2;
+    let front: String = chars[..half].iter().collect();
+    let back: String = chars[chars.len() - half..].iter().collect();
+    format!("{}...{}", front, back)
+}
+
+/// Generate a short preview string from a tool result.
+fn tool_result_preview(tool_name: &str, result: &str) -> String {
+    match tool_name {
+        "fs_list" => {
+            let n = result.lines().filter(|l| !l.trim().is_empty()).count();
+            format!("{} items", n)
+        }
+        "fs_read" => {
+            let n = result.lines().count();
+            format!("{} lines", n)
+        }
+        "grep_search" => {
+            let n = result.lines().filter(|l| !l.trim().is_empty()).count();
+            format!("{} matches", n)
+        }
+        "shell_exec" => {
+            let first = result.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+            middle_truncate(first, 60)
+        }
+        "web_fetch" | "web_search" => {
+            format!("fetched {} bytes", result.len())
+        }
+        "fs_write" | "fs_patch" | "fs_delete" => "done".to_string(),
+        _ => {
+            let first = result.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+            middle_truncate(first, 60)
+        }
+    }
+}
+
 /// Generate a short title for a conversation (≤ 40 chars). Runs on a background thread.
 pub(crate) fn generate_summary(
     client: &AiClient,
@@ -127,7 +192,7 @@ pub(crate) fn run_agent(
                 .or_else(|| args.get("command"))
                 .or_else(|| args.as_object().and_then(|o| o.values().next()))
                 .and_then(|v| v.as_str())
-                .map(|s| s.chars().take(120).collect::<String>())
+                .map(|s| middle_truncate(s, 80))
                 .unwrap_or_default();
             // All state-mutating tools require user approval before running.
             if let Some(summary) = approval_summary(&tc.name, &args) {
@@ -152,6 +217,7 @@ pub(crate) fn run_agent(
                     });
                     messages.push(ApiMessage::tool_result(
                         tc.id.clone(),
+                        tc.name.clone(),
                         "Error: user rejected the operation.".to_string(),
                     ));
                     continue;
@@ -165,10 +231,15 @@ pub(crate) fn run_agent(
 
             match ai_tools::execute(&tc.name, &args, &mut cwd, client.config(), &cancel) {
                 Ok(result) => {
+                    let preview = tool_result_preview(&tc.name, &result);
                     let _ = tx.send(StreamMsg::ToolDone {
-                        result_preview: String::new(),
+                        result_preview: preview,
                     });
-                    messages.push(ApiMessage::tool_result(tc.id.clone(), result));
+                    messages.push(ApiMessage::tool_result(
+                        tc.id.clone(),
+                        tc.name.clone(),
+                        result,
+                    ));
                 }
                 Err(e) => {
                     let err_str = e.to_string();
@@ -178,6 +249,7 @@ pub(crate) fn run_agent(
                     // Feed the error back as the tool result so the model can recover.
                     messages.push(ApiMessage::tool_result(
                         tc.id.clone(),
+                        tc.name.clone(),
                         format!("Error: {}", err_str),
                     ));
                 }
@@ -343,6 +415,59 @@ fn limit_memory_entries(text: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn middle_truncate_short_passthrough() {
+        assert_eq!(middle_truncate("hello", 10), "hello");
+    }
+
+    #[test]
+    fn middle_truncate_path() {
+        let s = "src/components/dashboard/widgets/Chart.tsx";
+        let out = middle_truncate(s, 30);
+        assert!(out.contains("Chart.tsx"), "should keep filename: {}", out);
+        assert!(out.chars().count() <= 30, "should be within limit: {}", out);
+    }
+
+    #[test]
+    fn middle_truncate_plain_text() {
+        let s = "abcdefghijklmnopqrstuvwxyz0123456789";
+        let out = middle_truncate(s, 10);
+        assert!(out.chars().count() <= 10, "should be within limit: {}", out);
+        assert!(out.contains("..."), "should have ellipsis: {}", out);
+    }
+
+    #[test]
+    fn middle_truncate_path_respects_tight_limit() {
+        let s = "a/big-folder/very-long-file-name.txt";
+        let out = middle_truncate(s, 8);
+        assert!(out.chars().count() <= 8, "should be within limit: {}", out);
+    }
+
+    #[test]
+    fn tool_result_preview_fs_read() {
+        let result = "line1\nline2\nline3\n";
+        assert_eq!(tool_result_preview("fs_read", result), "3 lines");
+    }
+
+    #[test]
+    fn tool_result_preview_fs_list() {
+        let result = "file1\nfile2\n\nfile3\n";
+        assert_eq!(tool_result_preview("fs_list", result), "3 items");
+    }
+
+    #[test]
+    fn tool_result_preview_grep_search() {
+        let result = "match1\nmatch2\n";
+        assert_eq!(tool_result_preview("grep_search", result), "2 matches");
+    }
+
+    #[test]
+    fn tool_result_preview_write_done() {
+        assert_eq!(tool_result_preview("fs_write", "anything"), "done");
+        assert_eq!(tool_result_preview("fs_patch", "anything"), "done");
+        assert_eq!(tool_result_preview("fs_delete", "anything"), "done");
+    }
 
     #[test]
     fn clean_memory_text_drops_non_bullet_lines() {
