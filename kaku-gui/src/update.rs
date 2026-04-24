@@ -584,16 +584,10 @@ fn update_checker() {
                             let proxy = detect_system_proxy();
                             match download_and_stage_update(&latest, &proxy) {
                                 Ok(info) => {
-                                    log::info!(
-                                        "update_checker: staged update {} ready",
-                                        info.tag
-                                    );
+                                    log::info!("update_checker: staged update {} ready", info.tag);
                                 }
                                 Err(e) => {
-                                    log::warn!(
-                                        "update_checker: failed to stage update: {}",
-                                        e
-                                    );
+                                    log::warn!("update_checker: failed to stage update: {}", e);
                                     // Clean up partial download to avoid disk space leak.
                                     cleanup_staged_update();
                                     // Fall through to show notification anyway
@@ -738,8 +732,7 @@ pub fn resolve_target_app_path() -> anyhow::Result<PathBuf> {
         anyhow::bail!("KAKU_UPDATE_TARGET_APP must point to Kaku.app");
     }
 
-    let exe = std::env::current_exe()
-        .map_err(|e| anyhow!("resolve current executable: {}", e))?;
+    let exe = std::env::current_exe().map_err(|e| anyhow!("resolve current executable: {}", e))?;
     for ancestor in exe.ancestors() {
         if ancestor
             .file_name()
@@ -785,7 +778,10 @@ pub fn spawn_update_helper(
 
     // Validate paths end with Kaku.app.
     if !target_app.ends_with("Kaku.app") {
-        anyhow::bail!("target_app must end with Kaku.app: {}", target_app.display());
+        anyhow::bail!(
+            "target_app must end with Kaku.app: {}",
+            target_app.display()
+        );
     }
     if !new_app.ends_with("Kaku.app") {
         anyhow::bail!("new_app must end with Kaku.app: {}", new_app.display());
@@ -865,11 +861,17 @@ mod tests {
         // Fetch real release info
         let release = get_latest_release_info().expect("fetch release info");
         println!("release tag: {}", release.tag_name);
-        println!("release body (first 100 chars): {}", &release.body[..release.body.len().min(100)]);
+        println!(
+            "release body (first 100 chars): {}",
+            &release.body[..release.body.len().min(100)]
+        );
         assert!(!release.tag_name.is_empty());
 
         // Simulate being on 0.8.0
-        assert!(is_newer(&release.tag_name, "0.8.0"), "latest should be newer than 0.8.0");
+        assert!(
+            is_newer(&release.tag_name, "0.8.0"),
+            "latest should be newer than 0.8.0"
+        );
 
         // Download zip
         let zip_url = find_asset(&release.assets, UPDATE_ZIP_NAME)
@@ -912,7 +914,10 @@ mod tests {
         // Read version from extracted app
         let app_version = read_app_version(&app_path).expect("read app version");
         println!("extracted app version: {}", app_version);
-        assert!(is_newer(&app_version, "0.8.0"), "extracted app should be newer than 0.8.0");
+        assert!(
+            is_newer(&app_version, "0.8.0"),
+            "extracted app should be newer than 0.8.0"
+        );
 
         // Write metadata
         let meta = StagedUpdateInfo {
@@ -933,6 +938,9 @@ mod tests {
         assert!(read_back.verified);
 
         println!("\n=== E2E staged update test PASSED ===");
-        println!("tag={}, version={}, staged_at={}", read_back.tag, app_version, read_back.staged_at);
+        println!(
+            "tag={}, version={}, staged_at={}",
+            read_back.tag, app_version, read_back.staged_at
+        );
     }
 }

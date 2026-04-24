@@ -124,7 +124,10 @@ mod imp {
             let body = release.body.trim();
             if !body.is_empty() {
                 println!();
-                println!("Release notes ({}):", format_version_for_display(&release.tag_name));
+                println!(
+                    "Release notes ({}):",
+                    format_version_for_display(&release.tag_name)
+                );
                 // Strip markdown image links and clean up for terminal display.
                 for line in body.lines() {
                     let trimmed = line.trim();
