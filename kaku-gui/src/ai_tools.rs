@@ -1343,11 +1343,16 @@ fn exec_grep_search(
     max_results: usize,
     cwd: &str,
 ) -> Result<String> {
-    // Use ripgrep if available, fall back to grep.
-    let rg = std::process::Command::new("rg")
-        .arg("--version")
-        .output()
-        .is_ok();
+    // Use ripgrep if available, fall back to grep. Cached after first probe.
+    static HAS_RG: OnceLock<bool> = OnceLock::new();
+    let rg = *HAS_RG.get_or_init(|| {
+        std::process::Command::new("rg")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok()
+    });
     let abs_path = resolve(search_path, cwd)?.to_string_lossy().into_owned();
 
     let mut cmd = if rg {

@@ -909,6 +909,19 @@ local function ensure_ai_fix_jobs_dir()
   return true
 end
 
+-- Remove stale job files left behind by a previous crash or force-quit.
+-- Called once at config load time; silently ignores errors.
+local function cleanup_stale_ai_fix_jobs()
+  if not ai_fix_jobs_dir or ai_fix_jobs_dir == "" then
+    return
+  end
+  pcall(function()
+    os.execute(string.format("find %q -name 'ai_fix_*' -mmin +30 -delete 2>/dev/null", ai_fix_jobs_dir))
+  end)
+end
+
+cleanup_stale_ai_fix_jobs()
+
 local function write_text_file(path, content)
   local file = io.open(path, "w")
   if not file then

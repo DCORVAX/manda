@@ -371,7 +371,9 @@ fn shell_tokens_are_dangerous(tokens: &[String]) -> bool {
         "bash" | "sh" | "zsh" | "fish" | "python" | "python3" | "awk" => true,
 
         // Build tools: compile/test but do not modify project source files.
-        "cargo" | "make" => false,
+        // Subcommands that install binaries or clean build artifacts require approval.
+        "cargo" => cargo_is_dangerous(tokens),
+        "make" => make_is_dangerous(tokens),
 
         // Everything else (touch, mkdir, cp, mv, npm, git write ops, etc.) requires approval.
         _ => true,
@@ -447,6 +449,51 @@ fn curl_is_dangerous(tokens: &[String]) -> bool {
         }
     }
     false
+}
+
+/// Returns true if `cargo <subcommand>` modifies the system beyond the local
+/// build directory. compile/check/test/bench/clippy/fmt/doc/tree/metadata/...
+/// are safe; install/uninstall/publish/init/new/add/remove/yank require approval.
+fn cargo_is_dangerous(tokens: &[String]) -> bool {
+    // Skip flags before the subcommand (e.g. `cargo +nightly check`).
+    let sub = tokens
+        .iter()
+        .skip(1)
+        .find(|t| !t.starts_with('-') && !t.starts_with('+'))
+        .map(String::as_str);
+    matches!(
+        sub,
+        Some(
+            "install"
+                | "uninstall"
+                | "publish"
+                | "init"
+                | "new"
+                | "add"
+                | "remove"
+                | "yank"
+                | "login"
+                | "logout"
+                | "owner"
+        )
+    )
+}
+
+/// Returns true if `make <target>` is a known destructive target.
+/// Most make targets are build-only, but `clean`, `distclean`, `install`,
+/// `uninstall` delete or copy files outside the build directory.
+fn make_is_dangerous(tokens: &[String]) -> bool {
+    tokens.iter().skip(1).any(|t| {
+        let target = t.as_str();
+        // Skip variable assignments like CC=gcc and flags like -j8.
+        if target.starts_with('-') || target.contains('=') {
+            return false;
+        }
+        matches!(
+            target,
+            "clean" | "distclean" | "install" | "uninstall" | "purge"
+        )
+    })
 }
 
 fn find_is_dangerous(tokens: &[String]) -> bool {
@@ -894,6 +941,80 @@ mod tests {
         assert!(!shell_command_requires_approval(
             "cat Cargo.toml && echo done"
         ));
+    }
+
+    // ─── cargo subcommand tests ─────────────────────────────────────────────
+
+    #[test]
+    fn cargo_check_no_approval() {
+        assert!(!shell_command_requires_approval("cargo check"));
+    }
+
+    #[test]
+    fn cargo_test_no_approval() {
+        assert!(!shell_command_requires_approval("cargo test"));
+    }
+
+    #[test]
+    fn cargo_build_no_approval() {
+        assert!(!shell_command_requires_approval("cargo build --release"));
+    }
+
+    #[test]
+    fn cargo_nightly_fmt_no_approval() {
+        assert!(!shell_command_requires_approval("cargo +nightly fmt"));
+    }
+
+    #[test]
+    fn cargo_install_requires_approval() {
+        assert!(shell_command_requires_approval("cargo install ripgrep"));
+    }
+
+    #[test]
+    fn cargo_uninstall_requires_approval() {
+        assert!(shell_command_requires_approval("cargo uninstall ripgrep"));
+    }
+
+    #[test]
+    fn cargo_publish_requires_approval() {
+        assert!(shell_command_requires_approval("cargo publish"));
+    }
+
+    #[test]
+    fn cargo_add_requires_approval() {
+        assert!(shell_command_requires_approval("cargo add serde"));
+    }
+
+    // ─── make target tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn make_no_target_no_approval() {
+        assert!(!shell_command_requires_approval("make"));
+    }
+
+    #[test]
+    fn make_build_no_approval() {
+        assert!(!shell_command_requires_approval("make app"));
+    }
+
+    #[test]
+    fn make_with_flags_no_approval() {
+        assert!(!shell_command_requires_approval("make -j8 CC=gcc"));
+    }
+
+    #[test]
+    fn make_clean_requires_approval() {
+        assert!(shell_command_requires_approval("make clean"));
+    }
+
+    #[test]
+    fn make_install_requires_approval() {
+        assert!(shell_command_requires_approval("make install"));
+    }
+
+    #[test]
+    fn make_distclean_requires_approval() {
+        assert!(shell_command_requires_approval("make distclean"));
     }
 
     // ─── approval_summary ────────────────────────────────────────────────────
