@@ -160,46 +160,15 @@ pub fn copilot_is_authenticated() -> bool {
     load_copilot_auth().is_some_and(|auth| !auth.github_token.trim().is_empty())
 }
 
-/// Very minimal ISO 8601 UTC parser: "2024-12-01T10:00:00+00:00" -> Unix seconds.
-/// Only handles the format returned by the GitHub Copilot token API.
+/// RFC 3339 / ISO 8601 timestamp -> Unix seconds. Used for the GitHub Copilot
+/// token expiry. Returns None if the string is malformed or pre-1970.
 fn parse_iso8601_to_unix(s: &str) -> Option<u64> {
-    // Use chrono if available; otherwise fall back to a simple parse.
-    // Format: YYYY-MM-DDTHH:MM:SS+00:00 or YYYY-MM-DDTHH:MM:SSZ
-    let s = s.trim();
-    // Strip timezone: take up to the first +/Z after the time.
-    let without_tz = s
-        .find('+')
-        .or_else(|| s.rfind('Z'))
-        .map(|idx| &s[..idx])
-        .unwrap_or(s);
-
-    let parts: Vec<&str> = without_tz.splitn(2, 'T').collect();
-    if parts.len() != 2 {
-        return None;
+    let ts = chrono::DateTime::parse_from_rfc3339(s.trim()).ok()?.timestamp();
+    if ts < 0 {
+        None
+    } else {
+        Some(ts as u64)
     }
-    let date_parts: Vec<u32> = parts[0].split('-').filter_map(|p| p.parse().ok()).collect();
-    let time_parts: Vec<u32> = parts[1].split(':').filter_map(|p| p.parse().ok()).collect();
-    if date_parts.len() < 3 || time_parts.len() < 3 {
-        return None;
-    }
-
-    // Days since Unix epoch: very rough approximation (ignores leap years precisely).
-    let year = date_parts[0] as u64;
-    let month = date_parts[1] as u64;
-    let day = date_parts[2] as u64;
-    // Gregorian day count (Zeller-adjacent, good enough for timestamps).
-    let a = (14 - month) / 12;
-    let y = year + 4800 - a;
-    let m = month + 12 * a - 3;
-    let jdn = day + (153 * m + 2) / 5 + 365 * y + y / 4 - y / 100 + y / 400 - 32045;
-    // Julian Day Number for Unix epoch (1970-01-01) = 2440588
-    let unix_days = jdn.saturating_sub(2440588);
-
-    let h = time_parts[0] as u64;
-    let min = time_parts[1] as u64;
-    let sec = time_parts[2] as u64;
-
-    Some(unix_days * 86400 + h * 3600 + min * 60 + sec)
 }
 
 // ─── Codex auth ───────────────────────────────────────────────────────────────
@@ -248,5 +217,19 @@ mod tests {
         let ts = parse_iso8601_to_unix("2024-01-01T00:00:00+00:00");
         assert!(ts.is_some());
         assert!(ts.unwrap() > 1_700_000_000);
+    }
+
+    #[test]
+    fn parse_iso8601_negative_offset() {
+        // 2024-01-01T00:00:00-05:00 == 2024-01-01T05:00:00Z
+        let with_offset = parse_iso8601_to_unix("2024-01-01T00:00:00-05:00").unwrap();
+        let utc = parse_iso8601_to_unix("2024-01-01T05:00:00Z").unwrap();
+        assert_eq!(with_offset, utc);
+    }
+
+    #[test]
+    fn parse_iso8601_invalid() {
+        assert_eq!(parse_iso8601_to_unix("not a date"), None);
+        assert_eq!(parse_iso8601_to_unix(""), None);
     }
 }
