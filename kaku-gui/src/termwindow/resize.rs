@@ -225,6 +225,10 @@ impl super::TermWindow {
             let mut stabilized = dimensions;
             stabilized.dpi = self.dimensions.dpi;
             self.apply_dimensions(&stabilized, None, window, true);
+            // Force a render_metrics refresh against the stabilized dpi so a
+            // later fullscreen exit on an external display can't leave
+            // cell_size stale (caused mouse y → row off-by-N selection, #312).
+            self.apply_scale_change(&stabilized, self.fonts.get_font_scale());
         } else if live_resizing && self.dimensions.dpi == dimensions.dpi {
             // For simple, user-interactive resizes where the dpi doesn't change,
             // skip our scaling recalculation.
