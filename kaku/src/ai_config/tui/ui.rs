@@ -371,7 +371,6 @@ fn render_status_hint(width: u16) -> Line<'static> {
     }
 }
 
-
 pub(super) fn render_editor(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let Some(tool) = app.tools.get(app.tool_index) else {
         return;
