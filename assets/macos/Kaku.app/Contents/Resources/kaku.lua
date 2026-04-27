@@ -3565,7 +3565,15 @@ config.scrollback_lines = 10000
 config.selection_word_boundary = ' \t\n{}[]()"\'-'  -- Smart selection boundaries
 
 -- ===== Window Layout =====
-config.use_resize_increments = true
+-- Disable OS-level resize increments. AppKit applies these on the
+-- Accessibility setFrame path (Raycast / Rectangle / Magnet / AeroSpace),
+-- causing window-management "maximize" to round to cell-aligned dimensions
+-- and leave a gap when visibleFrame is not a clean multiple of cell size
+-- (reproducible on external displays).
+-- Internal cell quantization is handled in apply_dimensions (slack absorbed
+-- into top padding), so disabling this is safe.
+-- <https://github.com/tw93/Kaku/issues/131>
+config.use_resize_increments = false
 
 config.initial_cols = 110
 config.initial_rows = 22
