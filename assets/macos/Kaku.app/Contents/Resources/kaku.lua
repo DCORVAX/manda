@@ -3328,6 +3328,7 @@ local function build_font_config(is_light)
       font = wezterm.font_with_fallback({
         { family = 'JetBrains Mono', weight = base_weight },
         { family = 'PingFang SC', weight = base_weight },
+        'Apple Color Emoji',
       }),
     },
     -- Normal italic: disable real italics (keep upright)
@@ -3337,6 +3338,7 @@ local function build_font_config(is_light)
       font = wezterm.font_with_fallback({
         { family = 'JetBrains Mono', weight = base_weight, italic = false },
         { family = 'PingFang SC', weight = base_weight },
+        'Apple Color Emoji',
       }),
     },
     -- Bold: use heavier weight
@@ -3345,6 +3347,7 @@ local function build_font_config(is_light)
       font = wezterm.font_with_fallback({
         { family = 'JetBrains Mono', weight = bold_weight },
         { family = 'PingFang SC', weight = bold_weight },
+        'Apple Color Emoji',
       }),
     },
   }
@@ -3817,7 +3820,7 @@ if not user_has_custom_window_frame then
   local window_frame_colors = get_window_frame_colors(config.color_scheme)
   config.window_frame = {
     font = wezterm.font({ family = 'JetBrains Mono', weight = 'Regular' }),
-    font_size = 13.0,
+    font_size = 14.0,
     active_titlebar_bg = window_frame_colors.active_titlebar_bg,
     inactive_titlebar_bg = window_frame_colors.inactive_titlebar_bg,
     active_titlebar_fg = window_frame_colors.active_titlebar_fg,
