@@ -2304,9 +2304,12 @@ impl TermWindow {
                             front_end().adjust_unread_bell_count(-1);
                         }
                     }
+                    self.update_title_post_status();
                 }
-                MuxNotification::PaneAdded(_)
-                | MuxNotification::WorkspaceRenamed { .. }
+                MuxNotification::PaneAdded(_) => {
+                    self.update_title_post_status();
+                }
+                MuxNotification::WorkspaceRenamed { .. }
                 | MuxNotification::WindowWorkspaceChanged(_)
                 | MuxNotification::ActiveWorkspaceChanged(_)
                 | MuxNotification::Empty

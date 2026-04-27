@@ -2668,6 +2668,20 @@ local function evict_stale_cache(live_pane_ids)
   end
 end
 
+local function pane_path_parts(pane)
+  if not pane then
+    return '', ''
+  end
+  local path = extract_path_from_cwd(pane.current_working_dir)
+  if path == '' then
+    return '', ''
+  end
+  local current = basename(path) or path
+  local parent_path = path:match('(.+)/[^/]+$') or ''
+  local parent = basename(parent_path) or parent_path
+  return parent, current
+end
+
 local function tab_path_parts(tab)
   local pane = tab.active_pane
   if not pane then
@@ -2839,7 +2853,7 @@ local function tab_display_title(tab, effective_config)
   return text, active_pane
 end
 
-wezterm.on('format-tab-title', function(tab, tabs, _, effective_config, hover, max_width)
+wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hover, max_width)
   -- Evict stale cache only on the first tab to avoid O(n²) across the render cycle
   if tab.tab_index == 0 then
     local live_pane_ids = {}
@@ -2856,32 +2870,7 @@ wezterm.on('format-tab-title', function(tab, tabs, _, effective_config, hover, m
     end
   end
 
-  local text, active_pane = tab_display_title(tab, effective_config)
-  if active_pane and active_pane.is_zoomed then
-    text = text .. ' [Z]'
-  end
-  text = wezterm.truncate_right(text, math.max(8, max_width - 2))
-
-  local intensity = tab.is_active and 'Bold' or 'Normal'
-  -- resolved_palette.tab_bar and its sub-fields are all optional; guard each level
   local tab_bar_colors = effective_config.resolved_palette.tab_bar
-  local fg
-  if tab_bar_colors then
-    local entry
-    if tab.is_active then
-      entry = tab_bar_colors.active_tab
-    elseif hover then
-      entry = tab_bar_colors.inactive_tab_hover or tab_bar_colors.inactive_tab
-    else
-      entry = tab_bar_colors.inactive_tab
-    end
-    fg = entry and entry.fg_color
-  end
-  -- fallback defaults when palette entry or sub-field is absent
-  if not fg then
-    fg = tab.is_active and KAKU.WHITE or (hover and KAKU.WHITE or KAKU.GRAY)
-  end
-
   local pane_keys = tab_pane_keys(tab)
   local has_bell = tab_has_bell_from_keys(pane_keys)
   if has_bell and tab.is_active then
@@ -2889,24 +2878,127 @@ wezterm.on('format-tab-title', function(tab, tabs, _, effective_config, hover, m
     has_bell = false
   end
 
+  local tab_bg = tab_bar_colors and tab_bar_colors.background
+  local is_light = tab_bg == '#FFFCF0' or tab_bg == '#fffcf0'
+  local dot_color = is_light and '#AD8301' or KAKU.ORANGE
+
+  local fg_active = KAKU.WHITE
+  local fg_inactive_pane = KAKU.GRAY
+  if tab_bar_colors then
+    local entry = tab.is_active and tab_bar_colors.active_tab
+      or (hover and (tab_bar_colors.inactive_tab_hover or tab_bar_colors.inactive_tab))
+      or tab_bar_colors.inactive_tab
+    if entry and entry.fg_color then
+      fg_active = entry.fg_color
+    end
+  end
+  if not tab.is_active and not hover then
+    fg_active = KAKU.GRAY
+  end
+
+  -- Collect panes for this tab, sorted by pane_id for stable order
+  local own_panes = {}
+  if type(tab.panes) == 'table' then
+    for _, p in ipairs(tab.panes) do
+      own_panes[#own_panes + 1] = p
+    end
+    table.sort(own_panes, function(a, b) return a.pane_id < b.pane_id end)
+  end
+
+  -- Multi-pane path: render each pane's cwd, active segment highlighted
+  if #own_panes > 1 and tab.tab_title == '' then
+    local segments = {}
+    local basename_only = effective_config and effective_config.tab_title_show_basename_only
+    for _, p in ipairs(own_panes) do
+      local parent, current = pane_path_parts(p)
+      local seg_text = current
+      if not basename_only and parent ~= '' and current ~= '' then
+        seg_text = parent .. '/' .. current
+      end
+      if seg_text == '' then
+        seg_text = resolve_remote_target_from_pane(p) or p.title or '?'
+      end
+      segments[#segments + 1] = { text = seg_text, active = p.is_active }
+    end
+
+    -- Width budget: reserve 2 cells (leading space + trailing space/bell)
+    local budget = math.max(4, max_width - 2)
+    local sep = ' \u{00b7} '  -- U+00B7 middle dot with spaces
+    local sep_len = 3          -- each separator is 3 chars
+
+    -- Compute total length
+    local total = 0
+    for i, seg in ipairs(segments) do
+      total = total + #seg.text
+      if i < #segments then
+        total = total + sep_len
+      end
+    end
+
+    -- Trim non-active segments to a single char if over budget
+    if total > budget then
+      for _, seg in ipairs(segments) do
+        if not seg.active and #seg.text > 1 then
+          total = total - (#seg.text - 1)
+          seg.text = '\u{2026}'  -- U+2026 ellipsis
+        end
+        if total <= budget then break end
+      end
+    end
+
+    -- Build FormatItem sequence
+    local items = { { Text = ' ' } }
+    for i, seg in ipairs(segments) do
+      if seg.active then
+        items[#items + 1] = { Attribute = { Intensity = 'Bold' } }
+        items[#items + 1] = { Foreground = { Color = fg_active } }
+      else
+        items[#items + 1] = { Attribute = { Intensity = 'Normal' } }
+        items[#items + 1] = { Foreground = { Color = fg_inactive_pane } }
+      end
+      items[#items + 1] = { Text = seg.text }
+      if i < #segments then
+        items[#items + 1] = { Attribute = { Intensity = 'Normal' } }
+        items[#items + 1] = { Foreground = { Color = fg_inactive_pane } }
+        items[#items + 1] = { Text = sep }
+      end
+    end
+
+    -- Trailing bell dot or space
+    if effective_config.bell_tab_indicator ~= false then
+      items[#items + 1] = { Foreground = { Color = has_bell and dot_color or fg_active } }
+      items[#items + 1] = { Text = has_bell and '\u{2022}' or ' ' }
+    else
+      items[#items + 1] = { Text = ' ' }
+    end
+
+    return items
+  end
+
+  -- Single-pane path (original logic)
+  local text, active_pane = tab_display_title(tab, effective_config)
+  if active_pane and active_pane.is_zoomed then
+    text = text .. ' [Z]'
+  end
+  text = wezterm.truncate_right(text, math.max(8, max_width - 2))
+
+  local intensity = tab.is_active and 'Bold' or 'Normal'
+
   -- Bell indicator: the dot occupies the same 1-cell slot as the trailing space
   -- so tab width stays constant (N+2) whether or not a bell is pending.
   if effective_config.bell_tab_indicator ~= false then
-    local tab_bg = tab_bar_colors and tab_bar_colors.background
-    local is_light = tab_bg == '#FFFCF0' or tab_bg == '#fffcf0'
-    local dot_color = is_light and '#AD8301' or KAKU.ORANGE
     return {
       { Attribute = { Intensity = intensity } },
-      { Foreground = { Color = fg } },
+      { Foreground = { Color = fg_active } },
       { Text = ' ' .. text },
-      { Foreground = { Color = has_bell and dot_color or fg } },
+      { Foreground = { Color = has_bell and dot_color or fg_active } },
       { Text = has_bell and '\u{2022}' or ' ' },
     }
   end
 
   return {
     { Attribute = { Intensity = intensity } },
-    { Foreground = { Color = fg } },
+    { Foreground = { Color = fg_active } },
     { Text = ' ' .. text .. ' ' },
   }
 end)

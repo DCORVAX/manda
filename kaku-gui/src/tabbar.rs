@@ -3,6 +3,7 @@ use config::{ConfigHandle, TabBarColors};
 use finl_unicode::grapheme_clusters::Graphemes;
 use mlua::FromLua;
 use mux::pane::CachePolicy;
+use mux::tab::TabId;
 use mux::Mux;
 use std::path::Path;
 use termwiz::cell::{unicode_column_width, Cell, CellAttributes};
@@ -259,6 +260,45 @@ fn pct_to_glyph(pct: u8) -> char {
     }
 }
 
+fn tab_multi_pane_title(tab_id: TabId) -> Option<String> {
+    let mux = Mux::try_get()?;
+    let tab = mux.get_tab(tab_id)?;
+    let panes = tab.iter_panes();
+    if panes.len() <= 1 {
+        return None;
+    }
+    let parts: Vec<String> = panes
+        .iter()
+        .filter_map(|pos| {
+            let real_pane = mux.get_pane(pos.pane.pane_id())?;
+            let cwd = real_pane.get_current_working_dir(CachePolicy::AllowStale)?;
+            let path_str = cwd.path().trim_end_matches('/');
+            if path_str.is_empty() {
+                return None;
+            }
+            let path = Path::new(path_str);
+            let current = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .or_else(|| path.to_str())?;
+            let parent = path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            if parent.is_empty() {
+                Some(current.to_string())
+            } else {
+                Some(format!("{parent}/{current}"))
+            }
+        })
+        .collect();
+    if parts.is_empty() {
+        return None;
+    }
+    Some(parts.join(" \u{00b7} "))
+}
+
 fn compute_tab_title_from_precomputed(
     tab: &TabInformation,
     config: &ConfigHandle,
@@ -277,6 +317,8 @@ fn compute_tab_title_from_precomputed(
             if let Some(pane) = &tab.active_pane {
                 let title = if !tab.tab_title.is_empty() {
                     tab.tab_title.clone()
+                } else if let Some(multi) = tab_multi_pane_title(tab.tab_id) {
+                    multi
                 } else if let Some(path_title) = pane_cwd_title(pane) {
                     path_title
                 } else if let Some(ssh_host) = ssh_destination_for_pane(pane) {
@@ -328,6 +370,12 @@ pub fn compute_tab_plain_title(tab: &TabInformation) -> String {
     }
 
     if let Some(pane) = &tab.active_pane {
+        if ssh_destination_for_pane(pane).is_none() {
+            if let Some(multi) = tab_multi_pane_title(tab.tab_id) {
+                return multi;
+            }
+        }
+
         if let Some(title) = pane_cwd_title(pane) {
             return title;
         }
