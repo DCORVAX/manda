@@ -339,6 +339,11 @@ const SPINNER_FRAMES_INPUT: &[&str] = &["◐", "◓", "◑", "◒"];
 /// "active", slow enough that each glyph is legible.
 const SPINNER_INTERVAL_MS: u128 = 80;
 
+/// Cap on how many wrapped rows the input box can occupy before it starts to
+/// scroll internally. Keeps the message area from collapsing when a user
+/// pastes or types a long prompt while still showing enough context to edit.
+const MAX_INPUT_VISIBLE_ROWS: usize = 5;
+
 /// UI mode: normal chat or conversation picker.
 pub(crate) enum AppMode {
     Chat,
@@ -916,9 +921,51 @@ impl App {
         self.cols.saturating_sub(4) // 2 border + 2 padding per side
     }
 
-    /// Total visible rows for the message area.
+    /// Width available inside the input box (between the left and right
+    /// border columns). Input wraps at this width.
+    fn input_wrap_width(&self) -> usize {
+        self.cols.saturating_sub(2)
+    }
+
+    /// Prompt prefix shown in front of the input. Width is stable across
+    /// spinner frames (each glyph is single-cell, see SPINNER_FRAMES_INPUT).
+    fn current_input_prompt(&self) -> String {
+        if self.queued_submit {
+            format!("  {} ↵ ", self.spinner_char_input())
+        } else if self.is_streaming {
+            format!("  {} ", self.spinner_char_input())
+        } else {
+            "  > ".to_string()
+        }
+    }
+
+    /// How many rows the input area occupies right now. Grows with wrapped
+    /// input length up to `MAX_INPUT_VISIBLE_ROWS`; the approval banner
+    /// always takes one row.
+    fn input_visible_rows(&self) -> usize {
+        if self.pending_approval.is_some() {
+            return 1;
+        }
+        let prompt = self.current_input_prompt();
+        let layout = layout_input(
+            &prompt,
+            &self.input,
+            self.input_cursor,
+            self.input_wrap_width(),
+        );
+        layout
+            .rows
+            .len()
+            .min(MAX_INPUT_VISIBLE_ROWS)
+            .max(1)
+    }
+
+    /// Total visible rows for the message area. Shrinks when the input
+    /// box grows so the chrome (top border + separator + input + bottom
+    /// border) always stays inside `self.rows`.
     fn msg_area_height(&self) -> usize {
-        self.rows.saturating_sub(4) // top border + separator + input + bottom border
+        self.rows
+            .saturating_sub(3 + self.input_visible_rows())
     }
 }
 
@@ -2410,7 +2457,9 @@ fn render_chat(term: &mut TermWizTerminal, app: &App) -> termwiz::Result<()> {
     }
 
     // 4. Separator row, also used for inline slash-command / attachment suggestions.
-    let sep_row = rows.saturating_sub(3);
+    // sep_row sits just above the (possibly multi-row) input box.
+    let input_visible_h = app.input_visible_rows();
+    let sep_row = rows.saturating_sub(2 + input_visible_h);
     let slash_options = app.slash_picker_options();
     let attach_options = app.attachment_picker_options();
     if !slash_options.is_empty() {
@@ -2462,14 +2511,9 @@ fn render_chat(term: &mut TermWizTerminal, app: &App) -> termwiz::Result<()> {
         )));
     }
 
-    // 5. Input row, or approval prompt when agent is waiting for confirmation.
-    let input_row = rows.saturating_sub(2);
-    changes.push(Change::CursorPosition {
-        x: Position::Absolute(0),
-        y: Position::Absolute(input_row),
-    });
-    changes.push(Change::AllAttributes(pal.border_dim_cell()));
-    changes.push(Change::Text("│".to_string()));
+    // 5. Input area (one or more rows). Approval banner, when present,
+    // always takes a single row.
+    let input_top = rows.saturating_sub(1 + input_visible_h);
 
     // Compute cursor state now; apply AFTER bottom border so it's the final position.
     let cursor_state: Option<(usize, usize)> = if let Some((summary, _)) = &app.pending_approval {
@@ -2481,6 +2525,12 @@ fn render_chat(term: &mut TermWizTerminal, app: &App) -> termwiz::Result<()> {
             app.spinner_char(),
             summary
         );
+        changes.push(Change::CursorPosition {
+            x: Position::Absolute(0),
+            y: Position::Absolute(input_top),
+        });
+        changes.push(Change::AllAttributes(pal.border_dim_cell()));
+        changes.push(Change::Text("│".to_string()));
         changes.push(Change::AllAttributes(pal.ai_header_cell()));
         changes.push(Change::Text(truncate(
             &pad_to_visual_width(&approval_text, inner_w),
@@ -2493,32 +2543,53 @@ fn render_chat(term: &mut TermWizTerminal, app: &App) -> termwiz::Result<()> {
         // Show a pulsing spinner instead of `>` while streaming so the user
         // sees the response is still in progress. If a follow-up message is
         // queued (Enter pressed during streaming), add a ↵ glyph to signal it.
-        let prompt = if app.queued_submit {
-            format!("  {} ↵ ", app.spinner_char_input())
-        } else if app.is_streaming {
-            format!("  {} ", app.spinner_char_input())
+        let prompt = app.current_input_prompt();
+        let layout = layout_input(&prompt, &app.input, app.input_cursor, inner_w);
+        let total_rows = layout.rows.len();
+        // Anchor the cursor at the bottom of the visible window when the
+        // wrapped input overflows the cap, so typing always stays in view.
+        let scroll = if total_rows > input_visible_h {
+            layout
+                .cursor_row
+                .saturating_sub(input_visible_h.saturating_sub(1))
+                .min(total_rows - input_visible_h)
         } else {
-            "  > ".to_string()
+            0
         };
-        let input_display = format!("{}{}", prompt, app.input);
-        let input_padded = format!("{:<width$}", input_display, width = inner_w);
-        changes.push(Change::AllAttributes(pal.input_cell()));
-        changes.push(Change::Text(truncate(&input_padded, inner_w)));
-        changes.push(Change::AllAttributes(pal.border_dim_cell()));
-        changes.push(Change::Text("│".to_string()));
+
+        for i in 0..input_visible_h {
+            let abs_row = input_top + i;
+            changes.push(Change::CursorPosition {
+                x: Position::Absolute(0),
+                y: Position::Absolute(abs_row),
+            });
+            changes.push(Change::AllAttributes(pal.border_dim_cell()));
+            changes.push(Change::Text("│".to_string()));
+            changes.push(Change::AllAttributes(pal.input_cell()));
+            let row_text = layout
+                .rows
+                .get(scroll + i)
+                .map(String::as_str)
+                .unwrap_or("");
+            changes.push(Change::Text(pad_to_visual_width(row_text, inner_w)));
+            changes.push(Change::AllAttributes(pal.border_dim_cell()));
+            changes.push(Change::Text("│".to_string()));
+        }
 
         // Hide the input cursor during streaming until the user deliberately
         // clicks the input row. Keeps visual focus on the AI response and
         // avoids a blinking cursor next to the spinner that reads as noise.
         if app.is_streaming && !app.input_clicked_this_stream {
             None
+        } else if layout.cursor_row >= scroll && layout.cursor_row < scroll + input_visible_h {
+            // +1 for the left border column; cap at the last content column so
+            // the caret never lands on top of the right border glyph if the
+            // phantom-row guard ever misses.
+            let col = (1 + layout.cursor_col).min(cols.saturating_sub(2));
+            let row = input_top + (layout.cursor_row - scroll);
+            Some((col, row))
         } else {
-            let cursor_byte = char_to_byte_pos(&app.input, app.input_cursor);
-            let cursor_col = (1
-                + unicode_column_width(&prompt, None)
-                + unicode_column_width(&app.input[..cursor_byte], None))
-            .min(cols.saturating_sub(2));
-            Some((cursor_col, input_row))
+            None
         }
     };
 
@@ -3031,10 +3102,12 @@ fn handle_mouse(event: &MouseEvent, app: &mut App) {
         return;
     }
 
-    // Mouse selection: row 0 is the top border, rows 1..=msg_area_h are message area.
-    // We only care about clicks/drags inside the message area.
+    // Mouse selection: row 0 is the top border, rows 1..msg_row_end are the
+    // message area. The input box can span multiple rows now, so msg_row_end
+    // tracks the separator row (which floats up as input grows).
+    let input_visible_h = app.input_visible_rows();
     let msg_row_start = 1usize; // first message row (0 is top border)
-    let msg_row_end = app.rows.saturating_sub(3); // last message row (exclusive)
+    let msg_row_end = app.rows.saturating_sub(2 + input_visible_h); // exclusive
 
     let mx = event.x as usize;
     let my = event.y as usize;
@@ -3061,7 +3134,10 @@ fn handle_mouse(event: &MouseEvent, app: &mut App) {
     let was_pressed = app.left_was_pressed;
     app.left_was_pressed = is_pressed;
 
-    let input_row = app.rows.saturating_sub(2);
+    // Input box spans rows [input_top .. bot_row); used to detect clicks
+    // anywhere in the (possibly multi-row) input area.
+    let input_top = app.rows.saturating_sub(1 + input_visible_h);
+    let bot_row = app.rows.saturating_sub(1);
 
     match (was_pressed, is_pressed) {
         (false, true) => {
@@ -3073,9 +3149,9 @@ fn handle_mouse(event: &MouseEvent, app: &mut App) {
             } else {
                 None
             };
-            // A click on the input row during streaming reveals the cursor
-            // so the user can stage the next message.
-            if my == input_row && app.is_streaming {
+            // A click anywhere on the input box during streaming reveals
+            // the cursor so the user can stage the next message.
+            if my >= input_top && my < bot_row && app.is_streaming {
                 app.input_clicked_this_stream = true;
             }
         }
@@ -3312,6 +3388,85 @@ fn truncate(s: &str, max_cols: usize) -> String {
         out.push_str(g);
     }
     out
+}
+
+/// Result of hard-wrapping the prompt+input string by visual column width.
+/// `cursor_row` / `cursor_col` are 0-indexed positions into the wrapped
+/// row grid (col is in visual columns, not bytes).
+struct InputLayout {
+    rows: Vec<String>,
+    cursor_row: usize,
+    cursor_col: usize,
+}
+
+/// Hard-wrap `prompt + input` to `width` visual columns, splitting at
+/// grapheme boundaries (no word awareness — chat input expects exact
+/// position). Tracks where `cursor_chars` (a char index into `input`)
+/// lands in the wrapped grid. When the cursor sits at the trailing edge
+/// of a row that is exactly `width` wide, an empty phantom row is
+/// appended so the caret has somewhere to render instead of overflowing
+/// onto the right border.
+fn layout_input(prompt: &str, input: &str, cursor_chars: usize, width: usize) -> InputLayout {
+    if width == 0 {
+        return InputLayout {
+            rows: vec![format!("{}{}", prompt, input)],
+            cursor_row: 0,
+            cursor_col: 0,
+        };
+    }
+
+    let cursor_byte_in_input = char_to_byte_pos(input, cursor_chars);
+    let cursor_byte_in_combined = prompt.len() + cursor_byte_in_input;
+    let combined: String = format!("{}{}", prompt, input);
+
+    let mut rows: Vec<String> = vec![String::new()];
+    let mut row_widths: Vec<usize> = vec![0];
+    let mut byte_pos = 0usize;
+    let mut cursor_row: usize = 0;
+    let mut cursor_col: usize = 0;
+    let mut found_cursor = false;
+
+    for g in combined.graphemes(true) {
+        let gw = unicode_column_width(g, None);
+        let need_wrap =
+            *row_widths.last().unwrap() + gw > width && !rows.last().unwrap().is_empty();
+        // Cursor check before the wrap decision: when the row is exactly
+        // full and the next grapheme is about to push a new row, a cursor
+        // sitting at this byte position visually belongs to the start of
+        // that new row, not the trailing edge of the full one (which would
+        // collide with the right border).
+        if !found_cursor && byte_pos >= cursor_byte_in_combined {
+            if need_wrap {
+                cursor_row = rows.len();
+                cursor_col = 0;
+            } else {
+                cursor_row = rows.len() - 1;
+                cursor_col = *row_widths.last().unwrap();
+            }
+            found_cursor = true;
+        }
+        if need_wrap {
+            rows.push(String::new());
+            row_widths.push(0);
+        }
+        rows.last_mut().unwrap().push_str(g);
+        *row_widths.last_mut().unwrap() += gw;
+        byte_pos += g.len();
+    }
+    if !found_cursor {
+        if *row_widths.last().unwrap() >= width {
+            rows.push(String::new());
+            row_widths.push(0);
+        }
+        cursor_row = rows.len() - 1;
+        cursor_col = *row_widths.last().unwrap();
+    }
+
+    InputLayout {
+        rows,
+        cursor_row,
+        cursor_col,
+    }
 }
 
 /// Find the byte offset in `s` that corresponds to visual column `col`.
