@@ -713,7 +713,10 @@ pub(crate) fn build_system_prompt() -> String {
     if identity.is_empty() {
         base.to_string()
     } else {
-        format!("{}\n\n---\n\nUSER IDENTITY (read-only, user-authored):\n{}", base, identity)
+        format!(
+            "{}\n\n---\n\nUSER IDENTITY (read-only, user-authored):\n{}",
+            base, identity
+        )
     }
 }
 
@@ -746,7 +749,10 @@ pub(crate) fn build_environment_message(ctx: &TerminalContext) -> ApiMessage {
 
     let memory = crate::soul::load_memory_for_env();
     if !memory.is_empty() {
-        s.push_str(&format!("\nPersistent memory (curator-managed):\n{}\n", memory));
+        s.push_str(&format!(
+            "\nPersistent memory (curator-managed):\n{}\n",
+            memory
+        ));
     }
 
     ApiMessage::user(format!(

@@ -1638,17 +1638,15 @@ impl App {
 
                 // One-shot soul bootstrap: split the first user reply into
                 // SOUL/STYLE/SKILL. Runs only if not already bootstrapped.
-                let bootstrap_reply: Option<String> =
-                    if !crate::soul::bootstrapped_path().exists() {
-                        self.messages
-                            .iter()
-                            .find(|m| {
-                                m.role == Role::User && !m.is_context && !m.content.is_empty()
-                            })
-                            .map(|m| m.content.clone())
-                    } else {
-                        None
-                    };
+                let bootstrap_reply: Option<String> = if !crate::soul::bootstrapped_path().exists()
+                {
+                    self.messages
+                        .iter()
+                        .find(|m| m.role == Role::User && !m.is_context && !m.content.is_empty())
+                        .map(|m| m.content.clone())
+                } else {
+                    None
+                };
 
                 std::thread::spawn(move || {
                     if let Some(reply) = bootstrap_reply {

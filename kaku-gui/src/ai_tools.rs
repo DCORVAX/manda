@@ -102,7 +102,9 @@ pub(crate) fn onboarding_flag_path() -> std::path::PathBuf {
     // Keep the flag in the config root (not inside soul/) so the soul dir can
     // be wiped cleanly without losing the onboarding state.
     if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
-        std::path::PathBuf::from(xdg).join("kaku").join("ai_chat_onboarded")
+        std::path::PathBuf::from(xdg)
+            .join("kaku")
+            .join("ai_chat_onboarded")
     } else {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
         std::path::PathBuf::from(home)
