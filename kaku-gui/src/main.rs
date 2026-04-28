@@ -89,6 +89,7 @@ use wezterm_mux_server_impl::update_mux_domains;
 use wezterm_toast_notification::*;
 
 mod ai_auth;
+mod ai_chat_engine;
 mod ai_client;
 mod ai_conversations;
 mod ai_gemini;

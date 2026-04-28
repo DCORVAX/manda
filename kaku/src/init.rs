@@ -37,6 +37,7 @@ mod imp {
         ensure_user_config().context("ensure user config exists")?;
 
         install_kaku_wrapper().context("install kaku wrapper")?;
+        install_k_wrapper().context("install k wrapper")?;
 
         let shell = detect_shell_kind();
         let script_name = match shell {
@@ -111,6 +112,101 @@ exit 127
         fs::set_permissions(&wrapper_path, fs::Permissions::from_mode(0o755))
             .with_context(|| format!("chmod wrapper {}", wrapper_path.display()))?;
         Ok(())
+    }
+
+    fn install_k_wrapper() -> anyhow::Result<()> {
+        let k_path = k_wrapper_path();
+        let k_dir = k_path
+            .parent()
+            .ok_or_else(|| anyhow!("invalid k wrapper path"))?;
+        config::create_user_owned_dirs(k_dir).context("create k wrapper directory")?;
+
+        // If something else already owns this path and it is not our wrapper, skip.
+        if k_path.exists() {
+            let content = fs::read_to_string(&k_path).unwrap_or_default();
+            if !content.contains("Kaku") && !content.contains("kaku") {
+                eprintln!(
+                    "k: {} already exists and does not appear to be a Kaku wrapper; skipping.",
+                    k_path.display()
+                );
+                return Ok(());
+            }
+        }
+        if fs::symlink_metadata(&k_path)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            fs::remove_file(&k_path).with_context(|| {
+                format!("remove legacy symlink k wrapper {}", k_path.display())
+            })?;
+        }
+
+        let preferred_k_bin = resolve_preferred_k_bin()
+            .unwrap_or_else(|| PathBuf::from("/Applications/Kaku.app/Contents/MacOS/k"));
+        let preferred_k_bin = escape_for_double_quotes(&preferred_k_bin.display().to_string());
+
+        let script = format!(
+            r#"#!/bin/bash
+set -euo pipefail
+
+for candidate in \
+	"{preferred_k_bin}" \
+	"/Applications/Kaku.app/Contents/MacOS/k" \
+	"$HOME/Applications/Kaku.app/Contents/MacOS/k"; do
+	if [[ -n "$candidate" && -x "$candidate" ]]; then
+		exec "$candidate" "$@"
+	fi
+done
+
+echo "k: Kaku.app not found. Run 'kaku init' after installing Kaku." >&2
+exit 127
+"#
+        );
+
+        let mut file = fs::File::create(&k_path)
+            .with_context(|| format!("create k wrapper {}", k_path.display()))?;
+        file.write_all(script.as_bytes())
+            .with_context(|| format!("write k wrapper {}", k_path.display()))?;
+        fs::set_permissions(&k_path, fs::Permissions::from_mode(0o755))
+            .with_context(|| format!("chmod k wrapper {}", k_path.display()))?;
+        Ok(())
+    }
+
+    fn k_wrapper_path() -> PathBuf {
+        let dir = match detect_shell_kind() {
+            ShellKind::Fish => "fish",
+            _ => "zsh",
+        };
+        config::HOME_DIR
+            .join(".config")
+            .join("kaku")
+            .join(dir)
+            .join("bin")
+            .join("k")
+    }
+
+    fn resolve_preferred_k_bin() -> Option<PathBuf> {
+        if let Ok(exe) = std::env::current_exe() {
+            // current_exe is the `kaku` binary; `k` sits alongside it.
+            let k_candidate = exe.with_file_name("k");
+            if is_executable_file(&k_candidate) {
+                return Some(k_candidate);
+            }
+        }
+        for candidate in [
+            PathBuf::from("/Applications/Kaku.app/Contents/MacOS/k"),
+            config::HOME_DIR
+                .join("Applications")
+                .join("Kaku.app")
+                .join("Contents")
+                .join("MacOS")
+                .join("k"),
+        ] {
+            if is_executable_file(&candidate) {
+                return Some(candidate);
+            }
+        }
+        None
     }
 
     fn wrapper_path() -> PathBuf {

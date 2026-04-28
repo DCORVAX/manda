@@ -98,6 +98,7 @@ pub(crate) fn memory_file_path() -> std::path::PathBuf {
 }
 
 /// Presence of this file means the user has already seen the onboarding greeting.
+#[allow(dead_code)]
 pub(crate) fn onboarding_flag_path() -> std::path::PathBuf {
     // Keep the flag in the config root (not inside soul/) so the soul dir can
     // be wiped cleanly without losing the onboarding state.

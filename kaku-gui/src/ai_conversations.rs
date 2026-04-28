@@ -34,6 +34,10 @@ pub struct PersistedMessage {
     pub content: String,
     #[serde(default)]
     pub attachments: Vec<PersistedAttachment>,
+    /// Sequential index of the user/assistant exchange pair this message belongs to.
+    /// 0 for legacy messages (missing field). Used by compaction to avoid splitting pairs.
+    #[serde(default)]
+    pub round_id: u32,
 }
 
 /// Metadata entry in the index for one conversation.
@@ -68,7 +72,7 @@ struct ConversationFile {
 
 // ── Path helpers ──────────────────────────────────────────────────────────────
 
-fn conversations_dir() -> Result<PathBuf> {
+pub(crate) fn conversations_dir() -> Result<PathBuf> {
     let user_config_path = config::user_config_path();
     let config_dir = user_config_path
         .parent()
@@ -335,6 +339,44 @@ pub fn update_summary(id: &str, summary: &str) -> Result<()> {
     Ok(())
 }
 
+// ── cwd index (used by the `k` CLI) ──────────────────────────────────────────
+
+/// Set or update the `cwd -> conv_id` mapping.
+pub fn write_cwd_index(cwd: &str, conv_id: &str) -> Result<()> {
+    let dir = conversations_dir()?;
+    let path = dir.join("cwd_index.json");
+    let mut map: std::collections::HashMap<String, String> =
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+    map.insert(cwd.to_string(), conv_id.to_string());
+    std::fs::create_dir_all(&dir)?;
+    let json = serde_json::to_string_pretty(&map)?;
+    write_atomic(&path, &json)
+}
+
+/// Look up a cwd mapping; if present and the conv file still exists, return
+/// that conv_id. Otherwise create a new active conversation, record the
+/// mapping, and return the new id.
+pub fn resolve_or_create_conv_for_cwd(cwd: &str) -> Result<String> {
+    let dir = conversations_dir()?;
+    let path = dir.join("cwd_index.json");
+    let map: std::collections::HashMap<String, String> =
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+    if let Some(id) = map.get(cwd).cloned() {
+        if conversation_path(&dir, &id).exists() {
+            return Ok(id);
+        }
+    }
+    let new_id = start_new_active()?;
+    write_cwd_index(cwd, &new_id)?;
+    Ok(new_id)
+}
+
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 fn write_atomic(path: &PathBuf, content: &str) -> Result<()> {
@@ -483,6 +525,7 @@ mod tests {
                     label: "@cwd".to_string(),
                     payload: "Directory: /tmp".to_string(),
                 }],
+                round_id: 0,
             }],
         };
         let json = serde_json::to_string(&file).unwrap();

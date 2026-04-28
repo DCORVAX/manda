@@ -267,32 +267,34 @@ fn tab_multi_pane_title(tab_id: TabId) -> Option<String> {
     if panes.len() <= 1 {
         return None;
     }
-    let parts: Vec<String> = panes
-        .iter()
-        .filter_map(|pos| {
-            let real_pane = mux.get_pane(pos.pane.pane_id())?;
-            let cwd = real_pane.get_current_working_dir(CachePolicy::AllowStale)?;
-            let path_str = cwd.path().trim_end_matches('/');
-            if path_str.is_empty() {
-                return None;
-            }
-            let path = Path::new(path_str);
-            let current = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .or_else(|| path.to_str())?;
-            let parent = path
-                .parent()
-                .and_then(|p| p.file_name())
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            if parent.is_empty() {
-                Some(current.to_string())
-            } else {
-                Some(format!("{parent}/{current}"))
-            }
-        })
-        .collect();
+    let mut parts: Vec<String> = Vec::new();
+    for pos in panes.iter() {
+        let Some(real_pane) = mux.get_pane(pos.pane.pane_id()) else { continue };
+        let Some(cwd) = real_pane.get_current_working_dir(CachePolicy::AllowStale) else { continue };
+        let path_str = cwd.path().trim_end_matches('/');
+        if path_str.is_empty() {
+            continue;
+        }
+        let path = Path::new(path_str);
+        let Some(current) = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .or_else(|| path.to_str())
+        else { continue };
+        let parent = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        let segment = if parent.is_empty() {
+            current.to_string()
+        } else {
+            format!("{parent}/{current}")
+        };
+        if !parts.iter().any(|p| p == &segment) {
+            parts.push(segment);
+        }
+    }
     if parts.is_empty() {
         return None;
     }

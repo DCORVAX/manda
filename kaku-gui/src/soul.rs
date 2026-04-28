@@ -24,10 +24,12 @@ pub(crate) fn memory_path() -> PathBuf {
     soul_dir().join("MEMORY.md")
 }
 
+#[allow(dead_code)]
 pub(crate) fn version_path() -> PathBuf {
     soul_dir().join(".version")
 }
 
+#[allow(dead_code)]
 pub(crate) fn bootstrapped_path() -> PathBuf {
     soul_dir().join(".bootstrapped")
 }
@@ -44,8 +46,10 @@ fn kaku_config_dir() -> PathBuf {
 
 // ─── Version sentinel ─────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 const SCHEMA_VERSION: u32 = 1;
 
+#[allow(dead_code)]
 fn read_schema_version() -> u32 {
     std::fs::read_to_string(version_path())
         .ok()
@@ -53,6 +57,7 @@ fn read_schema_version() -> u32 {
         .unwrap_or(0)
 }
 
+#[allow(dead_code)]
 fn write_schema_version(v: u32) {
     if let Err(e) = std::fs::write(version_path(), format!("{}\n", v)) {
         log::warn!("soul: failed to write .version: {e}");
@@ -62,6 +67,7 @@ fn write_schema_version(v: u32) {
 // ─── Migration ────────────────────────────────────────────────────────────────
 
 /// Run on every AI overlay init. Idempotent.
+#[allow(dead_code)]
 pub(crate) fn migrate_if_needed() {
     let version = read_schema_version();
     if version >= SCHEMA_VERSION {
@@ -111,6 +117,7 @@ fn migrate_v0_to_v1() {
     );
 }
 
+#[allow(dead_code)]
 fn write_stub_if_absent(path: &std::path::Path, content: &str) {
     if path.exists() {
         return;
@@ -191,6 +198,7 @@ fn is_stub_only(content: &str) -> bool {
 /// One-shot split of the onboarding answer into SOUL/STYLE/SKILL slots.
 /// Sentinel-guarded: runs only once per install. Best-effort; failures are
 /// logged and ignored so the user does not see errors.
+#[allow(dead_code)]
 pub(crate) fn bootstrap_from_onboarding(
     client: &crate::ai_client::AiClient,
     onboarding_reply: &str,

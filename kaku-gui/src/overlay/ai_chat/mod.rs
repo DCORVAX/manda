@@ -29,8 +29,7 @@ mod waza;
 
 pub(crate) use agent::{generate_summary, maybe_extract_memories, run_agent};
 pub(crate) use approval::{
-    approval_summary, build_environment_message, build_system_prompt,
-    build_visible_snapshot_message,
+    build_environment_message, build_system_prompt, build_visible_snapshot_message,
 };
 pub(crate) use markdown::{
     parse_markdown_blocks, segments_to_plain, tokenize_inline, wrap_segments,
@@ -250,32 +249,7 @@ const ATTACHMENT_SELECTION: AttachmentOption = AttachmentOption {
 
 // ─── Streaming messages ───────────────────────────────────────────────────────
 
-pub(crate) enum StreamMsg {
-    /// The model is about to stream text: push an empty assistant text placeholder.
-    AssistantStart,
-    Token(String),
-    /// Model is calling a tool; show it as an in-progress line.
-    ToolStart {
-        name: String,
-        args_preview: String,
-    },
-    /// Tool execution finished successfully.
-    ToolDone {
-        result_preview: String,
-    },
-    /// Tool execution failed.
-    ToolFailed {
-        error: String,
-    },
-    /// Agent needs user approval before executing a mutating operation.
-    /// The agent thread blocks on `reply_tx` until the user responds.
-    ApprovalRequired {
-        summary: String,
-        reply_tx: std::sync::mpsc::SyncSender<bool>,
-    },
-    Done,
-    Err(String),
-}
+pub(crate) use crate::ai_chat_engine::StreamMsg;
 
 // ─── Model selection ─────────────────────────────────────────────────────────
 
@@ -427,6 +401,12 @@ pub(crate) struct App {
     /// token replacements. Plain typing and single-char Backspace do not
     /// push, so every Cmd+Z restores something meaningful.
     pub(crate) input_undo_stack: Vec<InputSnapshot>,
+    /// When true, the current stream is a /btw transient query: its messages
+    /// are not persisted and are excluded from future API context.
+    pub(crate) stream_is_transient: bool,
+    /// When true, the next AssistantStart message is marked as is_context so
+    /// it is excluded from persistence and future API context.
+    pub(crate) next_assistant_is_context: bool,
 }
 
 impl App {
@@ -578,6 +558,8 @@ impl App {
             queued_submit: false,
             input_clicked_this_stream: false,
             input_undo_stack: Vec::new(),
+            stream_is_transient: false,
+            next_assistant_is_context: false,
         }
     }
 
@@ -983,6 +965,13 @@ fn slash_command_options_for_token(token: &str) -> Vec<(&'static str, &'static s
     let builtins = [
         ("/new", "Start a new conversation"),
         ("/resume", "Resume a previous conversation"),
+        ("/clear", "Clear current conversation messages"),
+        ("/export", "Copy conversation to clipboard"),
+        ("/memory", "Show memory file paths"),
+        ("/status", "Show current session state"),
+        ("/btw", "Ask a side question (not saved to history)"),
+        ("/model", "Show or switch model"),
+        ("/config", "Show current AI config"),
     ];
     builtins
         .iter()
@@ -997,7 +986,10 @@ fn slash_command_options_for_token(token: &str) -> Vec<(&'static str, &'static s
 }
 
 fn slash_command_submits_immediately(command: &str) -> bool {
-    matches!(command, "/new" | "/resume")
+    matches!(
+        command,
+        "/new" | "/resume" | "/clear" | "/export" | "/memory" | "/status" | "/model" | "/config"
+    )
 }
 
 fn push_waza_instruction(
@@ -1423,6 +1415,53 @@ impl App {
             self.enter_resume_picker();
             return;
         }
+        if raw_input == "/clear" {
+            self.input.clear();
+            self.input_cursor = 0;
+            self.clear_conversation();
+            return;
+        }
+        if raw_input == "/export" {
+            self.input.clear();
+            self.input_cursor = 0;
+            self.cmd_export();
+            return;
+        }
+        if raw_input == "/memory" {
+            self.input.clear();
+            self.input_cursor = 0;
+            self.cmd_memory();
+            return;
+        }
+        if raw_input == "/status" {
+            self.input.clear();
+            self.input_cursor = 0;
+            self.cmd_status();
+            return;
+        }
+        if raw_input == "/config" {
+            self.input.clear();
+            self.input_cursor = 0;
+            self.cmd_config();
+            return;
+        }
+        // /model with optional argument
+        if raw_input == "/model" || raw_input.starts_with("/model ") {
+            self.input.clear();
+            self.input_cursor = 0;
+            let arg = raw_input.strip_prefix("/model").unwrap_or("").trim().to_string();
+            self.cmd_model(if arg.is_empty() { None } else { Some(arg) });
+            return;
+        }
+        // /btw <question>: transient side question, not saved to history
+        if let Some(question) = raw_input.strip_prefix("/btw ").map(|s| s.trim().to_string()) {
+            if !question.is_empty() {
+                self.input.clear();
+                self.input_cursor = 0;
+                self.submit_btw(question);
+                return;
+            }
+        }
 
         let waza_invocation = waza::parse_invocation(&raw_input);
         let active_waza_skill = waza_invocation.map(|invocation| invocation.skill);
@@ -1477,7 +1516,9 @@ impl App {
         let model = self.current_model();
         let initial_messages = self.build_api_messages(active_waza_skill);
         let cwd = self.context.cwd.clone();
-        let tools: Vec<serde_json::Value> = if client.tools_enabled() {
+        let conv_id = self.active_id.clone();
+        let transient = self.stream_is_transient;
+        let tools: Vec<serde_json::Value> = if client.tools_enabled() && !transient {
             crate::ai_tools::all_tools(client.config())
                 .iter()
                 .map(crate::ai_tools::to_api_schema)
@@ -1487,7 +1528,7 @@ impl App {
         };
 
         std::thread::spawn(move || {
-            run_agent(client, model, initial_messages, tools, cwd, cancel, tx);
+            run_agent(client, model, initial_messages, tools, cwd, conv_id, cancel, tx);
         });
     }
 
@@ -1540,8 +1581,10 @@ impl App {
             loop {
                 match rx.try_recv() {
                     Ok(StreamMsg::AssistantStart) => {
+                        let is_ctx = self.next_assistant_is_context;
+                        self.next_assistant_is_context = false;
                         self.messages
-                            .push(Message::text(Role::Assistant, "", false, false));
+                            .push(Message::text(Role::Assistant, "", false, is_ctx));
                         changed = true;
                     }
                     Ok(StreamMsg::Token(t)) => {
@@ -1677,9 +1720,13 @@ impl App {
             }
             self.stream_pending_done = false;
             self.is_streaming = false;
-            self.save_history();
-            // Auto-extract memories after successful completions.
-            if self.stream_pending_err.is_none() {
+            let was_transient = self.stream_is_transient;
+            self.stream_is_transient = false;
+            if !was_transient {
+                self.save_history();
+            }
+            // Auto-extract memories after successful completions (skip for /btw).
+            if self.stream_pending_err.is_none() && !was_transient {
                 let client = self.client.clone();
                 let msgs = self.collect_persisted_messages();
 
@@ -1744,24 +1791,34 @@ impl App {
 
     /// Collect real (non-context, non-tool, complete) messages for persistence.
     fn collect_persisted_messages(&self) -> Vec<ai_conversations::PersistedMessage> {
+        let mut round_id: u32 = 0;
+        let mut last_role = "";
         self.messages
             .iter()
             .filter(|m| !m.is_context && !m.is_tool() && m.complete)
-            .map(|m| ai_conversations::PersistedMessage {
-                role: match m.role {
-                    Role::User => "user".to_string(),
-                    Role::Assistant => "assistant".to_string(),
-                },
-                content: m.content.clone(),
-                attachments: m
-                    .attachments
-                    .iter()
-                    .map(|a| ai_conversations::PersistedAttachment {
-                        kind: a.kind.clone(),
-                        label: a.label.clone(),
-                        payload: a.payload.clone(),
-                    })
-                    .collect(),
+            .map(|m| {
+                let role_str = match m.role {
+                    Role::User => "user",
+                    Role::Assistant => "assistant",
+                };
+                if role_str == "user" && last_role == "assistant" {
+                    round_id += 1;
+                }
+                last_role = role_str;
+                ai_conversations::PersistedMessage {
+                    role: role_str.to_string(),
+                    content: m.content.clone(),
+                    attachments: m
+                        .attachments
+                        .iter()
+                        .map(|a| ai_conversations::PersistedAttachment {
+                            kind: a.kind.clone(),
+                            label: a.label.clone(),
+                            payload: a.payload.clone(),
+                        })
+                        .collect(),
+                    round_id,
+                }
             })
             .collect()
     }
@@ -1808,6 +1865,191 @@ impl App {
             true,
             true,
         ));
+    }
+
+    /// Clear display messages from the current conversation without persisting or archiving.
+    fn clear_conversation(&mut self) {
+        if self.is_streaming {
+            self.cancel_stream();
+        }
+        self.messages.clear();
+        self.scroll_offset = 0;
+        self.display_lines_dirty = true;
+    }
+
+    // ── Slash command implementations ──────────────────────────────────────────
+
+    fn cmd_export(&mut self) {
+        let msgs = self.collect_persisted_messages();
+        if msgs.is_empty() {
+            self.push_info("Nothing to export yet.");
+            return;
+        }
+        let mut out = String::new();
+        for m in &msgs {
+            let header = if m.role == "user" { "**User**" } else { "**Assistant**" };
+            out.push_str(header);
+            out.push_str("\n\n");
+            out.push_str(&m.content);
+            out.push_str("\n\n---\n\n");
+        }
+        copy_to_clipboard(out.trim_end_matches("\n\n---\n\n"));
+        self.push_info(&format!("Copied {} messages to clipboard.", msgs.len()));
+    }
+
+    fn cmd_memory(&mut self) {
+        let soul_dir = crate::soul::soul_dir();
+        let memory_path = crate::soul::memory_path();
+        let entry_count = std::fs::read_to_string(&memory_path)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.trim().starts_with('-'))
+            .count();
+        let text = format!(
+            "SOUL    {soul}/SOUL.md\n\
+             STYLE   {soul}/STYLE.md\n\
+             SKILL   {soul}/SKILL.md\n\
+             MEMORY  {soul}/MEMORY.md   ({count}/30 entries)",
+            soul = soul_dir.display(),
+            count = entry_count,
+        );
+        self.push_info(&text);
+    }
+
+    fn cmd_status(&mut self) {
+        let provider = self.client.config().provider.clone();
+        let model = self.current_model();
+        let round_estimate = self
+            .messages
+            .iter()
+            .filter(|m| !m.is_context && !m.is_tool() && m.role == Role::User)
+            .count();
+        let memory_path = crate::soul::memory_path();
+        let memory_count = std::fs::read_to_string(&memory_path)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.trim().starts_with('-'))
+            .count();
+        let cwd = self.context.cwd.clone();
+        let text = format!(
+            "Provider   {provider}\n\
+             Model      {model}\n\
+             Round      {round} / 15\n\
+             Memory     {mc}/30 entries\n\
+             Cwd        {cwd}",
+            provider = provider,
+            model = model,
+            round = round_estimate,
+            mc = memory_count,
+            cwd = cwd,
+        );
+        self.push_info(&text);
+    }
+
+    fn cmd_config(&mut self) {
+        let cfg = self.client.config();
+        let model_list = if cfg.chat_model_choices.is_empty() {
+            "(dynamic)".to_string()
+        } else {
+            cfg.chat_model_choices.join(", ")
+        };
+        let web_search = cfg
+            .web_search_provider
+            .as_deref()
+            .unwrap_or("disabled");
+        let text = format!(
+            "provider          {provider}\n\
+             chat_model        {model}\n\
+             chat_model_choices {choices}\n\
+             base_url          {url}\n\
+             chat_tools_enabled {tools}\n\
+             web_search        {ws}",
+            provider = cfg.provider,
+            model = cfg.chat_model,
+            choices = model_list,
+            url = cfg.base_url,
+            tools = cfg.chat_tools_enabled,
+            ws = web_search,
+        );
+        self.push_info(&text);
+    }
+
+    fn cmd_model(&mut self, arg: Option<String>) {
+        if let Some(name) = arg {
+            if let Some(idx) = self.available_models.iter().position(|m| m == &name) {
+                self.model_index = idx;
+                let model = self.current_model();
+                if let Err(e) = crate::ai_state::save_last_model(&model) {
+                    log::warn!("Failed to save model selection: {e}");
+                }
+                self.push_info(&format!("Switched to {}", name));
+            } else {
+                let list = self.available_models.join(", ");
+                self.push_info(&format!("Model '{}' not found. Available: {}", name, list));
+            }
+            return;
+        }
+        // List mode
+        let lines: Vec<String> = self
+            .available_models
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                if i == self.model_index {
+                    format!("* {}", m)
+                } else {
+                    format!("  {}", m)
+                }
+            })
+            .collect();
+        self.push_info(&lines.join("\n"));
+    }
+
+    fn submit_btw(&mut self, question: String) {
+        if self.is_streaming {
+            self.push_info("Wait for the current response to finish.");
+            return;
+        }
+        // Mark the user btw message as context so it's excluded from persistence
+        // and future API history.
+        self.messages
+            .push(Message::text(Role::User, format!("/btw {}", question), true, true));
+        self.display_lines_dirty = true;
+
+        // Build context including the btw sentinel
+        let mut initial_messages = self.build_api_messages(None);
+        initial_messages.push(crate::ai_client::ApiMessage::user(format!(
+            "[/btw side-question: answer inline, do not store in history]: {}",
+            question
+        )));
+
+        self.is_streaming = true;
+        self.stream_is_transient = true;
+        self.next_assistant_is_context = true;
+        self.input_clicked_this_stream = false;
+        self.grapheme_queue.clear();
+        self.stream_pending_done = false;
+        self.stream_pending_err = None;
+
+        let (tx, rx) = std::sync::mpsc::channel::<StreamMsg>();
+        self.token_rx = Some(rx);
+        self.cancel_flag.store(false, Ordering::Relaxed);
+        let cancel = Arc::clone(&self.cancel_flag);
+        let client = self.client.clone();
+        let model = self.current_model();
+        let cwd = self.context.cwd.clone();
+        let conv_id = self.active_id.clone();
+
+        std::thread::spawn(move || {
+            run_agent(client, model, initial_messages, vec![], cwd, conv_id, cancel, tx);
+        });
+    }
+
+    /// Push a system info message (shown in UI, not persisted).
+    fn push_info(&mut self, text: &str) {
+        self.messages
+            .push(Message::text(Role::Assistant, text, true, true));
+        self.display_lines_dirty = true;
     }
 
     /// Load the conversation index and enter picker mode (showing all except the active).
@@ -3596,6 +3838,7 @@ fn copy_to_clipboard(text: &str) {
 #[cfg(test)]
 mod markdown_tests {
     use super::*;
+    use crate::ai_chat_engine::approval::approval_summary;
 
     fn test_palette() -> ChatPalette {
         ChatPalette {

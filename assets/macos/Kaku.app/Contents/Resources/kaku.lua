@@ -2908,6 +2908,7 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
   -- Multi-pane path: render each pane's cwd, active segment highlighted
   if #own_panes > 1 and tab.tab_title == '' then
     local segments = {}
+    local seg_index = {}
     local basename_only = effective_config and effective_config.tab_title_show_basename_only
     for _, p in ipairs(own_panes) do
       local parent, current = pane_path_parts(p)
@@ -2918,7 +2919,15 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
       if seg_text == '' then
         seg_text = resolve_remote_target_from_pane(p) or p.title or '?'
       end
-      segments[#segments + 1] = { text = seg_text, active = p.is_active }
+      local idx = seg_index[seg_text]
+      if idx then
+        if p.is_active then
+          segments[idx].active = true
+        end
+      else
+        segments[#segments + 1] = { text = seg_text, active = p.is_active }
+        seg_index[seg_text] = #segments
+      end
     end
 
     -- Width budget: reserve 2 cells (leading space + trailing space/bell)
