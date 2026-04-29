@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://kaku.tw93.fun/sitemap-index.xml
