@@ -836,7 +836,7 @@ local function detect_git_branch(path)
   return trim_trailing_whitespace(stdout)
 end
 
-local function build_ai_fix_messages(failed_command, exit_code, cwd, git_branch)
+local function build_ai_fix_messages(failed_command, exit_code, cwd, git_branch, terminal_output)
   local context = {
     "Command: " .. failed_command,
     "Exit code: " .. tostring(exit_code),
@@ -847,10 +847,19 @@ local function build_ai_fix_messages(failed_command, exit_code, cwd, git_branch)
     context[#context + 1] = "Git branch: " .. git_branch
   end
 
+  if terminal_output and terminal_output ~= "" then
+    local max_chars = 2000
+    local trimmed = terminal_output
+    if #trimmed > max_chars then
+      trimmed = trimmed:sub(#trimmed - max_chars + 1)
+    end
+    context[#context + 1] = "\nTerminal output (recent):\n" .. trimmed
+  end
+
   return {
     {
       role = "system",
-      content = "You are a shell troubleshooting assistant. Output English only and return exactly one JSON object with keys summary, command, why, confidence. Do not use markdown or code fences. summary must be one concise sentence <= 72 chars and must not contain parentheses. command must be a single direct fix command without commentary. Avoid diagnostic-only commands, alias probing, and placeholders. Never use aliases like ll. If you are not confident about a direct fix, set command to an empty string.",
+      content = "You are a shell troubleshooting assistant. Use the terminal output to identify the specific error and suggest a precise fix. Output English only and return exactly one JSON object with keys summary, command, why, confidence. Do not use markdown or code fences. summary must be one concise sentence <= 72 chars and must not contain parentheses. command must be a single direct fix command without commentary. Avoid diagnostic-only commands, alias probing, and placeholders. Never use aliases like ll. If you are not confident about a direct fix, set command to an empty string.",
     },
     {
       role = "user",
@@ -1292,12 +1301,15 @@ local function inject_ai_notice(pane, headline, detail, suggested_command)
   end
 
   local cmd = sanitize_suggested_command(suggested_command or "")
-  local summary_line = "\27[38;5;141m╭─ Kaku Assistant\27[0m  \27[1m" .. summary .. "\27[0m"
+  local is_light = resolve_appearance_color_scheme() == 'Kaku Light'
+  local label_color = is_light and "\27[38;2;32;94;166m" or "\27[38;5;105m"
+  local hint_color = is_light and "\27[38;5;244m" or "\27[38;5;249m"
+  local summary_line = label_color .. "╭─ Kaku Assistant\27[0m  \27[1m" .. summary .. "\27[0m"
   local command_line = ""
   if cmd ~= "" then
-    command_line = "\27[38;5;141m╰─\27[0m " .. cmd .. "    \27[38;5;244mCmd+Shift+E\27[0m"
+    command_line = label_color .. "╰─\27[0m " .. cmd .. "    " .. hint_color .. "Cmd+Shift+E\27[0m"
   else
-    command_line = "\27[38;5;141m╰─\27[0m \27[38;5;244mNo safe command suggested\27[0m"
+    command_line = label_color .. "╰─\27[0m " .. hint_color .. "No safe command suggested\27[0m"
   end
 
   local output = "\r\n" .. summary_line .. "\r\n" .. command_line
@@ -1323,8 +1335,9 @@ local function inject_ai_status(pane, message)
 
   local summary = normalize_ai_summary(message or "", "Checking this error now.")
   local is_light = resolve_appearance_color_scheme() == 'Kaku Light'
-  local label_color = is_light and "\27[38;2;32;94;166m" or "\27[38;5;141m"
-  local line = label_color .. "╰─ Kaku Assistant\27[0m  \27[38;5;244m" .. summary .. "\27[0m"
+  local label_color = is_light and "\27[38;2;32;94;166m" or "\27[38;5;105m"
+  local summary_color = is_light and "\27[38;5;244m" or "\27[38;5;249m"
+  local line = label_color .. "╰─ Kaku Assistant\27[0m  " .. summary_color .. summary .. "\27[0m"
   local output = "\r\n" .. line .. "\r\n\r\n"
   pcall(function()
     pane:inject_output(output)
@@ -1424,8 +1437,8 @@ local function poll_ai_fix_job(window, pane, pane_id, job, failed_command, exit_
   finalize_shell_line(pane)
 end
 
-local function request_ai_fix_async(window, pane, pane_id, failed_command, exit_code, cwd, git_branch)
-  local messages = build_ai_fix_messages(failed_command, exit_code, cwd, git_branch)
+local function request_ai_fix_async(window, pane, pane_id, failed_command, exit_code, cwd, git_branch, terminal_output)
+  local messages = build_ai_fix_messages(failed_command, exit_code, cwd, git_branch, terminal_output)
   local payload, payload_err = encode_ai_fix_payload(ai_fix_model, messages)
   if not payload then
     return nil, payload_err or "failed to encode request payload"
@@ -1448,7 +1461,35 @@ local function request_ai_fix_async(window, pane, pane_id, failed_command, exit_
   return true
 end
 
-local function build_ai_generate_messages(query, cwd, git_branch)
+local function detect_project_type(cwd)
+  if not cwd or cwd == "" then
+    return ""
+  end
+  local markers = {
+    { file = "Cargo.toml", label = "Rust (cargo)" },
+    { file = "package.json", label = "JS/TS (npm)" },
+    { file = "go.mod", label = "Go" },
+    { file = "pyproject.toml", label = "Python" },
+    { file = "Makefile", label = "make" },
+    { file = "Gemfile", label = "Ruby" },
+    { file = "pom.xml", label = "Java (Maven)" },
+    { file = "CMakeLists.txt", label = "C/C++ (CMake)" },
+  }
+  local found = {}
+  for _, m in ipairs(markers) do
+    local f = io.open(cwd .. "/" .. m.file, "r")
+    if f then
+      f:close()
+      found[#found + 1] = m.label
+    end
+  end
+  if #found == 0 then
+    return ""
+  end
+  return table.concat(found, ", ")
+end
+
+local function build_ai_generate_messages(query, cwd, git_branch, terminal_output)
   local context = {
     "Request: " .. query,
     "Working directory: " .. (cwd ~= "" and cwd or "(unknown)"),
@@ -1456,10 +1497,22 @@ local function build_ai_generate_messages(query, cwd, git_branch)
   if git_branch ~= "" then
     context[#context + 1] = "Git branch: " .. git_branch
   end
+  local project_type = detect_project_type(cwd)
+  if project_type ~= "" then
+    context[#context + 1] = "Project type: " .. project_type
+  end
+  if terminal_output and terminal_output ~= "" then
+    local max_chars = 1500
+    local trimmed = terminal_output
+    if #trimmed > max_chars then
+      trimmed = trimmed:sub(#trimmed - max_chars + 1)
+    end
+    context[#context + 1] = "\nRecent terminal output:\n" .. trimmed
+  end
   return {
     {
       role = "system",
-      content = "You are a shell command assistant. Output English only and return exactly one JSON object with keys summary, command, why, confidence. Do not use markdown or code fences. summary must be one concise sentence <= 72 chars and must not contain parentheses. command must be a single executable shell command that fulfills the request. Never use aliases like ll. If you cannot produce a safe direct command, set command to an empty string.",
+      content = "You are a shell command assistant. Use the working directory context and project type to generate accurate commands (e.g. cargo test for Rust, npm test for JS). Output English only and return exactly one JSON object with keys summary, command, why, confidence. Do not use markdown or code fences. summary must be one concise sentence <= 72 chars and must not contain parentheses. command must be a single executable shell command that fulfills the request. Never use aliases like ll. If you cannot produce a safe direct command, set command to an empty string.",
     },
     {
       role = "user",
@@ -1565,9 +1618,10 @@ local function poll_ai_generate_job(window, pane, pane_id, job)
       local query = pane_state.query or ""
       local cwd = pane_state.cwd or ""
       local git_branch = pane_state.git_branch or ""
+      local term_output = pane_state.terminal_output or ""
       pane_state.inflight = true
       pane_state.spinner_frame = 0
-      local ok, err = request_ai_generate_async(window, pane, pane_id, query, cwd, git_branch)
+      local ok, err = request_ai_generate_async(window, pane, pane_id, query, cwd, git_branch, term_output)
       if not ok then
         pane_state.inflight = false
         ai_debug_log("ai_generate_job retry failed err=" .. tostring(err))
@@ -1618,8 +1672,8 @@ local function poll_ai_generate_job(window, pane, pane_id, job)
   end
 end
 
-local function request_ai_generate_async(window, pane, pane_id, query, cwd, git_branch)
-  local messages = build_ai_generate_messages(query, cwd, git_branch)
+local function request_ai_generate_async(window, pane, pane_id, query, cwd, git_branch, terminal_output)
+  local messages = build_ai_generate_messages(query, cwd, git_branch, terminal_output)
   local payload, payload_err = encode_ai_fix_payload(ai_fix_model, messages)
   if not payload then
     return nil, payload_err or "failed to encode request payload"
@@ -3282,7 +3336,11 @@ wezterm.on('user-var-changed', function(window, pane, name, value)
 
   local cwd = pane_cwd(pane)
   local git_branch = detect_git_branch(cwd)
-  local ok, err = request_ai_fix_async(window, pane, pane_id, failed_command, exit_code, cwd, git_branch)
+  local terminal_output = ""
+  pcall(function()
+    terminal_output = pane:get_lines_as_text(50) or ""
+  end)
+  local ok, err = request_ai_fix_async(window, pane, pane_id, failed_command, exit_code, cwd, git_branch, terminal_output)
   if not ok then
     pane_state.inflight = false
     pane_state.pending_job_id = nil
@@ -3359,9 +3417,14 @@ wezterm.on('user-var-changed', function(window, pane, name, value)
 
   local cwd = pane_cwd(pane)
   local git_branch = detect_git_branch(cwd)
+  local terminal_output = ""
+  pcall(function()
+    terminal_output = pane:get_lines_as_text(30) or ""
+  end)
   pane_state.cwd = cwd
   pane_state.git_branch = git_branch
-  local ok, err = request_ai_generate_async(window, pane, pane_id, query, cwd, git_branch)
+  pane_state.terminal_output = terminal_output
+  local ok, err = request_ai_generate_async(window, pane, pane_id, query, cwd, git_branch, terminal_output)
   if not ok then
     pane_state.inflight = false
     pane_state.pending_job_id = nil
