@@ -554,13 +554,18 @@ impl RenderState {
         mut atlas_size: usize,
     ) -> anyhow::Result<Self> {
         loop {
+            crate::startup_trace::mark("      GlyphCache::new_gl start");
             let glyph_cache = RefCell::new(GlyphCache::new_gl(&context, fonts, atlas_size)?);
+            crate::startup_trace::mark("      GlyphCache::new_gl done");
             let result = UtilSprites::new(&mut *glyph_cache.borrow_mut(), metrics);
             match result {
                 Ok(util_sprites) => {
                     let glyph_prog = match &context {
                         RenderContext::Glium(context) => {
-                            Some(Self::compile_prog(&context, Self::glyph_shader)?)
+                            crate::startup_trace::mark("      compile_prog (shader) start");
+                            let prog = Self::compile_prog(&context, Self::glyph_shader)?;
+                            crate::startup_trace::mark("      compile_prog (shader) done");
+                            Some(prog)
                         }
                         RenderContext::WebGpu(_) => None,
                     };
@@ -637,6 +642,22 @@ impl RenderState {
         Ok(allocated)
     }
 
+    fn glsl_version_cache_path() -> std::path::PathBuf {
+        config::CACHE_DIR.join("glsl_version")
+    }
+
+    fn cached_glsl_version() -> Option<String> {
+        std::fs::read_to_string(Self::glsl_version_cache_path()).ok()
+    }
+
+    fn save_glsl_version(version: &str) {
+        let path = Self::glsl_version_cache_path();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, version);
+    }
+
     fn compile_prog(
         context: &Rc<GliumContext>,
         fragment_shader: fn(&str) -> (String, String),
@@ -646,7 +667,26 @@ impl RenderState {
         let caps = context.get_capabilities();
         log::trace!("Compiling shader. context.capabilities.srgb={}", caps.srgb);
 
-        for version in &["330 core", "330", "320 es", "300 es"] {
+        let all_versions = ["330 core", "330", "320 es", "300 es"];
+        let cached = Self::cached_glsl_version();
+        let versions: Vec<&str> = if let Some(ref cached_ver) = cached {
+            let trimmed = cached_ver.trim();
+            if all_versions.contains(&trimmed) {
+                let mut v = vec![trimmed];
+                for ver in &all_versions {
+                    if *ver != trimmed {
+                        v.push(ver);
+                    }
+                }
+                v
+            } else {
+                all_versions.to_vec()
+            }
+        } else {
+            all_versions.to_vec()
+        };
+
+        for version in &versions {
             let (vertex_shader, fragment_shader) = fragment_shader(version);
             let source = glium::program::ProgramCreationInput::SourceCode {
                 vertex_shader: &vertex_shader,
@@ -660,6 +700,7 @@ impl RenderState {
             };
             match glium::Program::new(context, source) {
                 Ok(prog) => {
+                    Self::save_glsl_version(version);
                     return Ok(prog);
                 }
                 Err(err) => errors.push(format!("shader version: {}: {:#}", version, err)),

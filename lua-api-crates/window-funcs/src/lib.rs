@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use wezterm_dynamic::{FromDynamic, ToDynamic};
-use window::{Appearance, Connection, ConnectionOps};
+use window::{Connection, ConnectionOps};
 
 static APPEARANCE_QUERIED_BEFORE_GUI_READY: AtomicBool = AtomicBool::new(false);
 
@@ -104,9 +104,15 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             Ok(match Connection::get() {
                 Some(conn) => conn.get_appearance().to_string(),
                 None => {
-                    // Gui hasn't started yet, assume light
-                    APPEARANCE_QUERIED_BEFORE_GUI_READY.store(true, Ordering::Relaxed);
-                    Appearance::Light.to_string()
+                    #[cfg(target_os = "macos")]
+                    {
+                        window::query_appearance_early().to_string()
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        APPEARANCE_QUERIED_BEFORE_GUI_READY.store(true, Ordering::Relaxed);
+                        window::Appearance::Light.to_string()
+                    }
                 }
             })
         })?,

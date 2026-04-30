@@ -1325,7 +1325,7 @@ impl Config {
     }
 
     /// Try to load bytecode from cache, validating header + source hash.
-    fn try_load_bytecode_cache(source: &Path, source_content: &[u8]) -> Option<Vec<u8>> {
+    pub(crate) fn try_load_bytecode_cache(source: &Path, source_content: &[u8]) -> Option<Vec<u8>> {
         let cache_path = Self::bytecode_cache_path(source);
         // Quick mtime guard: skip reading the file if source is newer
         let source_mtime = std::fs::metadata(source).ok()?.modified().ok()?;
@@ -1338,7 +1338,7 @@ impl Config {
     }
 
     /// Save compiled bytecode to the cache with validation header.
-    fn save_bytecode_cache(source: &Path, source_content: &[u8], bytecode: &[u8]) {
+    pub(crate) fn save_bytecode_cache(source: &Path, source_content: &[u8], bytecode: &[u8]) {
         let cache_path = Self::bytecode_cache_path(source);
         if let Some(parent) = cache_path.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -1365,11 +1365,20 @@ impl Config {
 
         let mut s = String::new();
         file.read_to_string(&mut s)?;
+        let trace = std::env::var_os("KAKU_STARTUP_TRACE").is_some();
+        let t0 = std::time::Instant::now();
         let lua = make_lua_context(p)?;
+        if trace {
+            eprintln!("[startup:config] make_lua_context: {:.3}ms", t0.elapsed().as_secs_f64() * 1000.0);
+        }
 
         // Try loading from bytecode cache first
         let source_bytes = s.as_bytes();
+        let t1 = std::time::Instant::now();
         let cached_bytecode = Self::try_load_bytecode_cache(p, source_bytes);
+        if trace {
+            eprintln!("[startup:config] bytecode_cache_lookup: {:.3}ms (hit={})", t1.elapsed().as_secs_f64() * 1000.0, cached_bytecode.is_some());
+        }
 
         let (config, warnings) =
             wezterm_dynamic::Error::capture_warnings(|| -> anyhow::Result<Config> {
@@ -1401,6 +1410,7 @@ impl Config {
                     }
                 };
 
+                let t2 = std::time::Instant::now();
                 let config: mlua::Value = if let Some(ref bytecode) = cached_bytecode {
                     match smol::block_on(
                         lua.load(bytecode.as_slice())
@@ -1431,15 +1441,22 @@ impl Config {
                     Self::save_bytecode_cache(p, source_bytes, &bytecode);
                     smol::block_on(func.call_async::<_, mlua::Value>(())).map_err(&map_lua_err)?
                 };
+                if trace {
+                    eprintln!("[startup:config] lua_eval: {:.3}ms", t2.elapsed().as_secs_f64() * 1000.0);
+                }
 
                 let config = Config::apply_overrides_to(&lua, config)?;
                 let config = Config::apply_overrides_obj_to(&lua, config, overrides)?;
+                let t3 = std::time::Instant::now();
                 let cfg = Config::from_lua(config, &lua).with_context(|| {
                     format!(
                         "Error converting lua value returned by script {} to Config struct",
                         p.display()
                     )
                 })?;
+                if trace {
+                    eprintln!("[startup:config] Config::from_lua: {:.3}ms", t3.elapsed().as_secs_f64() * 1000.0);
+                }
                 cfg.check_consistency()?;
 
                 std::env::set_var("KAKU_CONFIG_FILE", p);

@@ -636,8 +636,12 @@ impl GuiFrontEnd {
         // hierarchy established before key events arrive. On macOS 26,
         // deferring this causes routeKeyEquivalent to swallow arrow keys
         // and Ctrl+C.
+        startup_trace::mark("    recreate_menubar start");
         crate::commands::CommandDef::recreate_menubar(&config::configuration());
+        startup_trace::mark("    recreate_menubar done");
+        startup_trace::mark("    sync_global_hotkey start");
         front_end.connection.sync_global_hotkey();
+        startup_trace::mark("    sync_global_hotkey done");
 
         Ok(front_end)
     }

@@ -13,7 +13,7 @@ use crate::spawn::*;
 use crate::Appearance;
 use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicyRegular, NSScreen};
 use cocoa::base::{id, nil};
-use cocoa::foundation::{NSArray, NSInteger};
+use cocoa::foundation::{NSArray, NSInteger, NSString};
 use core_foundation::base::TCFType;
 use core_foundation::string::{CFString, CFStringRef};
 use objc::runtime::{Object, BOOL, YES};
@@ -409,6 +409,23 @@ pub fn nsscreen_to_screen_info(screen: *mut Object) -> ScreenInfo {
         scale,
         max_fps,
         effective_dpi,
+    }
+}
+
+pub fn query_appearance_early() -> Appearance {
+    unsafe {
+        let defaults: id = msg_send![class!(NSUserDefaults), standardUserDefaults];
+        let key = cocoa::foundation::NSString::alloc(nil).init_str("AppleInterfaceStyle");
+        let value: id = msg_send![defaults, stringForKey: key];
+        if value == nil {
+            return Appearance::Light;
+        }
+        let style = nsstring_to_str(value);
+        if style == "Dark" {
+            Appearance::Dark
+        } else {
+            Appearance::Light
+        }
     }
 }
 

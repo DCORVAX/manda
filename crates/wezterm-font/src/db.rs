@@ -7,13 +7,15 @@ use config::{Config, FontAttributes};
 use rangeset::RangeSet;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 lazy_static::lazy_static! {
     /// Cache for font dir scan results. The key is the sorted list of font_dirs
     /// paths used for the scan, so that if config changes the dirs we re-scan.
     static ref FONT_DIRS_CACHE: Mutex<Option<(Vec<PathBuf>, Vec<ParsedFont>)>> = Mutex::new(None);
 }
+
+static BUILT_IN_CACHE: OnceLock<Vec<ParsedFont>> = OnceLock::new();
 
 pub struct FontDatabase {
     by_full_name: HashMap<String, Vec<ParsedFont>>,
@@ -108,10 +110,15 @@ impl FontDatabase {
     }
 
     pub fn with_built_in() -> anyhow::Result<Self> {
-        let mut font_info = vec![];
-        load_built_in_fonts(&mut font_info)?;
+        let font_info = BUILT_IN_CACHE.get_or_init(|| {
+            let mut info = vec![];
+            if let Err(err) = load_built_in_fonts(&mut info) {
+                log::error!("failed to load built-in fonts: {:#}", err);
+            }
+            info
+        });
         let mut db = Self::new();
-        db.load_font_info(font_info);
+        db.load_font_info(font_info.clone());
         Ok(db)
     }
 

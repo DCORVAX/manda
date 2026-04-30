@@ -188,6 +188,34 @@ fn config_builder_new_index<'lua>(
     }
 }
 
+fn cached_dofile<'lua>(lua: &'lua Lua, path: String) -> mlua::Result<Value<'lua>> {
+    let p = std::path::Path::new(&path);
+    let source = std::fs::read(&path).map_err(mlua::Error::external)?;
+
+    if let Some(bytecode) = crate::Config::try_load_bytecode_cache(p, &source) {
+        match smol::block_on(
+            lua.load(bytecode.as_slice())
+                .set_name(path.as_str())
+                .eval_async::<Value>(),
+        ) {
+            Ok(val) => return Ok(val),
+            Err(_) => {
+                log::trace!("dofile bytecode cache miss for {}, loading from source", path);
+            }
+        }
+    }
+
+    let source_text = std::str::from_utf8(&source).map_err(mlua::Error::external)?;
+    let source_text = source_text.trim_start_matches('\u{FEFF}');
+    let func = lua
+        .load(source_text)
+        .set_name(path.as_str())
+        .into_function()?;
+    let bytecode = func.dump(true);
+    crate::Config::save_bytecode_cache(p, &source, &bytecode);
+    smol::block_on(func.call_async::<_, Value>(()))
+}
+
 /// Set up a lua context for executing some code.
 /// The path to the directory containing the configuration is
 /// passed in and is used to pre-set some global values in
@@ -384,6 +412,11 @@ end
         package
             .set("path", path_array.join(";"))
             .context("assign package.path")?;
+
+        globals.set(
+            "dofile",
+            lua.create_function(cached_dofile)?,
+        )?;
     }
 
     for func in SETUP_FUNCS.lock().unwrap().iter() {
