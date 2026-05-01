@@ -548,6 +548,12 @@ pub struct Config {
     #[dynamic(default)]
     pub enable_scroll_bar: bool,
 
+    /// When true, mouse wheel events in alternate-screen apps such as nano
+    /// and vim are sent to the app instead of scrolling Kaku's primary
+    /// scrollback peek.
+    #[dynamic(default)]
+    pub alternate_screen_wheel_scrolls_terminal: bool,
+
     #[dynamic(try_from = "crate::units::PixelUnit", default = "default_half_cell")]
     pub min_scroll_bar_height: Dimension,
 
@@ -1369,7 +1375,10 @@ impl Config {
         let t0 = std::time::Instant::now();
         let lua = make_lua_context(p)?;
         if trace {
-            eprintln!("[startup:config] make_lua_context: {:.3}ms", t0.elapsed().as_secs_f64() * 1000.0);
+            eprintln!(
+                "[startup:config] make_lua_context: {:.3}ms",
+                t0.elapsed().as_secs_f64() * 1000.0
+            );
         }
 
         // Try loading from bytecode cache first
@@ -1377,7 +1386,11 @@ impl Config {
         let t1 = std::time::Instant::now();
         let cached_bytecode = Self::try_load_bytecode_cache(p, source_bytes);
         if trace {
-            eprintln!("[startup:config] bytecode_cache_lookup: {:.3}ms (hit={})", t1.elapsed().as_secs_f64() * 1000.0, cached_bytecode.is_some());
+            eprintln!(
+                "[startup:config] bytecode_cache_lookup: {:.3}ms (hit={})",
+                t1.elapsed().as_secs_f64() * 1000.0,
+                cached_bytecode.is_some()
+            );
         }
 
         let (config, warnings) =
@@ -1442,7 +1455,10 @@ impl Config {
                     smol::block_on(func.call_async::<_, mlua::Value>(())).map_err(&map_lua_err)?
                 };
                 if trace {
-                    eprintln!("[startup:config] lua_eval: {:.3}ms", t2.elapsed().as_secs_f64() * 1000.0);
+                    eprintln!(
+                        "[startup:config] lua_eval: {:.3}ms",
+                        t2.elapsed().as_secs_f64() * 1000.0
+                    );
                 }
 
                 let config = Config::apply_overrides_to(&lua, config)?;
@@ -1455,7 +1471,10 @@ impl Config {
                     )
                 })?;
                 if trace {
-                    eprintln!("[startup:config] Config::from_lua: {:.3}ms", t3.elapsed().as_secs_f64() * 1000.0);
+                    eprintln!(
+                        "[startup:config] Config::from_lua: {:.3}ms",
+                        t3.elapsed().as_secs_f64() * 1000.0
+                    );
                 }
                 cfg.check_consistency()?;
 

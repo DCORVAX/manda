@@ -120,15 +120,10 @@ fn is_separator_row(s: &str) -> bool {
     if trimmed.is_empty() {
         return false;
     }
-    trimmed
-        .split('|')
-        .all(|cell| {
-            let c = cell.trim();
-            !c.is_empty()
-                && c.chars()
-                    .all(|ch| ch == '-' || ch == ':' || ch == ' ')
-                && c.contains('-')
-        })
+    trimmed.split('|').all(|cell| {
+        let c = cell.trim();
+        !c.is_empty() && c.chars().all(|ch| ch == '-' || ch == ':' || ch == ' ') && c.contains('-')
+    })
 }
 
 fn count_pipes(s: &str) -> usize {
@@ -183,10 +178,7 @@ fn try_parse_pipe_table(lines: &[&str], start: usize) -> Option<(Vec<MdBlock>, u
         blocks.push(MdBlock::Paragraph(label.to_string()));
         for (ci, cell) in row.iter().enumerate().skip(1) {
             if !cell.is_empty() {
-                blocks.push(MdBlock::Paragraph(format!(
-                    "  {}：{}",
-                    headers[ci], cell
-                )));
+                blocks.push(MdBlock::Paragraph(format!("  {}：{}", headers[ci], cell)));
             }
         }
         blocks.push(MdBlock::Blank);

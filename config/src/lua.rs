@@ -200,7 +200,10 @@ fn cached_dofile<'lua>(lua: &'lua Lua, path: String) -> mlua::Result<Value<'lua>
         ) {
             Ok(val) => return Ok(val),
             Err(_) => {
-                log::trace!("dofile bytecode cache miss for {}, loading from source", path);
+                log::trace!(
+                    "dofile bytecode cache miss for {}, loading from source",
+                    path
+                );
             }
         }
     }
@@ -413,10 +416,7 @@ end
             .set("path", path_array.join(";"))
             .context("assign package.path")?;
 
-        globals.set(
-            "dofile",
-            lua.create_function(cached_dofile)?,
-        )?;
+        globals.set("dofile", lua.create_function(cached_dofile)?)?;
     }
 
     for func in SETUP_FUNCS.lock().unwrap().iter() {

@@ -2614,7 +2614,11 @@ edition = "2021"
         )
         .unwrap();
 
-        std::fs::write(root.join("README.md"), "# Demo App\nA small CLI tool for greeting users.\n").unwrap();
+        std::fs::write(
+            root.join("README.md"),
+            "# Demo App\nA small CLI tool for greeting users.\n",
+        )
+        .unwrap();
         std::fs::write(root.join(".gitignore"), "target/\n").unwrap();
         std::fs::write(
             root.join("Makefile"),
@@ -2679,7 +2683,11 @@ fn test_greet() {
         .unwrap();
 
         std::fs::create_dir_all(root.join("docs")).unwrap();
-        std::fs::write(root.join("docs/API.md"), "# API\n\n## greet(name)\nReturns a greeting string.\n").unwrap();
+        std::fs::write(
+            root.join("docs/API.md"),
+            "# API\n\n## greet(name)\nReturns a greeting string.\n",
+        )
+        .unwrap();
 
         dir
     }
@@ -2699,8 +2707,16 @@ fn test_greet() {
             &cancel,
         )
         .unwrap();
-        assert!(summary.contains("Rust"), "summary should detect Rust: {}", summary);
-        assert!(summary.contains("cargo"), "summary should mention cargo: {}", summary);
+        assert!(
+            summary.contains("Rust"),
+            "summary should detect Rust: {}",
+            summary
+        );
+        assert!(
+            summary.contains("cargo"),
+            "summary should mention cargo: {}",
+            summary
+        );
 
         let readme = execute(
             "fs_read",
@@ -2710,7 +2726,11 @@ fn test_greet() {
             &cancel,
         )
         .unwrap();
-        assert!(readme.contains("Demo App"), "README should contain project name: {}", readme);
+        assert!(
+            readme.contains("Demo App"),
+            "README should contain project name: {}",
+            readme
+        );
     }
 
     #[test]
@@ -2729,11 +2749,27 @@ fn test_greet() {
         )
         .unwrap();
         assert!(tree.contains("src/"), "tree should list src/: {}", tree);
-        assert!(tree.contains("main.rs"), "tree should list main.rs: {}", tree);
+        assert!(
+            tree.contains("main.rs"),
+            "tree should list main.rs: {}",
+            tree
+        );
         assert!(tree.contains("lib.rs"), "tree should list lib.rs: {}", tree);
-        assert!(tree.contains("Cargo.toml"), "tree should list Cargo.toml: {}", tree);
-        assert!(!tree.contains(".git/"), "tree should not list .git/: {}", tree);
-        assert!(!tree.contains("target/"), "tree should not list target/: {}", tree);
+        assert!(
+            tree.contains("Cargo.toml"),
+            "tree should list Cargo.toml: {}",
+            tree
+        );
+        assert!(
+            !tree.contains(".git/"),
+            "tree should not list .git/: {}",
+            tree
+        );
+        assert!(
+            !tree.contains("target/"),
+            "tree should not list target/: {}",
+            tree
+        );
     }
 
     #[test]
@@ -2751,8 +2787,16 @@ fn test_greet() {
             &cancel,
         )
         .unwrap();
-        assert!(result.contains("fn greet"), "should find fn greet: {}", result);
-        assert!(result.contains("lib.rs"), "should locate in lib.rs: {}", result);
+        assert!(
+            result.contains("fn greet"),
+            "should find fn greet: {}",
+            result
+        );
+        assert!(
+            result.contains("lib.rs"),
+            "should locate in lib.rs: {}",
+            result
+        );
     }
 
     #[test]
@@ -2770,8 +2814,16 @@ fn test_greet() {
             &cancel,
         )
         .unwrap();
-        assert!(result.contains("utils.rs"), "should find TODO in utils.rs: {}", result);
-        assert!(result.contains("TODO"), "should contain the TODO text: {}", result);
+        assert!(
+            result.contains("utils.rs"),
+            "should find TODO in utils.rs: {}",
+            result
+        );
+        assert!(
+            result.contains("TODO"),
+            "should contain the TODO text: {}",
+            result
+        );
     }
 
     #[test]
@@ -2790,8 +2842,16 @@ fn test_greet() {
         )
         .unwrap();
         let lines: Vec<&str> = result.lines().collect();
-        assert!(lines.len() <= 5, "should return at most 5 lines, got {}", lines.len());
-        assert!(result.contains("fn main"), "should contain fn main: {}", result);
+        assert!(
+            lines.len() <= 5,
+            "should return at most 5 lines, got {}",
+            lines.len()
+        );
+        assert!(
+            result.contains("fn main"),
+            "should contain fn main: {}",
+            result
+        );
     }
 
     #[test]
@@ -2809,7 +2869,11 @@ fn test_greet() {
             &cancel,
         )
         .unwrap();
-        assert!(before.contains("nmae"), "should contain typo before patch: {}", before);
+        assert!(
+            before.contains("nmae"),
+            "should contain typo before patch: {}",
+            before
+        );
 
         let patch_result = execute(
             "fs_patch",
@@ -2837,8 +2901,16 @@ fn test_greet() {
             &cancel,
         )
         .unwrap();
-        assert!(!after.contains("nmae"), "typo should be gone after patch: {}", after);
-        assert!(after.contains("let name"), "corrected text should be present: {}", after);
+        assert!(
+            !after.contains("nmae"),
+            "typo should be gone after patch: {}",
+            after
+        );
+        assert!(
+            after.contains("let name"),
+            "corrected text should be present: {}",
+            after
+        );
     }
 
     #[test]
@@ -2857,7 +2929,11 @@ fn test_greet() {
             &cancel,
         )
         .unwrap();
-        assert!(write_result.contains("Written"), "should confirm write: {}", write_result);
+        assert!(
+            write_result.contains("Written"),
+            "should confirm write: {}",
+            write_result
+        );
         assert!(
             write_result.contains(&format!("{}", content.len())),
             "should report byte count: {}",
@@ -2872,7 +2948,11 @@ fn test_greet() {
             &cancel,
         )
         .unwrap();
-        assert!(read_back.contains("pub fn helper"), "should read back written content: {}", read_back);
+        assert!(
+            read_back.contains("pub fn helper"),
+            "should read back written content: {}",
+            read_back
+        );
     }
 
     #[test]
@@ -2912,7 +2992,11 @@ fn test_greet() {
             &cancel,
         )
         .unwrap();
-        assert!(before.contains("API.md"), "docs should contain API.md before delete: {}", before);
+        assert!(
+            before.contains("API.md"),
+            "docs should contain API.md before delete: {}",
+            before
+        );
 
         let del = execute(
             "fs_delete",
@@ -2932,7 +3016,11 @@ fn test_greet() {
             &cancel,
         )
         .unwrap();
-        assert!(!after.contains("API.md"), "API.md should be gone after delete: {}", after);
+        assert!(
+            !after.contains("API.md"),
+            "API.md should be gone after delete: {}",
+            after
+        );
     }
 
     #[test]
@@ -2949,7 +3037,10 @@ fn test_greet() {
             &cfg,
             &cancel,
         );
-        assert!(read_err.is_err(), "fs_read of nonexistent file should return Err");
+        assert!(
+            read_err.is_err(),
+            "fs_read of nonexistent file should return Err"
+        );
 
         let grep_result = execute(
             "grep_search",

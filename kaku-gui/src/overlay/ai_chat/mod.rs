@@ -567,7 +567,6 @@ impl App {
         SPINNER_FRAMES_TOOL[self.spinner_frame % SPINNER_FRAMES_TOOL.len()]
     }
 
-
     /// Push the current (input, cursor) onto the undo stack before a
     /// destructive edit. Empty inputs are skipped to avoid polluting the
     /// stack with no-op restorations; when the cap is reached the oldest
@@ -2413,10 +2412,20 @@ pub(crate) enum DisplayLine {
 pub(crate) enum MdBlock {
     Blank,
     Paragraph(String),
-    Heading { level: u8, text: String },
+    Heading {
+        level: u8,
+        text: String,
+    },
     Quote(String),
-    ListItem { marker: String, text: String },
-    CodeLine { text: String, diff: DiffKind, lang: String },
+    ListItem {
+        marker: String,
+        text: String,
+    },
+    CodeLine {
+        text: String,
+        diff: DiffKind,
+        lang: String,
+    },
     Hr,
 }
 
@@ -2655,13 +2664,13 @@ fn emit_styled_line(
                 if b2 > b1 {
                     let mut sel_attr = p.attr.clone();
                     if pal.selection_fg.3 != 0.0 {
-                        sel_attr.set_foreground(
-                            ColorAttribute::TrueColorWithDefaultFallback(pal.selection_fg),
-                        );
+                        sel_attr.set_foreground(ColorAttribute::TrueColorWithDefaultFallback(
+                            pal.selection_fg,
+                        ));
                     }
-                    sel_attr.set_background(
-                        ColorAttribute::TrueColorWithDefaultFallback(pal.selection_bg),
-                    );
+                    sel_attr.set_background(ColorAttribute::TrueColorWithDefaultFallback(
+                        pal.selection_bg,
+                    ));
                     changes.push(Change::AllAttributes(sel_attr));
                     changes.push(Change::Text(p.text[b1..b2].to_string()));
                 }
@@ -2815,7 +2824,13 @@ fn render_chat(term: &mut TermWizTerminal, app: &App) -> termwiz::Result<()> {
         changes.push(Change::AllAttributes(pal.border_dim_cell()));
         changes.push(Change::Text("│".to_string()));
 
-        let runs = build_line_runs(line, pal, app.spinner_char(), app.spinner_char_tool(), inner_w);
+        let runs = build_line_runs(
+            line,
+            pal,
+            app.spinner_char(),
+            app.spinner_char_tool(),
+            inner_w,
+        );
         let line_idx = visible_start + i;
 
         // Determine the selection column range for this line (content columns, 0-based).
@@ -3604,7 +3619,15 @@ pub fn ai_chat_overlay(
     let chat_model_choices = client_cfg.chat_model_choices.clone();
     let fast_model = client_cfg.fast_model.clone();
     let client = AiClient::new(client_cfg);
-    let mut app = App::new(context, chat_model, chat_model_choices, fast_model, cols, rows, client);
+    let mut app = App::new(
+        context,
+        chat_model,
+        chat_model_choices,
+        fast_model,
+        cols,
+        rows,
+        client,
+    );
     let mut needs_redraw = true;
 
     app.display_lines_dirty = true;

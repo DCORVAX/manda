@@ -158,6 +158,13 @@ Disabled by default. Enable via `kaku config` (toggle the scrollbar style option
 config.enable_scroll_bar = true
 ```
 
+If you want the mouse wheel to scroll inside alternate-screen apps such as
+nano and vim, instead of peeking into Kaku's primary scrollback, enable:
+
+```lua
+config.alternate_screen_wheel_scrolls_terminal = true
+```
+
 **macOS Option key**
 
 Left Option sends Meta (useful for Vim/Neovim word navigation). Right Option sends compose characters.

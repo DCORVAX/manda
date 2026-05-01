@@ -65,7 +65,11 @@ fn regions_to_spans(regions: &[(Style, &str)]) -> Vec<InlineSpan> {
         }
         spans.push(InlineSpan {
             text: trimmed.to_string(),
-            style: InlineStyle::Highlighted(style.foreground.r, style.foreground.g, style.foreground.b),
+            style: InlineStyle::Highlighted(
+                style.foreground.r,
+                style.foreground.g,
+                style.foreground.b,
+            ),
         });
     }
     if spans.is_empty() {

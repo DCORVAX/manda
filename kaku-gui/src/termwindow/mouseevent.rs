@@ -79,6 +79,15 @@ fn should_preserve_tmux_bypass_reporting(
         && modifiers.contains(bypass_modifiers)
 }
 
+fn should_bypass_wheel_assignment_in_alt(
+    is_wheel_event: bool,
+    alt_screen: bool,
+    mouse_grabbed: bool,
+    alternate_screen_wheel_scrolls_terminal: bool,
+) -> bool {
+    is_wheel_event && alt_screen && !mouse_grabbed && !alternate_screen_wheel_scrolls_terminal
+}
+
 fn should_suppress_wheel_during_terminal_selection(
     capture: Option<&super::MouseCapture>,
     current_mouse_buttons: &[MousePress],
@@ -1510,8 +1519,12 @@ impl super::TermWindow {
             pane.is_mouse_grabbed(),
             in_tmux_process_tree,
         );
-        let bypass_wheel_assignment_in_alt =
-            is_wheel_event && pane.is_alt_screen_active() && !pane.is_mouse_grabbed();
+        let bypass_wheel_assignment_in_alt = should_bypass_wheel_assignment_in_alt(
+            is_wheel_event,
+            pane.is_alt_screen_active(),
+            pane.is_mouse_grabbed(),
+            self.config.alternate_screen_wheel_scrolls_terminal,
+        );
         if less_without_alt {
             let (key, amount) = match event.kind {
                 WMEK::VertWheel(amount) if amount > 0 => (KeyCode::UpArrow, amount as usize),
@@ -1749,9 +1762,9 @@ fn mouse_press_to_tmb(press: &MousePress) -> TMB {
 #[cfg(test)]
 mod tests {
     use super::{
-        mouse_dispatch_target, should_preserve_tmux_bypass_reporting,
-        should_suppress_wheel_during_terminal_selection, should_zoom_title_area,
-        tab_bar_item_starts_window_drag, MouseDispatchTarget,
+        mouse_dispatch_target, should_bypass_wheel_assignment_in_alt,
+        should_preserve_tmux_bypass_reporting, should_suppress_wheel_during_terminal_selection,
+        should_zoom_title_area, tab_bar_item_starts_window_drag, MouseDispatchTarget,
     };
     use crate::tabbar::TabBarItem;
     use crate::termwindow::MouseCapture;
@@ -1839,6 +1852,27 @@ mod tests {
             true,
             false,
             true,
+        ));
+    }
+
+    #[test]
+    fn bypasses_alt_screen_wheel_by_default() {
+        assert!(should_bypass_wheel_assignment_in_alt(
+            true, true, false, false,
+        ));
+    }
+
+    #[test]
+    fn forwards_alt_screen_wheel_when_terminal_scroll_is_enabled() {
+        assert!(!should_bypass_wheel_assignment_in_alt(
+            true, true, false, true,
+        ));
+    }
+
+    #[test]
+    fn does_not_bypass_wheel_when_alt_app_grabs_mouse() {
+        assert!(!should_bypass_wheel_assignment_in_alt(
+            true, true, true, false,
         ));
     }
 

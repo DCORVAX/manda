@@ -94,6 +94,14 @@ Open `kaku config` and toggle the scrollbar option, or add to `~/.config/kaku/ka
 config.enable_scroll_bar = true
 ```
 
+## How do I scroll inside nano, vim, or another full-screen terminal app?
+
+Enable alternate-screen wheel forwarding:
+
+```lua
+config.alternate_screen_wheel_scrolls_terminal = true
+```
+
 ## How do I change the font? My font change isn't taking effect.
 
 Font changes require explicitly setting `config.font` in your config:
