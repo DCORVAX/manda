@@ -3,16 +3,15 @@ use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Clear, Paragraph};
 
-use crate::tui_core::theme::muted;
+use crate::tui_core::theme::{bg, muted};
 
-/// Render a centered splash frame. Call via `terminal.draw(|f| render_splash(f, "Loading..."))`.
-/// The next real UI draw naturally overwrites this frame.
-pub fn render_splash(frame: &mut ratatui::Frame, message: &str) {
+/// Render a centered splash frame with a custom spinner character.
+pub fn render_splash_with_spinner(frame: &mut ratatui::Frame, message: &str, spinner: char) {
     let area = frame.area();
     frame.render_widget(Clear, area);
-    frame.render_widget(Block::default(), area);
+    frame.render_widget(Block::default().style(Style::default().bg(bg())), area);
 
-    let text = format!("●  {message}");
+    let text = format!("{spinner}  {message}");
     let chunks = Layout::vertical([
         Constraint::Fill(1),
         Constraint::Length(1),
@@ -23,4 +22,9 @@ pub fn render_splash(frame: &mut ratatui::Frame, message: &str) {
     let para = Paragraph::new(Line::from(text).style(Style::default().fg(muted())))
         .alignment(Alignment::Center);
     frame.render_widget(para, chunks[1]);
+}
+
+/// Render a centered splash frame. Call via `terminal.draw(|f| render_splash(f, "Loading..."))`.
+pub fn render_splash(frame: &mut ratatui::Frame, message: &str) {
+    render_splash_with_spinner(frame, message, '●');
 }

@@ -5106,6 +5106,14 @@ impl TermWindow {
             Some(tab) => tab,
             None => return,
         };
+
+        // Last pane in tab: close the tab instead so remove_tab cascades
+        // to window removal (fixes Cmd+W in fullscreen with one tab).
+        if tab.count_panes() == Some(1) {
+            drop(tab);
+            return self.close_current_tab(confirm);
+        }
+
         let pane = match tab.get_active_pane() {
             Some(p) => p,
             None => return,

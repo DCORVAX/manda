@@ -14,22 +14,6 @@ enum MainLayoutMode {
     Compact,
 }
 
-pub(super) fn loading_ui(frame: &mut ratatui::Frame) {
-    let full = frame.area();
-    if full.width < 2 || full.height < 2 {
-        return;
-    }
-    // Keep one column on the right to avoid edge-wrap artifacts, while using
-    // full height so the status bar can stick to the bottom.
-    let area = Rect::new(full.x, full.y, full.width - 1, full.height);
-
-    frame.render_widget(Clear, area);
-    frame.render_widget(Block::default().style(Style::default().bg(bg())), area);
-
-    let chunks = Layout::vertical([Constraint::Length(2), Constraint::Fill(1)]).split(area);
-    render_header(frame, chunks[0], Some("Loading..."));
-}
-
 pub(super) fn ui(frame: &mut ratatui::Frame, app: &mut App) {
     let full = frame.area();
     if full.width < 2 || full.height < 2 {

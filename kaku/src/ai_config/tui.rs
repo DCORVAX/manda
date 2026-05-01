@@ -2972,7 +2972,7 @@ fn extract_kaku_assistant_fields(raw: &str) -> Vec<FieldEntry> {
         FieldEntry {
             key: "Fast Model".into(),
             value: if cfg.fast_model().is_empty() {
-                String::new()
+                "—".into()
             } else {
                 cfg.fast_model().to_string()
             },
@@ -3158,7 +3158,11 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
                 .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key())
         }
         "Fast Model" => {
-            let fm = new_val.trim();
+            let fm = if new_val.trim().is_empty() || new_val == "—" {
+                ""
+            } else {
+                new_val.trim()
+            };
             KakuAssistantConfig::new(cfg.is_enabled(), cfg.api_key(), cfg.model(), cfg.base_url())
                 .with_custom_headers(cfg.custom_headers().to_vec())
                 .with_fast_model(fm)
@@ -5266,11 +5270,29 @@ pub fn run() -> anyhow::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).context("create terminal")?;
 
+    const SPINNER: [char; 4] = ['◐', '◓', '◑', '◒'];
+
     terminal
-        .draw(ui::loading_ui)
+        .draw(|f| crate::tui_splash::render_splash_with_spinner(f, "Loading...", SPINNER[0]))
         .context("draw loading screen")?;
 
-    let mut app = App::new();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        tx.send(App::new()).ok();
+    });
+
+    let mut tick = 0usize;
+    let mut app = loop {
+        if let Ok(app) = rx.try_recv() {
+            break app;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+        tick += 1;
+        let spinner = SPINNER[tick % SPINNER.len()];
+        terminal
+            .draw(|f| crate::tui_splash::render_splash_with_spinner(f, "Loading...", spinner))
+            .ok();
+    };
     let result = run_loop(&mut terminal, &mut app);
 
     terminal.show_cursor().context("show cursor")?;
