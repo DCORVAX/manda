@@ -1560,7 +1560,7 @@ fn get_class() -> &'static Class {
 }
 
 /// Creates the application delegate as a process-lifetime singleton.
-/// The returned pointer is intentionally never released — NSApplication's
+/// The returned pointer is intentionally never released - NSApplication's
 /// `setDelegate:` is `assign` (non-retaining), so the delegate must outlive
 /// the application. Leaking a single small object for the entire process
 /// lifetime is the correct ownership model here.

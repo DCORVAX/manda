@@ -1056,7 +1056,7 @@ alias glo='git log --oneline --decorate'
 alias glg='git log --stat'
 alias glgp='git log --stat -p'
 
-# yazi launcher — cd into the directory yazi is in when you exit.
+# yazi launcher - cd into the directory yazi is in when you exit.
 'y'() {
     emulate -L zsh
     setopt local_options no_sh_word_split
@@ -1080,7 +1080,7 @@ alias glgp='git log --stat -p'
     rm -f -- "\$tmp"
 }
 
-# k — AI chat CLI bundled with Kaku.
+# k - AI chat CLI bundled with Kaku.
 'k'() {
     emulate -L zsh
     local k_cmd

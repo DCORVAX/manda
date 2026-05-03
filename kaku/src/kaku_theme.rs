@@ -283,10 +283,10 @@ fn config_file_has_auto_color_scheme(_config: &ConfigHandle) -> bool {
         Ok(c) => c,
         Err(_) => return false,
     };
-    match color_scheme_selection_from_content(&content) {
-        Some(ColorSchemeSelection::Auto) | None => true,
-        _ => false,
-    }
+    matches!(
+        color_scheme_selection_from_content(&content),
+        Some(ColorSchemeSelection::Auto) | None
+    )
 }
 
 /// Detects whether macOS is currently running in Dark Mode by reading the

@@ -1,7 +1,7 @@
 //! Tool-output compaction for the AI chat agent loop.
 
 use crate::ai_client::ApiMessage;
-use std::path::PathBuf;
+use std::path::Path;
 
 const FS_READ_CAP: usize = 300;
 const GREP_CAP: usize = 100;
@@ -43,11 +43,7 @@ fn compact_tool_content(tool_name: &str, content: &str) -> Option<String> {
 }
 
 /// Apply micro-compaction to all tool-result messages in `messages`.
-pub(crate) fn micro_compact(
-    messages: &mut Vec<ApiMessage>,
-    round: usize,
-    outputs_dir: Option<&PathBuf>,
-) {
+pub(crate) fn micro_compact(messages: &mut [ApiMessage], round: usize, outputs_dir: Option<&Path>) {
     for (idx, msg) in messages.iter_mut().enumerate() {
         let role = msg.0.get("role").and_then(|v| v.as_str()).unwrap_or("");
         if role != "tool" {

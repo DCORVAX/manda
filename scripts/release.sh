@@ -8,13 +8,12 @@ set -euo pipefail
 #   - Clean git working tree on main branch
 #   - gh CLI authenticated (for creating releases)
 #   - Apple Developer ID certificate in login Keychain (or set KAKU_SIGNING_IDENTITY)
-#   - Notarization credentials in Keychain or env vars (KAKU_NOTARIZE_*)
+#   - Notarization credentials via rcodesign API key or notarytool Keychain profile
 #
 # Environment variables:
 #   KAKU_SIGNING_IDENTITY    - Signing identity (auto-detected from Keychain if not set)
-#   KAKU_NOTARIZE_APPLE_ID   - Apple ID for notarization
-#   KAKU_NOTARIZE_TEAM_ID    - Team ID for notarization
-#   KAKU_NOTARIZE_PASSWORD   - App-specific password for notarization
+#   KAKU_ASC_API_KEY_PATH    - rcodesign App Store Connect API key JSON path
+#   KAKU_NOTARYTOOL_PROFILE  - notarytool Keychain profile name
 #   HOMEBREW_TAP_TOKEN       - Optional: GitHub token for Homebrew tap (defaults to gh auth token)
 #   REQUIRE_HOMEBREW_TAP_UPDATE - Set to 0 to allow release to continue when tap update fails (default: 1)
 #   RUN_CLIPPY               - Set to 1 to also run clippy (default: 0)
@@ -208,64 +207,39 @@ validate_release_profile() {
     esac
 }
 
-resolve_notarization_team_id() {
-    local team_id="${KAKU_NOTARIZE_TEAM_ID:-}"
-
-    if [[ -n "$team_id" ]]; then
-        if is_valid_team_id "$team_id"; then
-            return 0
-        fi
-
-        log_warn "Ignoring invalid KAKU_NOTARIZE_TEAM_ID: $team_id"
-    fi
-
-    team_id=$(printf '%s\n' "${KAKU_SIGNING_IDENTITY:-}" | sed -n 's/.*(\([A-Z0-9]\{10\}\)).*/\1/p')
-    if [[ -n "$team_id" ]] && is_valid_team_id "$team_id"; then
-        export KAKU_NOTARIZE_TEAM_ID="$team_id"
-        log_info "Derived notarization Team ID from signing identity: $team_id"
-        return 0
-    fi
-
-    return 1
-}
-
 # Check notarization credentials are available
 check_notarization_creds() {
     log_info "Checking notarization credentials..."
 
     local have_creds=0
-    local have_team_id=0
+    local asc_api_key_path notarytool_profile
 
-    if resolve_notarization_team_id; then
-        have_team_id=1
+    asc_api_key_path="${KAKU_ASC_API_KEY_PATH:-}"
+    if [[ -z "$asc_api_key_path" ]]; then
+        asc_api_key_path=$(security find-generic-password -s "kaku-asc-api-key-path" -w 2>/dev/null || true)
+    fi
+    if [[ -n "$asc_api_key_path" && -f "$asc_api_key_path" ]] && command -v rcodesign >/dev/null 2>&1; then
+        have_creds=1
+        log_info "Found App Store Connect API key for rcodesign notarization"
     fi
 
-    # Check environment variables
-    if [[ -n "${KAKU_NOTARIZE_APPLE_ID:-}" && -n "${KAKU_NOTARIZE_PASSWORD:-}" && "$have_team_id" -eq 1 ]]; then
+    notarytool_profile="${KAKU_NOTARYTOOL_PROFILE:-}"
+    if [[ -z "$notarytool_profile" ]]; then
+        notarytool_profile=$(security find-generic-password -s "kaku-notarytool-profile" -w 2>/dev/null || true)
+    fi
+    if [[ -n "$notarytool_profile" ]]; then
         have_creds=1
-        log_info "Using notarization credentials from environment variables"
-    else
-        # Check Keychain
-        local apple_id password
-        apple_id=$(security find-generic-password -s "kaku-notarize-apple-id" -w 2>/dev/null || true)
-        password=$(security find-generic-password -s "kaku-notarize-password" -w 2>/dev/null || true)
-
-        if [[ -n "$apple_id" && -n "$password" && "$have_team_id" -eq 1 ]]; then
-            have_creds=1
-            log_info "Found notarization credentials in Keychain and resolved Team ID"
-        fi
+        log_info "Found notarytool Keychain profile"
     fi
 
     if [[ "$have_creds" -eq 0 ]]; then
-        log_warn "Notarization credentials not found in environment or Keychain"
+        log_warn "Notarization credentials not found"
         log_warn "Notarization may fail. To set up credentials:"
-        log_warn "  export KAKU_NOTARIZE_APPLE_ID='your-apple-id@example.com'"
-        log_warn "  export KAKU_NOTARIZE_TEAM_ID='YOURTEAMID'"
-        log_warn "  export KAKU_NOTARIZE_PASSWORD='xxxx-xxxx-xxxx-xxxx'"
+        log_warn "  security add-generic-password -s 'kaku-asc-api-key-path' -a 'kaku' -w '/path/to/asc_api_key.json'"
         log_warn ""
-        log_warn "Or store in Keychain:"
-        log_warn "  security add-generic-password -s 'kaku-notarize-apple-id' -a 'kaku' -w 'your-apple-id@example.com'"
-        log_warn "  security add-generic-password -s 'kaku-notarize-password' -a 'kaku' -w 'your-app-specific-password'"
+        log_warn "Or store a notarytool Keychain profile:"
+        log_warn "  xcrun notarytool store-credentials kaku-notarytool --apple-id <apple-id> --team-id <team-id>"
+        log_warn "  security add-generic-password -s 'kaku-notarytool-profile' -a 'kaku' -w 'kaku-notarytool'"
         read -r -p "Continue anyway? [y/N] " response
         if [[ ! "$response" =~ ^[Yy]$ ]]; then
             exit 1

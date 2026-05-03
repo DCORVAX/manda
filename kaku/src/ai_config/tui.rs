@@ -357,7 +357,7 @@ fn field_value<'a>(fields: &'a [FieldEntry], key: &str) -> Option<&'a str> {
 
 fn compact_summary_value(value: &str) -> Option<String> {
     let value = value.trim();
-    if value.is_empty() || value == "—" {
+    if value.is_empty() || value == "-" {
         return None;
     }
 
@@ -387,7 +387,7 @@ fn summarize_tool_fields(
 
     if tool == Tool::KakuAssistant {
         let model = field_value(fields, "Model").and_then(compact_summary_value)?;
-        let has_api_key = field_value(fields, "API Key").is_some_and(|value| value != "—");
+        let has_api_key = field_value(fields, "API Key").is_some_and(|value| value != "-");
         if has_api_key {
             return Some(format!("Ready · {model}"));
         }
@@ -2566,7 +2566,7 @@ fn string_options(values: &[&str]) -> Vec<String> {
 
 fn mask_key(val: &str) -> String {
     if val.is_empty() {
-        return "—".into();
+        return "-".into();
     }
     if val.len() <= 12 {
         return "****".into();
@@ -3012,8 +3012,8 @@ fn extract_kaku_assistant_fields(raw: &str) -> Vec<FieldEntry> {
     let cfg = parse_kaku_assistant_config(raw);
     let model_options = assistant_model_options_for_config(&cfg);
     let mut fast_model_options = model_options.clone();
-    if !fast_model_options.iter().any(|m| m == "—") {
-        fast_model_options.insert(0, "—".into());
+    if !fast_model_options.iter().any(|m| m == "-") {
+        fast_model_options.insert(0, "-".into());
     }
 
     let mut fields = vec![
@@ -3032,7 +3032,7 @@ fn extract_kaku_assistant_fields(raw: &str) -> Vec<FieldEntry> {
         FieldEntry {
             key: "Fast Model".into(),
             value: if cfg.fast_model().is_empty() {
-                "—".into()
+                "-".into()
             } else {
                 cfg.fast_model().to_string()
             },
@@ -3207,7 +3207,7 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
                 .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key())
         }
         "Model" => {
-            let model = if new_val.trim().is_empty() || new_val == "—" {
+            let model = if new_val.trim().is_empty() || new_val == "-" {
                 assistant_config::DEFAULT_MODEL
             } else {
                 new_val.trim()
@@ -3218,7 +3218,7 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
                 .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key())
         }
         "Fast Model" => {
-            let fm = if new_val.trim().is_empty() || new_val == "—" {
+            let fm = if new_val.trim().is_empty() || new_val == "-" {
                 ""
             } else {
                 new_val.trim()
@@ -3229,7 +3229,7 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
                 .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key())
         }
         "Base URL" => {
-            let base_url = if new_val.trim().is_empty() || new_val == "—" {
+            let base_url = if new_val.trim().is_empty() || new_val == "-" {
                 assistant_config::DEFAULT_BASE_URL
             } else {
                 new_val.trim()
@@ -3460,7 +3460,7 @@ fn format_auth_status(account: Option<String>, fallback_method: &str) -> String 
 }
 
 /// Fetch models.dev data, cached to ~/.cache/kaku/models.json.
-/// No TTL — use `r` key in TUI to force refresh.
+/// No TTL - use `r` key in TUI to force refresh.
 fn load_models_dev_json() -> Option<serde_json::Value> {
     let cache_dir = config::HOME_DIR.join(".cache").join("kaku");
     let cache_path = cache_dir.join("models.json");
@@ -4036,7 +4036,7 @@ fn save_factory_droid_field(
         .as_object_mut()
         .context("sessionDefaultSettings is not an object")?;
 
-    if new_val == "—" || new_val.is_empty() {
+    if new_val == "-" || new_val.is_empty() {
         session_defaults.remove(target_key);
     } else {
         session_defaults.insert(
@@ -4147,7 +4147,7 @@ fn extract_openclaw_fields(val: &serde_json::Value) -> Vec<FieldEntry> {
 
             provider_fields.push(FieldEntry {
                 key: format!("{} ▸ Base URL", name),
-                value: if url.is_empty() { "—".into() } else { url },
+                value: if url.is_empty() { "-".into() } else { url },
                 options: vec![],
                 ..Default::default()
             });
@@ -4180,7 +4180,7 @@ fn extract_openclaw_fields(val: &serde_json::Value) -> Vec<FieldEntry> {
     let mut fields = vec![FieldEntry {
         key: "Primary Model".into(),
         value: if primary.is_empty() {
-            "—".into()
+            "-".into()
         } else {
             primary
         },
@@ -4211,7 +4211,7 @@ fn extract_openclaw_fields(val: &serde_json::Value) -> Vec<FieldEntry> {
     fields.push(FieldEntry {
         key: "Plugins".into(),
         value: if plugins.is_empty() {
-            "—".into()
+            "-".into()
         } else {
             plugins
         },
@@ -4263,7 +4263,7 @@ struct App {
 fn status_value_for_display(field_key: &str, new_val: &str) -> String {
     if field_key.contains("API Key") {
         return if new_val.trim().is_empty() {
-            "—".into()
+            "-".into()
         } else {
             mask_key(new_val.trim())
         };
@@ -4716,7 +4716,7 @@ impl App {
             return;
         }
 
-        let edit_buf = if field.value == "—" {
+        let edit_buf = if field.value == "-" {
             // Empty placeholder
             String::new()
         } else if tool.tool == Tool::KakuAssistant && field.key == "API Key" {
@@ -4811,7 +4811,7 @@ impl App {
             return;
         }
 
-        if new_val == old_val || (new_val.is_empty() && old_val == "—") {
+        if new_val == old_val || (new_val.is_empty() && old_val == "-") {
             return;
         }
 
@@ -4959,7 +4959,7 @@ fn save_field(tool: Tool, field_key: &str, new_val: &str) -> anyhow::Result<()> 
         Tool::Gemini => {
             if field_key == "Model" {
                 if let Some(obj) = parsed.as_object_mut() {
-                    if new_val == "—" || new_val.is_empty() {
+                    if new_val == "-" || new_val.is_empty() {
                         obj.remove("model");
                     } else {
                         let keep_string_shape = obj.get("model").is_some_and(|m| m.is_string());
@@ -4980,7 +4980,7 @@ fn save_field(tool: Tool, field_key: &str, new_val: &str) -> anyhow::Result<()> 
         Tool::Copilot => {
             if field_key == "Model" {
                 if let Some(obj) = parsed.as_object_mut() {
-                    if new_val == "—" || new_val.is_empty() {
+                    if new_val == "-" || new_val.is_empty() {
                         obj.remove("model");
                     } else {
                         obj.insert(
@@ -5012,7 +5012,7 @@ fn save_field(tool: Tool, field_key: &str, new_val: &str) -> anyhow::Result<()> 
                 let obj = parsed.as_object_mut().context("root is not object")?;
                 let env = obj.entry("env").or_insert_with(|| serde_json::json!({}));
                 if let Some(env_obj) = env.as_object_mut() {
-                    if new_val == "—" || new_val.is_empty() {
+                    if new_val == "-" || new_val.is_empty() {
                         env_obj.remove(ek);
                     } else {
                         env_obj.insert(
@@ -5023,7 +5023,7 @@ fn save_field(tool: Tool, field_key: &str, new_val: &str) -> anyhow::Result<()> 
                 }
             } else if let Some(tk) = top_key {
                 if let Some(obj) = parsed.as_object_mut() {
-                    if new_val == "—" || new_val.is_empty() {
+                    if new_val == "-" || new_val.is_empty() {
                         obj.remove(tk);
                     } else {
                         obj.insert(
@@ -5117,7 +5117,7 @@ fn save_field(tool: Tool, field_key: &str, new_val: &str) -> anyhow::Result<()> 
                         .or_insert_with(|| serde_json::json!({}));
 
                     if let Some(obj) = prov.as_object_mut() {
-                        if new_val == "—" || new_val.is_empty() {
+                        if new_val == "-" || new_val.is_empty() {
                             obj.remove(json_field);
                         } else {
                             obj.insert(
@@ -5143,7 +5143,7 @@ fn save_field(tool: Tool, field_key: &str, new_val: &str) -> anyhow::Result<()> 
                     .or_insert_with(|| serde_json::json!({}));
 
                 if let Some(obj) = model.as_object_mut() {
-                    if new_val == "—" || new_val.is_empty() {
+                    if new_val == "-" || new_val.is_empty() {
                         obj.remove("primary");
                     } else {
                         obj.insert(
@@ -5209,7 +5209,7 @@ fn save_codex_field_at(path: &Path, field_key: &str, new_val: &str) -> anyhow::R
             in_top_level = false;
         }
         if in_top_level && trimmed.starts_with(&target) {
-            if new_val == "—" || new_val.is_empty() {
+            if new_val == "-" || new_val.is_empty() {
                 *line = String::new();
             } else {
                 *line = new_line.clone();
@@ -5219,7 +5219,7 @@ fn save_codex_field_at(path: &Path, field_key: &str, new_val: &str) -> anyhow::R
         }
     }
 
-    if !found && !new_val.is_empty() && new_val != "—" {
+    if !found && !new_val.is_empty() && new_val != "-" {
         // Insert before the first [section] or at the end
         let insert_pos = lines
             .iter()
@@ -5260,7 +5260,7 @@ fn save_kimi_field_at(path: &Path, field_key: &str, new_val: &str) -> anyhow::Re
             in_top_level = false;
         }
         if in_top_level && trimmed.starts_with(&target) {
-            if new_val == "—" || new_val.is_empty() {
+            if new_val == "-" || new_val.is_empty() {
                 *line = String::new();
             } else {
                 *line = new_line.clone();
@@ -5270,7 +5270,7 @@ fn save_kimi_field_at(path: &Path, field_key: &str, new_val: &str) -> anyhow::Re
         }
     }
 
-    if !found && !new_val.is_empty() && new_val != "—" {
+    if !found && !new_val.is_empty() && new_val != "-" {
         let insert_pos = lines
             .iter()
             .position(|line| line.trim_start().starts_with('['))
@@ -6649,9 +6649,9 @@ provider = "managed:kimi-code"
         let model = fields.iter().find(|f| f.key == "Model").unwrap();
         assert_eq!(model.value, "gpt-5.4-mini");
         let fast_model = fields.iter().find(|f| f.key == "Fast Model").unwrap();
-        assert_eq!(fast_model.value, "—");
+        assert_eq!(fast_model.value, "-");
         assert!(
-            fast_model.options.iter().any(|opt| opt == "—"),
+            fast_model.options.iter().any(|opt| opt == "-"),
             "Fast Model selector must provide a clear option"
         );
         assert!(
@@ -6659,7 +6659,7 @@ provider = "managed:kimi-code"
             "Fast Model options should contain the current Model value"
         );
         let api_key = fields.iter().find(|f| f.key == "API Key").unwrap();
-        assert_ne!(api_key.value, "—");
+        assert_ne!(api_key.value, "-");
     }
 
     #[test]

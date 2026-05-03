@@ -53,7 +53,7 @@ async fn host_ws(
                 relay_pair(socket, client_socket).await;
             }
             _ => {
-                // Timeout or channel dropped — clean up
+                // Timeout or channel dropped - clean up
                 state.pending.lock().remove(&token);
                 info!("host timed out: {}", &token[..8.min(token.len())]);
             }

@@ -182,12 +182,12 @@ fn render_tools(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             let rule = "─";
 
             let val_color = if field.value.starts_with('✓')
-                || (field.key.contains("API Key") && field.value != "—")
+                || (field.key.contains("API Key") && field.value != "-")
             {
                 success()
             } else if field.value.starts_with('✗') {
                 red()
-            } else if field.value == "—" {
+            } else if field.value == "-" {
                 muted()
             } else {
                 accent()

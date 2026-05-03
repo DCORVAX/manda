@@ -1,3 +1,5 @@
+#![allow(clippy::items_after_test_module)]
+
 use crate::colorease::ColorEase;
 use crate::customglyph::{BlockKey, *};
 use crate::glyphcache::{CachedGlyph, GlyphCache};

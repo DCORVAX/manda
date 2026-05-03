@@ -2274,7 +2274,7 @@ mod tests {
 
     #[test]
     fn file_hyperlink_handles_absolute_paths_with_particles() {
-        // Regression: the motivating bug — an absolute path followed by
+        // Regression: the motivating bug - an absolute path followed by
         // the Korean locative particle.
         assert_eq!(
             file_uri(

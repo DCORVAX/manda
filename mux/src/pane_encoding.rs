@@ -645,7 +645,7 @@ mod tests {
         let result1 = decoder.decode(PaneEncoding::Gbk, &[0xc4]);
         assert!(result1.is_empty(), "GBK first byte buffered");
 
-        // Switch to Shift-JIS — should reset, not carry over partial GBK byte
+        // Switch to Shift-JIS - should reset, not carry over partial GBK byte
         let result2 = decoder.decode(PaneEncoding::ShiftJis, &[0x82, 0xb1]);
         assert_eq!(result2, "こ".as_bytes().to_vec(), "Shift-JIS after switch");
     }
@@ -658,7 +658,7 @@ mod tests {
         let result1 = encoder.encode(PaneEncoding::Gbk, &[0xe4]);
         assert!(result1.is_empty(), "GBK encoder first byte buffered");
 
-        // Switch to Shift-JIS — should reset pending UTF-8 bytes
+        // Switch to Shift-JIS - should reset pending UTF-8 bytes
         let result2 = encoder.encode(PaneEncoding::ShiftJis, &[0xe3, 0x81, 0x93]);
         assert_eq!(result2, vec![0x82, 0xb1], "Shift-JIS encode after switch");
     }

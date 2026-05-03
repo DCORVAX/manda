@@ -100,7 +100,6 @@ fn hyperlinks() {
 }
 
 #[test]
-#[test]
 fn apply_hyperlink_rules_wrapped_lines() {
     // Simulate a long URL that wraps across two physical terminal lines.
     // Line 1 contains the first 30 chars of the URL (marked as wrapped).

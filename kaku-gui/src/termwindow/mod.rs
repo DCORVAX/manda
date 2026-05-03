@@ -4231,6 +4231,9 @@ impl TermWindow {
                 }
                 // No history: no-op, consistent with Chrome/Safari behavior
             }
+            RestorePreviousWindow => {
+                crate::session_restore::restore_previous_window_from_menu();
+            }
             Nop | DisableDefaultAssignment => {}
             ReloadConfiguration => {
                 config::reload();

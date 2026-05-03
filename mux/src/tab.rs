@@ -380,6 +380,37 @@ where
     }
 }
 
+fn try_build_from_pane_tree<F>(
+    tree: bintree::Tree<PaneEntry, SplitDirectionAndSize>,
+    active: &mut Option<Arc<dyn Pane>>,
+    zoomed: &mut Option<Arc<dyn Pane>>,
+    make_pane: &mut F,
+) -> anyhow::Result<Tree>
+where
+    F: FnMut(PaneEntry) -> anyhow::Result<Arc<dyn Pane>>,
+{
+    Ok(match tree {
+        bintree::Tree::Empty => Tree::Empty,
+        bintree::Tree::Node { left, right, data } => Tree::Node {
+            left: Box::new(try_build_from_pane_tree(*left, active, zoomed, make_pane)?),
+            right: Box::new(try_build_from_pane_tree(*right, active, zoomed, make_pane)?),
+            data,
+        },
+        bintree::Tree::Leaf(entry) => {
+            let is_zoomed_pane = entry.is_zoomed_pane;
+            let is_active_pane = entry.is_active_pane;
+            let pane = make_pane(entry)?;
+            if is_zoomed_pane {
+                zoomed.replace(Arc::clone(&pane));
+            }
+            if is_active_pane {
+                active.replace(Arc::clone(&pane));
+            }
+            Tree::Leaf(pane)
+        }
+    })
+}
+
 /// Computes the minimum (x, y) size based on the panes in this portion
 /// of the tree.
 fn compute_min_size(tree: &mut Tree) -> (usize, usize) {
@@ -626,6 +657,20 @@ impl Tab {
         F: FnMut(PaneEntry) -> Arc<dyn Pane>,
     {
         self.inner.lock().sync_with_pane_tree(size, root, make_pane)
+    }
+
+    pub fn try_sync_with_pane_tree<F>(
+        &self,
+        size: TerminalSize,
+        root: PaneNode,
+        make_pane: F,
+    ) -> anyhow::Result<()>
+    where
+        F: FnMut(PaneEntry) -> anyhow::Result<Arc<dyn Pane>>,
+    {
+        self.inner
+            .lock()
+            .try_sync_with_pane_tree(size, root, make_pane)
     }
 
     pub fn codec_pane_tree(&self) -> PaneNode {
@@ -952,6 +997,67 @@ impl TabInner {
             self.iter_panes()
         );
         assert!(self.pane.is_some());
+    }
+
+    fn try_sync_with_pane_tree<F>(
+        &mut self,
+        size: TerminalSize,
+        root: PaneNode,
+        mut make_pane: F,
+    ) -> anyhow::Result<()>
+    where
+        F: FnMut(PaneEntry) -> anyhow::Result<Arc<dyn Pane>>,
+    {
+        let mut active = None;
+        let mut zoomed = None;
+
+        log::debug!("try_sync_with_pane_tree with size {:?}", size);
+
+        let t =
+            try_build_from_pane_tree(root.into_tree(), &mut active, &mut zoomed, &mut make_pane)?;
+        let mut cursor = t.cursor();
+
+        self.active = 0;
+        if let Some(active) = active {
+            // Resolve the active pane to its index
+            let mut index = 0;
+            loop {
+                if let Some(pane) = cursor.leaf_mut() {
+                    if active.pane_id() == pane.pane_id() {
+                        // Found it
+                        self.active = index;
+                        self.recency.tag(index);
+                        break;
+                    }
+                    index += 1;
+                }
+                match cursor.preorder_next() {
+                    Ok(c) => cursor = c,
+                    Err(c) => {
+                        // Didn't find it
+                        cursor = c;
+                        break;
+                    }
+                }
+            }
+        }
+        self.pane.replace(cursor.tree());
+        self.zoomed = zoomed;
+        self.size = size;
+
+        if self.pane.is_none() {
+            anyhow::bail!("pane tree does not contain any panes");
+        }
+
+        self.resize(size);
+
+        log::debug!(
+            "sync tab: {:#?} zoomed: {} {:#?}",
+            size,
+            self.zoomed.is_some(),
+            self.iter_panes()
+        );
+        Ok(())
     }
 
     fn codec_pane_tree(&mut self) -> PaneNode {

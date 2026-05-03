@@ -391,17 +391,18 @@ impl Tui {
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn render_tui(term: &mut dyn Terminal, tui: &Tui) -> termwiz::Result<()> {
     let cols = tui.cols;
     let rows = tui.rows;
 
-    let mut changes: Vec<Change> = Vec::new();
-
     // Synchronize output: hide cursor, clear screen.
-    changes.push(Change::Text("\x1b[?2026h".to_string()));
-    changes.push(Change::CursorVisibility(CursorVisibility::Hidden));
-    changes.push(Change::AllAttributes(CellAttributes::default()));
-    changes.push(Change::ClearScreen(ColorAttribute::Default));
+    let mut changes: Vec<Change> = vec![
+        Change::Text("\x1b[?2026h".to_string()),
+        Change::CursorVisibility(CursorVisibility::Hidden),
+        Change::AllAttributes(CellAttributes::default()),
+        Change::ClearScreen(ColorAttribute::Default),
+    ];
 
     // Header row.
     let theme = &tui.theme;

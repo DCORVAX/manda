@@ -1102,7 +1102,7 @@ impl App {
                 continue;
             }
 
-            // Never touch lines we couldn't fully parse — preserve user's original.
+            // Never touch lines we couldn't fully parse - preserve user's original.
             if field.skip_write {
                 continue;
             }

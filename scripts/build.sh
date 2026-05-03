@@ -51,7 +51,7 @@ resolve_build_targets() {
 		echo "aarch64-apple-darwin x86_64-apple-darwin"
 		;;
 	native)
-		echo "$(resolve_native_target)"
+		resolve_native_target
 		;;
 	arm64)
 		echo "aarch64-apple-darwin"
@@ -347,7 +347,7 @@ while IFS= read -r -d '' dylib; do
 	codesign_with_retry "${BASE_SIGN_ARGS[@]}" "$dylib"
 done < <(find "$APP_BUNDLE_OUT/Contents/Frameworks" -type f -name '*.dylib' -print0 | sort -z)
 
-for bin in "$APP_BUNDLE_OUT/Contents/MacOS/kaku" "$APP_BUNDLE_OUT/Contents/MacOS/kaku-gui"; do
+for bin in "$APP_BUNDLE_OUT/Contents/MacOS/kaku" "$APP_BUNDLE_OUT/Contents/MacOS/kaku-gui" "$APP_BUNDLE_OUT/Contents/MacOS/k"; do
 	codesign_with_retry "${RUNTIME_SIGN_ARGS[@]}" "$bin"
 done
 

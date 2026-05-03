@@ -123,7 +123,7 @@ impl SoftwareVersion {
 }
 
 const NO_ERR: i32 = 0;
-/// `kLSRolesAll` from LaunchServices — matches all handler roles.
+/// `kLSRolesAll` from LaunchServices - matches all handler roles.
 const KLS_ROLES_ALL: u32 = !0;
 const KAKU_BUNDLE_IDENTIFIER: &str = "fun.tw93.kaku";
 

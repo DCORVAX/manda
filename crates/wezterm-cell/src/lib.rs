@@ -1202,7 +1202,7 @@ mod test {
         assert_eq!(unicode_column_width(raised_fist_emoji, None), 2);
 
         // Stopwatch (U+23F1) is EAW=Neutral so width 1 by default, but FE0F
-        // promotes it to width 2 — this is the original report (issue #315).
+        // promotes it to width 2 - this is the original report (issue #315).
         let stopwatch_emoji = "\u{23f1}\u{fe0f}";
         let timer_emoji = "\u{23f2}\u{fe0f}";
         assert_eq!(unicode_column_width(stopwatch_emoji, None), 2);

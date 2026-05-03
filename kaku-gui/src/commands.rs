@@ -220,6 +220,7 @@ impl CommandDef {
             SplitVertical(SpawnCommand::default()),
             CloseCurrentTab { confirm: false },
             CloseCurrentPane { confirm: false },
+            RestorePreviousWindow,
             // Edit menu
             CopyTo(ClipboardCopyDestination::Clipboard),
             PasteFrom(ClipboardPasteSource::Clipboard),
@@ -358,6 +359,7 @@ impl CommandDef {
                     | ShowLauncher
                     | ShowLauncherArgs(_)
                     | ShowTabNavigator
+                    | RestorePreviousWindow
                     | ActivateTabRelative(_)
                     | ActivateLastTab
                     | MoveTabRelative(_)
@@ -638,15 +640,6 @@ impl CommandDef {
     #[cfg(not(target_os = "macos"))]
     pub fn recreate_menubar(_config: &ConfigHandle) {}
 
-    /// Update the menubar to reflect the current config state.
-    /// We cannot simply build a completely new one and replace it at runtime,
-    /// because something in cocoa get's unhappy and crashes shortly after.
-    /// The strategy we have is to try to find the existing item with the
-    /// same action and update it.
-    /// We use the macos menu item tag to do a mark-sweep style garbage
-    /// collection to figure out which items were not reused/updated
-    /// and remove them at the end.
-
     /// Redirect AppKit's "Spotlight for Help" injection to an orphan menu
     /// that is never attached to the menubar. On macOS 26, AppKit's
     /// injected NSMenuItem lifetime is mis-handled, PAC-faulting during
@@ -742,6 +735,7 @@ impl CommandDef {
                     EmitEvent(name) if name == "kaku-open-remote-files" => 24,
                     SplitVertical(_) | SplitHorizontal(_) | SplitPane(_) => 30,
                     CloseCurrentTab { .. } | CloseCurrentPane { .. } => 40,
+                    RestorePreviousWindow => 42,
                     ActivateCommandPalette => 25,
                     ShowLauncher | ShowLauncherArgs(_) => 50,
                     AttachDomain(_) => 70,
@@ -1664,6 +1658,17 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             brief: "Reopen Last Closed Tab".into(),
             doc: "Reopens the most recently closed tab, restoring its working directory.".into(),
             keys: vec![(Modifiers::SUPER.union(Modifiers::SHIFT), "t".into())],
+            args: &[ArgType::ActiveWindow],
+            menubar: &["Shell"],
+            icon: None,
+        },
+        RestorePreviousWindow => CommandDef {
+            brief: "Restore Previous Window".into(),
+            doc: "Restores the last saved window snapshot, including tabs and panes.".into(),
+            keys: vec![(
+                Modifiers::SUPER.union(Modifiers::ALT).union(Modifiers::SHIFT),
+                "t".into(),
+            )],
             args: &[ArgType::ActiveWindow],
             menubar: &["Shell"],
             icon: None,
@@ -2607,6 +2612,7 @@ fn compute_default_actions() -> Vec<KeyAssignment> {
         CloseCurrentTab { confirm: false },
         CloseCurrentPane { confirm: false },
         ReopenLastClosedTab,
+        RestorePreviousWindow,
         DetachDomain(SpawnTabDomain::CurrentPaneDomain),
         ResetTerminal,
         // ----------------- Edit
@@ -2762,5 +2768,32 @@ mod tests {
         assert!(CommandDef::default_key_assignments(&config)
             .iter()
             .any(|(_, _, action)| *action == KeyAssignment::ToggleAllPanesInputBroadcast));
+    }
+
+    #[test]
+    fn restore_previous_window_has_default_shortcut() {
+        let cmd = derive_command_from_key_assignment(&KeyAssignment::RestorePreviousWindow)
+            .expect("command");
+
+        assert_eq!(cmd.brief, "Restore Previous Window");
+        assert_eq!(
+            cmd.keys,
+            vec![(
+                Modifiers::SUPER
+                    .union(Modifiers::ALT)
+                    .union(Modifiers::SHIFT),
+                "t".into()
+            )]
+        );
+        assert_eq!(cmd.menubar, &["Shell"]);
+    }
+
+    #[test]
+    fn restore_previous_window_is_in_command_palette() {
+        let config = ConfigHandle::default_config();
+
+        assert!(CommandDef::actions_for_palette_only(&config)
+            .iter()
+            .any(|cmd| cmd.action == KeyAssignment::RestorePreviousWindow));
     }
 }

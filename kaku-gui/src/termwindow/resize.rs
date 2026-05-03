@@ -1541,7 +1541,7 @@ mod tests {
         ));
         assert!(!should_rebalance_bottom_tab_quantization_slack(
             false, // managed padding
-            false, // top-tab — handled by top-tab rebalance
+            false, // top-tab - handled by top-tab rebalance
         ));
     }
 

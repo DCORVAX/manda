@@ -854,7 +854,7 @@ abbr -a md 'mkdir -p'
 abbr -a ... 'cd ../..'
 abbr -a .... 'cd ../../..'
 
-# yazi launcher — cd into the directory yazi is in when you exit.
+# yazi launcher - cd into the directory yazi is in when you exit.
 function y
     set -l yazi_cmd "$HOME/.config/kaku/fish/bin/yazi"
     if not test -x "$yazi_cmd"
@@ -872,7 +872,7 @@ function y
     rm -f -- $tmp
 end
 
-# k — AI chat CLI bundled with Kaku.
+# k - AI chat CLI bundled with Kaku.
 function k
     set -l k_cmd ""
     for _candidate in "$HOME/Applications/Kaku.app/Contents/MacOS/k" "/Applications/Kaku.app/Contents/MacOS/k"

@@ -927,7 +927,7 @@ impl App {
             self.input_cursor,
             self.input_wrap_width(),
         );
-        layout.rows.len().min(MAX_INPUT_VISIBLE_ROWS).max(1)
+        layout.rows.len().clamp(1, MAX_INPUT_VISIBLE_ROWS)
     }
 
     /// Total visible rows for the message area. Shrinks when the input
@@ -2429,9 +2429,9 @@ pub(crate) enum MdBlock {
     Hr,
 }
 
-/// Split markdown source into one block per source line. Consecutive lines are
-/// NOT merged into paragraphs; we preserve line granularity so streaming feels
-/// responsive and hard breaks the LLM inserts survive.
+// Split markdown source into one block per source line. Consecutive lines are
+// NOT merged into paragraphs; we preserve line granularity so streaming feels
+// responsive and hard breaks the LLM inserts survive.
 
 // ─── Rendering ───────────────────────────────────────────────────────────────
 
@@ -3752,8 +3752,6 @@ pub fn ai_chat_overlay(
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/// Returns a short human-readable summary when the named tool mutates state,
-
 /// Convert a character index into a byte offset in `s`.
 fn char_to_byte_pos(s: &str, char_idx: usize) -> usize {
     s.char_indices()
@@ -3816,7 +3814,7 @@ struct InputLayout {
 }
 
 /// Hard-wrap `prompt + input` to `width` visual columns, splitting at
-/// grapheme boundaries (no word awareness — chat input expects exact
+/// grapheme boundaries (no word awareness - chat input expects exact
 /// position). Tracks where `cursor_chars` (a char index into `input`)
 /// lands in the wrapped grid. When the cursor sits at the trailing edge
 /// of a row that is exactly `width` wide, an empty phantom row is

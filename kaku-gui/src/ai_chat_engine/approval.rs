@@ -192,7 +192,7 @@ fn skip_safe_output_redirection(
         chars.next();
         return match chars.peek() {
             Some(c) if c.is_ascii_digit() => {
-                while chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+                while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
                     chars.next();
                 }
                 true
@@ -256,7 +256,7 @@ fn strip_trailing_fd_digits(current: &mut String) {
     }
     let before_idx = current.len() - n_digits;
     let char_before = current[..before_idx].chars().next_back();
-    if char_before.map_or(true, |c| c == ' ' || c == '\t') {
+    if char_before.is_none_or(|c| c == ' ' || c == '\t') {
         current.truncate(before_idx);
         while current.ends_with(' ') || current.ends_with('\t') {
             current.pop();
@@ -379,12 +379,17 @@ fn cargo_is_dangerous(tokens: &[String]) -> bool {
         .skip(1)
         .find(|t| !t.starts_with('-') && !t.starts_with('+'))
         .map(String::as_str);
+    if sub == Some("clippy") && tokens.iter().skip(1).any(|t| t == "--fix") {
+        return true;
+    }
     matches!(
         sub,
         Some(
             "install"
                 | "uninstall"
                 | "publish"
+                | "fmt"
+                | "fix"
                 | "init"
                 | "new"
                 | "add"
@@ -405,7 +410,7 @@ fn make_is_dangerous(tokens: &[String]) -> bool {
         }
         matches!(
             target,
-            "clean" | "distclean" | "install" | "uninstall" | "purge"
+            "clean" | "distclean" | "fmt" | "install" | "uninstall" | "purge"
         )
     })
 }
@@ -703,8 +708,11 @@ mod tests {
     }
 
     #[test]
-    fn cargo_nightly_fmt_no_approval() {
-        assert!(!shell_command_requires_approval("cargo +nightly fmt"));
+    fn cargo_fmt_requires_approval() {
+        assert!(shell_command_requires_approval("cargo fmt"));
+        assert!(shell_command_requires_approval("cargo +nightly fmt"));
+        assert!(shell_command_requires_approval("cargo clippy --fix"));
+        assert!(shell_command_requires_approval("cargo fix"));
     }
 
     #[test]
@@ -740,6 +748,11 @@ mod tests {
     #[test]
     fn make_flags_no_approval() {
         assert!(!shell_command_requires_approval("make -j8 CC=gcc"));
+    }
+
+    #[test]
+    fn make_fmt_requires_approval() {
+        assert!(shell_command_requires_approval("make fmt"));
     }
 
     #[test]

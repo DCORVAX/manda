@@ -374,12 +374,12 @@ async fn restore_snapshot(snapshot: SavedWindowSnapshot) -> anyhow::Result<()> {
             let panes = spawn_panes_for_tab(&saved_tab.pane_tree).await?;
             let pane_tree = saved_tab.pane_tree.into_pane_node();
 
-            tab.sync_with_pane_tree(size, pane_tree, |entry| {
+            tab.try_sync_with_pane_tree(size, pane_tree, |entry| {
                 panes
                     .get(&entry.pane_id)
                     .cloned()
-                    .unwrap_or_else(|| panic!("missing restored pane {}", entry.pane_id))
-            });
+                    .ok_or_else(|| anyhow!("missing restored pane {}", entry.pane_id))
+            })?;
 
             if !saved_tab.title.is_empty() {
                 tab.set_title(&saved_tab.title);

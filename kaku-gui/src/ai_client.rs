@@ -633,9 +633,9 @@ struct ToolCallBuf {
 fn detect_provider_with_auth(base_url: &str, auth_type: &str) -> &'static str {
     let normalized = base_url.trim().trim_end_matches('/').to_ascii_lowercase();
     match (normalized.as_str(), auth_type) {
-        (u, _) if u == "https://api.githubcopilot.com" => "Copilot",
-        (u, _) if u == "https://generativelanguage.googleapis.com" => "Gemini",
-        (u, "codex") if u == "https://api.openai.com/v1" => "Codex",
+        ("https://api.githubcopilot.com", _) => "Copilot",
+        ("https://generativelanguage.googleapis.com", _) => "Gemini",
+        ("https://api.openai.com/v1", "codex") => "Codex",
         _ => "Custom",
     }
 }

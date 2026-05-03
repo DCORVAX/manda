@@ -149,7 +149,7 @@ pub(crate) fn middle_truncate(s: &str, max: usize) -> String {
     }
     if s.contains('/') {
         let first = s.split('/').next().unwrap_or("");
-        let last = s.split('/').last().unwrap_or("");
+        let last = s.split('/').next_back().unwrap_or("");
         let candidate = format!("{}/.../{}", first, last);
         if candidate.chars().count() <= max {
             return candidate;
@@ -171,6 +171,7 @@ pub(crate) fn middle_truncate(s: &str, max: usize) -> String {
 
 /// Background thread: runs chat_step in a loop until the model produces a
 /// text-only response or the round limit is reached.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_agent(
     client: AiClient,
     model: String,
@@ -196,12 +197,12 @@ pub(crate) fn run_agent(
         }
 
         if round > 0 {
-            compact::micro_compact(&mut messages, round - 1, outputs_dir.as_ref());
+            compact::micro_compact(&mut messages, round - 1, outputs_dir.as_deref());
         }
 
         let history_bytes: usize = messages.iter().map(|m| m.byte_len()).sum();
         if history_bytes >= MAX_HISTORY_BYTES {
-            compact::micro_compact(&mut messages, round, outputs_dir.as_ref());
+            compact::micro_compact(&mut messages, round, outputs_dir.as_deref());
             messages.push(ApiMessage::user(
                 "Your conversation context is nearly full. \
                  Complete the current task as concisely as possible and stop using tools.",

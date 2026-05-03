@@ -1,4 +1,4 @@
-# V0.10.0 Polish 🪄
+# V0.10.0 Chat 🪄
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/tw93/Kaku/main/assets/logo.png" alt="Kaku Logo" width="120" height="120" />
@@ -8,24 +8,26 @@
 
 ### Changelog
 
-1. **AI Chat Panel**: A built-in chat overlay for interacting with AI directly inside the terminal window. Press `Cmd+L` to open it. Supports streaming output and scroll.
-2. **Tab Rename**: Single double-click to rename a tab; drag and hover now show the correct cursor to avoid accidental rename triggers.
-3. **macOS Stability**: Fixed a crash when closing a fullscreen window, a main-thread hang after lock-screen return, and incorrect terminal size after entering fullscreen.
-4. **Copy Improvement**: Visually-wrapped TUI rows are joined into a single line when `copy_unwrap_tui_lines = true`.
-5. **Shell Integration**: Fixed zsh-syntax-highlighting comment color invisibility in dark themes, autosuggest recursion with external providers, and `RUNEWIDTH_EASTASIAN` alignment with Kaku's width setting.
-6. **Performance**: Reduced input latency, lock contention, and memory overhead; macOS runloop and opacity optimizations lower idle power consumption.
-7. **Window Behavior**: On macOS, closing a window now hides it instead of destroying tabs, so state is preserved.
-8. **MacPorts Support**: Tool detection now works correctly with MacPorts and other non-Homebrew package managers.
+1. **AI Chat Panel**: Press `Cmd+L` for a terminal-native chat overlay with streaming Markdown, syntax highlighting, shell context, project tools, web search, and memory.
+2. **`k` CLI**: The new `k` binary brings the same AI engine into an alternate-screen TUI, with theme detection and safer cancel/approval behavior.
+3. **AI Configuration**: Assistant settings now support chat and fast models, live model loading, proxy-aware requests, OAuth setup, and broader provider responses.
+4. **AI Safety and Context**: Shell approvals, sensitive-path guards, file writes, patches, tool limits, failed-command context, and parse errors are all more defensive.
+5. **Window Snapshots**: Kaku saves multi-tab, multi-pane layouts automatically; restore one with `Cmd+Option+Shift+T`, Shell → Restore Previous Window, or the Command Palette.
+6. **macOS and Terminal UX**: Fixed fullscreen crashes and hangs, display races, resize gaps, tab drag state, cursor reflow, links, selection, and TUI copy.
+7. **Updates, Shell, and Performance**: Updates download in the background, checksums fail closed, proxy and MacPorts detection improved, shell state is cached, and startup is lighter.
+8. **Tests and Release Tooling**: 52 regression tests landed, config version 19 is documented, update archives are refreshed after stapling, and release scripts are safer to resume.
 
 ### 更新日志
 
-1. **AI 对话面板**：内置 AI Chat 悬浮层，按 `Cmd+L` 打开，支持流式输出和历史滚动。
-2. **Tab 重命名体验**：连续双击才进入重命名；拖拽和悬停时显示对应光标，避免误触重命名。
-3. **macOS 稳定性**：修复全屏关闭窗口崩溃、锁屏返回后主线程卡住、进入全屏后终端内容大小不变等问题。
-4. **复制优化**：开启 `copy_unwrap_tui_lines = true` 时，视觉换行的 TUI 行现在会正确拼接为一行复制。
-5. **Shell 集成**：修复深色主题下 zsh 注释颜色不可见、外部 autosuggest 递归调用、`RUNEWIDTH_EASTASIAN` 与 Kaku 宽字符设置不一致等问题。
-6. **性能优化**：降低输入延迟、锁竞争和内存占用；macOS runloop 与透明度优化减少空闲功耗。
-7. **窗口行为**：macOS 关闭窗口改为隐藏而非销毁 tabs，状态得以保留。
-8. **MacPorts 支持**：工具检测现在兼容 MacPorts 及其他非 Homebrew 包管理器。
+1. **AI 对话面板**：按 `Cmd+L` 打开终端内 AI Chat，支持流式 Markdown、语法高亮、shell 上下文、项目工具、网页搜索和本地记忆。
+2. **`k` CLI**：新增 `k` 二进制，把同一套 AI 引擎放进 alternate-screen TUI，并补上主题识别、取消和审批语义。
+3. **AI 配置**：Assistant 设置支持 chat model、fast model、在线模型加载、代理感知请求、OAuth 配置，以及更多 provider 响应格式。
+4. **AI 安全与上下文**：shell 审批、敏感路径保护、文件写入、patch、工具参数上限、失败命令上下文和解析错误都更稳。
+5. **窗口快照**：Kaku 会自动保存多 tab、多 pane 布局，需要时按 `Cmd+Option+Shift+T`，或从 Shell → Restore Previous Window、命令面板恢复。
+6. **macOS 与终端体验**：修复全屏崩溃和卡住、显示器竞态、resize 缝隙、tab 拖拽残留、光标 reflow、链接、选择和 TUI 复制。
+7. **更新、Shell 与性能**：更新改为后台下载，checksum 失败时关闭风险路径，代理与 MacPorts 检测更稳，shell 状态缓存，冷启动更轻。
+8. **测试与发布工具**：新增 52 个回归测试，config version 19 的变更已写入，staple 后会刷新更新包，release 脚本也更容易恢复。
+
+Special thanks to @s010s, @SherlockSalvatore, @darion-yaphet, @ddotz, @beautifulrem, @yxspace, and @fanweixiao for their contributions to this release.
 
 > https://github.com/tw93/Kaku

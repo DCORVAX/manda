@@ -11,7 +11,7 @@
 //! non-active entry is evicted when adding a new one would exceed the cap.
 
 use anyhow::{Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const MAX_CONVERSATIONS: usize = 100;
 
@@ -80,11 +80,11 @@ pub(crate) fn conversations_dir() -> Result<PathBuf> {
     Ok(config_dir.join("ai_conversations"))
 }
 
-fn index_path(dir: &PathBuf) -> PathBuf {
+fn index_path(dir: &Path) -> PathBuf {
     dir.join("index.json")
 }
 
-fn conversation_path(dir: &PathBuf, id: &str) -> PathBuf {
+fn conversation_path(dir: &Path, id: &str) -> PathBuf {
     dir.join(format!("{}.json", id))
 }
 
@@ -100,7 +100,7 @@ pub fn generate_id() -> String {
 
 // ── Index helpers ─────────────────────────────────────────────────────────────
 
-fn load_index_from(dir: &PathBuf) -> IndexFile {
+fn load_index_from(dir: &Path) -> IndexFile {
     let path = index_path(dir);
     if !path.exists() {
         return IndexFile::default();
@@ -121,13 +121,13 @@ fn load_index_from(dir: &PathBuf) -> IndexFile {
     }
 }
 
-fn save_index_to(file: &IndexFile, dir: &PathBuf) -> Result<()> {
+fn save_index_to(file: &IndexFile, dir: &Path) -> Result<()> {
     let path = index_path(dir);
     let json = serde_json::to_string_pretty(file).context("serialize index")?;
     write_atomic(&path, &json)
 }
 
-fn load_conversation_from(dir: &PathBuf, id: &str) -> Result<Vec<PersistedMessage>> {
+fn load_conversation_from(dir: &Path, id: &str) -> Result<Vec<PersistedMessage>> {
     let path = conversation_path(dir, id);
     let raw = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
     let file: ConversationFile =
@@ -136,7 +136,7 @@ fn load_conversation_from(dir: &PathBuf, id: &str) -> Result<Vec<PersistedMessag
 }
 
 fn write_conversation_to(
-    dir: &PathBuf,
+    dir: &Path,
     id: &str,
     summary: &str,
     messages: &[PersistedMessage],
@@ -152,7 +152,7 @@ fn write_conversation_to(
 }
 
 /// Remove oldest non-active entries if total count exceeds MAX_CONVERSATIONS.
-fn evict_excess(idx: &mut IndexFile, dir: &PathBuf) {
+fn evict_excess(idx: &mut IndexFile, dir: &Path) {
     let active_id = idx.active_id.clone();
     while idx.conversations.len() > MAX_CONVERSATIONS {
         // Find the position of the oldest non-active entry.

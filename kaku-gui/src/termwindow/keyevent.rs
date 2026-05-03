@@ -915,7 +915,7 @@ impl super::TermWindow {
         let has_sel = self.has_line_editor_selection();
 
         // Plain Left/Right: if selection is active, preserve so maybe_handle_native_line_editor_shortcut
-        // can collapse the region. Up/Down are excluded — they have no collapse arm and can be
+        // can collapse the region. Up/Down are excluded - they have no collapse arm and can be
         // pre-cleared immediately, which also avoids leaking stale zsh REGION_ACTIVE on history nav.
         // Also works around macOS modifier state desync where SHIFT may linger after release.
         if matches!(key.phys_code, Some(PK::LeftArrow | PK::RightArrow)) && m == Modifiers::NONE {
@@ -951,7 +951,7 @@ impl super::TermWindow {
         let has_sel = self.has_line_editor_selection();
 
         // Plain Left/Right: if selection is active, preserve so maybe_handle_native_line_editor_shortcut
-        // can collapse the region. Up/Down are excluded — they have no collapse arm and can be
+        // can collapse the region. Up/Down are excluded - they have no collapse arm and can be
         // pre-cleared immediately, which also avoids leaking stale zsh REGION_ACTIVE on history nav.
         // Also works around macOS modifier state desync where SHIFT may linger after release.
         if matches!(

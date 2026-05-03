@@ -347,7 +347,7 @@ fn run_kaku_subcommand_in_new_tab(subcommand: &str, running_flag: Option<&'stati
         );
 
         // Clear the running flag once the tab spawn has been issued.
-        // This does not wait for the subcommand to finish — it only prevents
+        // This does not wait for the subcommand to finish - it only prevents
         // rapid duplicate menu clicks from opening a second tab before the
         // first one has been created. spawn_command_impl has no completion
         // callback, so finer-grained tracking would require hooking tab close.

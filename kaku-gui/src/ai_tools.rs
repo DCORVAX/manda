@@ -1959,6 +1959,7 @@ fn exec_symbol_search(
     Ok(out)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn exec_grep_search(
     pattern: &str,
     search_path: &str,

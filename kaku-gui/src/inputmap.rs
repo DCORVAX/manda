@@ -1,3 +1,5 @@
+#![allow(clippy::items_after_test_module)]
+
 use crate::commands::CommandDef;
 use config::keyassignment::{
     ClipboardCopyDestination, ClipboardPasteSource, KeyAssignment, KeyTableEntry, KeyTables,

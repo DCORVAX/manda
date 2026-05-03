@@ -696,7 +696,7 @@ fn read_from_pane_pty(
 
     if pty_fatal {
         // The pty fd is gone (EBADF/EIO): no output can arrive, no input can be sent.
-        // Force-remove the pane regardless of exit_behavior — holding a completely
+        // Force-remove the pane regardless of exit_behavior - holding a completely
         // non-functional pane open indefinitely is worse than closing it.
         promise::spawn::spawn_into_main_thread(async move {
             let mux = Mux::get();
