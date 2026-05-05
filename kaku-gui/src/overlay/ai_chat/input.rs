@@ -105,6 +105,16 @@ pub(super) fn handle_key(key: &KeyEvent, app: &mut App) -> Action {
             }
             Action::Continue
         }
+        // Shift+Enter inserts a literal newline so the user can compose
+        // multi-line prompts without submitting.
+        (KeyCode::Enter, Modifiers::SHIFT) => {
+            app.snapshot_input_for_undo();
+            let byte_pos = char_to_byte_pos(&app.input, app.input_cursor);
+            app.input.insert(byte_pos, '\n');
+            app.input_cursor += 1;
+            app.attachment_picker_index = 0;
+            Action::Continue
+        }
         (KeyCode::Enter, _) => Action::Continue,
 
         // Cmd+Backspace: clear the entire input line (macOS-native shortcut).
@@ -283,8 +293,10 @@ pub(super) fn handle_key(key: &KeyEvent, app: &mut App) -> Action {
                     }
                     ModelFetch::Loaded => {
                         let n = app.available_models.len();
-                        if n > 1 && app.model_index + 1 < n {
-                            app.model_index += 1;
+                        if n > 1 {
+                            // Cycle so the user can keep pressing Shift+Tab past
+                            // the last model and wrap back to the first.
+                            app.model_index = (app.model_index + 1) % n;
                             // Persist the selection so it survives overlay close/reopen.
                             let model = app.current_model();
                             if let Err(e) = crate::ai_state::save_last_model(&model) {

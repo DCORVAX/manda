@@ -95,9 +95,17 @@ pub(super) fn layout_input(
     let mut found_cursor = false;
 
     for g in combined.graphemes(true) {
-        let gw = unicode_column_width(g, None);
-        let need_wrap =
-            *row_widths.last().unwrap() + gw > width && !rows.last().unwrap().is_empty();
+        let is_hard_break = g == "\n";
+        let gw = if is_hard_break {
+            0
+        } else {
+            unicode_column_width(g, None)
+        };
+        // Hard breaks always start a new row regardless of width; only check
+        // soft-wrap when the grapheme actually contributes columns.
+        let need_wrap = !is_hard_break
+            && *row_widths.last().unwrap() + gw > width
+            && !rows.last().unwrap().is_empty();
         // Cursor check before the wrap decision: when the row is exactly
         // full and the next grapheme is about to push a new row, a cursor
         // sitting at this byte position visually belongs to the start of
@@ -117,8 +125,15 @@ pub(super) fn layout_input(
             rows.push(String::new());
             row_widths.push(0);
         }
-        rows.last_mut().unwrap().push_str(g);
-        *row_widths.last_mut().unwrap() += gw;
+        if is_hard_break {
+            // The newline itself is consumed by the layout; start a fresh
+            // empty row so subsequent graphemes render at column 0.
+            rows.push(String::new());
+            row_widths.push(0);
+        } else {
+            rows.last_mut().unwrap().push_str(g);
+            *row_widths.last_mut().unwrap() += gw;
+        }
         byte_pos += g.len();
     }
     if !found_cursor {

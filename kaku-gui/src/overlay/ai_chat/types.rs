@@ -18,6 +18,16 @@ pub struct ChatPalette {
 }
 
 impl ChatPalette {
+    /// True when the chat background reads as a light color, using ITU-R BT.709
+    /// relative luminance. Used to pick light-mode-appropriate accents (e.g.
+    /// the syntect theme for fenced code blocks).
+    pub(crate) fn is_light(&self) -> bool {
+        let r = self.bg.0;
+        let g = self.bg.1;
+        let b = self.bg.2;
+        0.2126 * r + 0.7152 * g + 0.0722 * b > 0.5
+    }
+
     pub(super) fn bg_attr(&self) -> ColorAttribute {
         ColorAttribute::TrueColorWithDefaultFallback(self.bg)
     }

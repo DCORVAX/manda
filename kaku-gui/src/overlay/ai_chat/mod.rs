@@ -188,19 +188,31 @@ pub fn ai_chat_overlay(
                 // ForwardWriter in TermWizTerminalPane, which converts bytes
                 // written to pane.writer() into InputEvent::Paste events.
                 // Allowed during streaming so the user can stage the next message.
-                let has_insertable = text.chars().any(|c| !c.is_control());
-                if has_insertable {
+                //
+                // Shift+Enter / Cmd+Enter may also reach this path: users often
+                // bind those to `SendString('\n')` in kaku.lua, which the
+                // ForwardWriter delivers as `Paste("\n")`. Treat \r and \n as
+                // literal newlines so multi-line composition works regardless
+                // of how the byte stream entered the overlay.
+                let normalized: String = text
+                    .chars()
+                    .filter_map(|c| match c {
+                        '\r' | '\n' => Some('\n'),
+                        c if !c.is_control() => Some(c),
+                        _ => None,
+                    })
+                    .collect();
+                if !normalized.is_empty() {
                     app.snapshot_input_for_undo();
-                }
-                for c in text.chars() {
-                    if !c.is_control() {
+                    for c in normalized.chars() {
                         let byte_pos = char_to_byte_pos(&app.input, app.input_cursor);
                         app.input.insert(byte_pos, c);
                         app.input_cursor += 1;
                     }
+                    app.attachment_picker_index = 0;
+                    app.display_lines_dirty = true;
+                    needs_redraw = true;
                 }
-                app.display_lines_dirty = true;
-                needs_redraw = true;
             }
             Some(InputEvent::Mouse(mouse)) => {
                 handle_mouse(&mouse, &mut app);

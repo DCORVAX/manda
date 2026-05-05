@@ -2,7 +2,7 @@ use crate::ai_conversations;
 use mux::termwiztermtab::TermWizTerminal;
 use termwiz::cell::{unicode_column_width, AttributeChange, CellAttributes};
 use termwiz::color::{ColorAttribute, SrgbaTuple};
-use termwiz::surface::{Change, CursorVisibility, Position};
+use termwiz::surface::{Change, CursorShape, CursorVisibility, Position};
 use termwiz::terminal::Terminal;
 
 use super::layout::{byte_pos_at_visual_col, layout_input, pad_to_visual_width, truncate};
@@ -402,7 +402,12 @@ fn render_vertical_picker(
         } else {
             pal.ai_text_cell()
         };
-        let runs = vec![(attr, format!(" {}  {}", label, desc))];
+        // Pre-pad to inner_w so the selected row's highlight stripe (drawn as
+        // the run's background) spans the entire content width, not just the
+        // label. Critical for visibility on light themes where the bg vs
+        // accent contrast is subtle.
+        let row_text = pad_to_visual_width(&format!(" {}  {}", label, desc), inner_w);
+        let runs = vec![(attr, row_text)];
         push_picker_row(changes, start_row + i, inner_w, pal, runs);
     }
 }
@@ -676,6 +681,11 @@ fn render_chat(term: &mut TermWizTerminal, app: &App) -> termwiz::Result<()> {
                 x: Position::Absolute(cx),
                 y: Position::Absolute(cy),
             });
+            // BlinkingBar makes the input caret unmistakable on both dark and
+            // light themes; without it the overlay inherits whatever default
+            // the embedded terminal uses, which can be steady and hard to spot
+            // (especially after clicking into the input box).
+            changes.push(Change::CursorShape(CursorShape::BlinkingBar));
             changes.push(Change::CursorVisibility(CursorVisibility::Visible));
         }
         None => {

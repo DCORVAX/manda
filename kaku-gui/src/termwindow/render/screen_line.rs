@@ -411,6 +411,14 @@ impl crate::TermWindow {
                                     params.render_metrics.line_height_y_adjust,
                                 )
                             }
+                            CursorShape::BlinkingBar | CursorShape::SteadyBar => {
+                                // Shorten the bar cursor to ~75% of cell height and
+                                // vertically center it so it aligns with the text
+                                // x-height rather than stretching from the very top
+                                // to the very bottom of the cell.
+                                let inset = (cell_height * 0.125).round();
+                                (pos_y + inset, pos_y + cell_height - inset)
+                            }
                             _ => (pos_y, pos_y + cell_height),
                         }
                     };

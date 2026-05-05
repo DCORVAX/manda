@@ -6,31 +6,45 @@ use syntect::parsing::SyntaxSet;
 
 struct SyntectState {
     syntax_set: SyntaxSet,
-    theme: syntect::highlighting::Theme,
+    theme_dark: syntect::highlighting::Theme,
+    theme_light: syntect::highlighting::Theme,
 }
 
 fn state() -> &'static SyntectState {
     static INSTANCE: OnceLock<SyntectState> = OnceLock::new();
     INSTANCE.get_or_init(|| {
         let syntax_set = SyntaxSet::load_defaults_newlines();
-        let theme = ThemeSet::load_defaults()
-            .themes
+        let mut themes = ThemeSet::load_defaults().themes;
+        let theme_dark = themes
             .remove("base16-ocean.dark")
-            .expect("built-in theme must exist");
-        SyntectState { syntax_set, theme }
+            .expect("built-in dark theme must exist");
+        let theme_light = themes
+            .remove("InspiredGitHub")
+            .expect("built-in light theme must exist");
+        SyntectState {
+            syntax_set,
+            theme_dark,
+            theme_light,
+        }
     })
 }
 
 pub(crate) fn highlight_code_block(
     lines: &[(&str, DiffKind)],
     lang: &str,
+    light: bool,
 ) -> Vec<(Vec<InlineSpan>, DiffKind)> {
     let st = state();
     let syntax = match st.syntax_set.find_syntax_by_token(lang) {
         Some(s) => s,
         None => return fallback(lines),
     };
-    let mut h = HighlightLines::new(syntax, &st.theme);
+    let theme = if light {
+        &st.theme_light
+    } else {
+        &st.theme_dark
+    };
+    let mut h = HighlightLines::new(syntax, theme);
     let mut result = Vec::with_capacity(lines.len());
     for &(text, diff) in lines {
         if diff != DiffKind::None {

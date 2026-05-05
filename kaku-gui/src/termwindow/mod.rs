@@ -1333,6 +1333,20 @@ impl TermWindow {
             .contains(WindowState::FULL_SCREEN)
     }
 
+    /// Returns true when the currently focused pane has the AI chat overlay
+    /// active. Used by the resize path to temporarily shrink the bottom
+    /// padding so the chat box sits closer to the window / tab-bar edge.
+    fn has_ai_chat_overlay_on_active_pane(&self) -> bool {
+        let mux = mux::Mux::try_get();
+        let pane_id = mux
+            .and_then(|m| m.get_active_tab_for_window(self.mux_window_id))
+            .and_then(|tab| tab.get_active_pane().map(|p| p.pane_id()));
+        match pane_id {
+            Some(id) => self.ai_chat_overlay_panes.contains(&id),
+            None => false,
+        }
+    }
+
     /// Fullscreen should keep the historical V0.7.1 padding behavior.
     /// Only maximized windows opt into the newer edge-to-edge padding path.
     pub(crate) fn layout_uses_edge_to_edge_padding(&self) -> bool {
@@ -4415,6 +4429,12 @@ impl TermWindow {
                         });
                     self.assign_overlay_for_pane(pane_id, overlay);
                     self.ai_chat_overlay_panes.insert(pane_id);
+                    // Shrink bottom padding for the chat overlay. Re-run layout
+                    // so the overlay pane gets the extra row(s) immediately.
+                    if let Some(window) = self.window.clone() {
+                        let dims = self.dimensions.clone();
+                        self.apply_dimensions(&dims, None, &window, false);
+                    }
                     promise::spawn::spawn(async move {
                         if let Err(e) = future.await {
                             log::error!("AI chat overlay error for pane {pane_id}: {e:#}");
@@ -5929,9 +5949,18 @@ impl TermWindow {
                 Mux::get().remove_pane(overlay.pane.pane_id());
             }
         }
-        self.ai_chat_overlay_panes.remove(&pane_id);
+        let was_chat = self.ai_chat_overlay_panes.remove(&pane_id);
         if let Some(window) = self.window.as_ref() {
             window.invalidate();
+        }
+        // The AI chat overlay uses a tighter bottom padding. When it closes,
+        // re-run layout so the normal padding is restored immediately instead
+        // of waiting for the next external resize event.
+        if was_chat {
+            if let Some(window) = self.window.clone() {
+                let dims = self.dimensions.clone();
+                self.apply_dimensions(&dims, None, &window, false);
+            }
         }
     }
 

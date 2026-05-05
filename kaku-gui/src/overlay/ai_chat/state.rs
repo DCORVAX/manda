@@ -378,7 +378,12 @@ fn emit_user_lines(out: &mut Vec<DisplayLine>, content: &str, width: usize) {
 /// Emit AI markdown content. Each parsed block becomes one or more
 /// `DisplayLine::Text` entries (wrapping applied per block; list items carry
 /// their bullet/number on the first wrapped line only).
-fn emit_assistant_markdown(out: &mut Vec<DisplayLine>, content: &str, width: usize) {
+fn emit_assistant_markdown(
+    out: &mut Vec<DisplayLine>,
+    content: &str,
+    width: usize,
+    light_palette: bool,
+) {
     let blocks = parse_markdown_blocks(content);
     let len = blocks.len();
     let mut i = 0;
@@ -479,7 +484,8 @@ fn emit_assistant_markdown(out: &mut Vec<DisplayLine>, content: &str, width: usi
                         _ => unreachable!(),
                     })
                     .collect();
-                let highlighted = syntax::highlight_code_block(&code_lines, &group_lang);
+                let highlighted =
+                    syntax::highlight_code_block(&code_lines, &group_lang, light_palette);
                 for (spans, diff) in highlighted {
                     let block = match diff {
                         DiffKind::Add => BlockStyle::DiffAdd,
@@ -1092,7 +1098,12 @@ impl App {
             } else {
                 match msg.role {
                     Role::User => emit_user_lines(&mut lines, &msg.content, w),
-                    Role::Assistant => emit_assistant_markdown(&mut lines, &msg.content, w),
+                    Role::Assistant => emit_assistant_markdown(
+                        &mut lines,
+                        &msg.content,
+                        w,
+                        self.context.colors.is_light(),
+                    ),
                 }
                 lines.push(DisplayLine::Blank);
             }
