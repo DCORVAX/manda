@@ -18,5 +18,4 @@ pub mod cli_chat;
 pub mod soul;
 
 mod ai_auth;
-mod ai_gemini;
 pub mod thread_util;

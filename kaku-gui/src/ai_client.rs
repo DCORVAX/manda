@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
-use crate::{ai_auth, ai_gemini};
+use crate::ai_auth;
 
 const DEFAULT_MODEL: &str = "gpt-5.4-mini";
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
@@ -31,7 +31,9 @@ pub struct AssistantConfig {
     pub base_url: String,
     /// Provider name derived from base_url and auth_type (e.g. "OpenAI", "Copilot").
     pub provider: String,
-    /// Auth mechanism: "api_key" (default), "copilot", "codex", or "gemini_key".
+    /// Auth mechanism: "api_key" (default), "copilot", or "codex".
+    /// Legacy "gemini_key" values are recognized only to surface a friendly
+    /// error at load time; the Gemini provider was removed in V0.10.0.
     pub auth_type: String,
     /// When false, the `tools` field is omitted from chat requests.
     /// Set `chat_tools_enabled = false` in assistant.toml for providers that do not
@@ -65,8 +67,20 @@ impl AssistantConfig {
             .unwrap_or("api_key")
             .to_string();
 
+        // The Gemini provider was removed in V0.10.0. Surface a clear migration
+        // path instead of letting the OpenAI-compatible code path silently
+        // mangle Gemini requests.
+        if auth_type == "gemini_key" {
+            anyhow::bail!(
+                "Gemini provider was removed in V0.10.0. Open `kaku ai` and \
+                 switch to a different provider (OpenAI, Copilot, Codex, or a \
+                 custom OpenAI-compatible endpoint), then update {}.",
+                path.display()
+            );
+        }
+
         // OAuth providers (Copilot, Codex) do not need an api_key in the TOML.
-        let api_key_required = matches!(auth_type.as_str(), "api_key" | "gemini_key");
+        let api_key_required = auth_type == "api_key";
 
         let api_key = parsed
             .get("api_key")
@@ -117,7 +131,9 @@ impl AssistantConfig {
         let chat_tools_enabled = parsed
             .get("chat_tools_enabled")
             .and_then(|v| v.as_bool())
-            // Gemini tools are supported but off by default until format mapping is verified.
+            // OpenAI-compatible tool calling is supported by all providers we
+            // ship presets for; per-provider opt-out is still possible by
+            // setting `chat_tools_enabled = false` in assistant.toml.
             .unwrap_or(true);
 
         let web_search_provider = parsed
@@ -258,18 +274,40 @@ pub struct AiClient {
 }
 
 /// Process-level HTTP client shared across all overlay sessions.
+///
 /// TLS stack is initialized once; subsequent `AiClient::new` calls are free.
+///
+/// Proxy resolution: respects the standard proxy env vars when present
+/// (reqwest does this by default), and otherwise falls back to the system
+/// proxy detected via `scutil --proxy` on macOS. Without that fallback,
+/// launches from the menu bar / Finder inherit launchd's empty environment
+/// and silently bypass the user's configured proxy — the same hazard already
+/// fixed in the curl-based update path.
 fn shared_http_client() -> &'static reqwest::blocking::Client {
     static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
-        reqwest::blocking::Client::builder()
+        let mut builder = reqwest::blocking::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(30))
-            .timeout(std::time::Duration::from_secs(600))
-            .build()
-            .unwrap_or_else(|e| {
-                log::warn!("Failed to build HTTP client: {e}; falling back to default client");
-                reqwest::blocking::Client::new()
-            })
+            .timeout(std::time::Duration::from_secs(600));
+
+        if let Some(proxy_url) = config::proxy::detect_system_proxy() {
+            match reqwest::Proxy::all(&proxy_url) {
+                Ok(proxy) => {
+                    log::info!("AI HTTP client using system proxy: {}", proxy_url);
+                    builder = builder.proxy(proxy);
+                }
+                Err(e) => log::warn!(
+                    "Failed to apply detected system proxy {}: {}; continuing without proxy",
+                    proxy_url,
+                    e
+                ),
+            }
+        }
+
+        builder.build().unwrap_or_else(|e| {
+            log::warn!("Failed to build HTTP client: {e}; falling back to default client");
+            reqwest::blocking::Client::new()
+        })
     })
 }
 
@@ -307,11 +345,6 @@ impl AiClient {
     /// Fetch available chat models from `{base_url}/models`.
     /// Filters out non-chat models (embeddings, TTS, image, etc.).
     pub fn list_models(&self) -> Result<Vec<String>> {
-        // Gemini uses a different models listing endpoint.
-        if self.config.auth_type == "gemini_key" {
-            return self.list_gemini_models();
-        }
-
         let url = format!("{}/models", self.config.base_url);
         let req = self.client.get(&url);
         let req = self.apply_auth_headers(req)?;
@@ -334,43 +367,6 @@ impl AiClient {
         out.sort();
         out.dedup();
         out.truncate(30);
-        Ok(out)
-    }
-
-    fn list_gemini_models(&self) -> Result<Vec<String>> {
-        let api_key = &self.config.api_key;
-        let base = self.config.base_url.trim_end_matches('/');
-        let url = format!("{base}/v1beta/models");
-        let mut req = self.client.get(&url);
-        if !api_key.is_empty() {
-            req = req.header("x-goog-api-key", api_key);
-        }
-        let resp = req.send().context("GET Gemini /models failed")?;
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().unwrap_or_default();
-            anyhow::bail!("Gemini models API {}: {}", status, body);
-        }
-        let v: serde_json::Value = resp.json().context("parse Gemini /models response")?;
-        let arr = match v.get("models").and_then(|m| m.as_array()) {
-            Some(a) => a,
-            None => return Ok(vec![]),
-        };
-        let mut out: Vec<String> = arr
-            .iter()
-            .filter_map(|m| {
-                let name = m.get("name")?.as_str()?;
-                // name format: "models/gemini-2.5-pro" -> extract the short id
-                Some(name.strip_prefix("models/").unwrap_or(name).to_string())
-            })
-            .filter(|id| {
-                let id_lower = id.to_ascii_lowercase();
-                id_lower.starts_with("gemini")
-            })
-            .collect();
-        out.sort();
-        out.dedup();
-        out.truncate(20);
         Ok(out)
     }
 
@@ -397,7 +393,8 @@ impl AiClient {
                 Ok(req.header("Authorization", format!("Bearer {token}")))
             }
             _ => {
-                // api_key, gemini_key (api_key field used as Bearer or query param handled elsewhere)
+                // Default: api_key as a Bearer header for all OpenAI-compatible
+                // providers (OpenAI, DeepSeek, Kimi, custom proxies).
                 Ok(req.header("Authorization", format!("Bearer {}", self.config.api_key)))
             }
         }
@@ -418,11 +415,6 @@ impl AiClient {
         cancelled: &AtomicBool,
         on_token: &mut dyn FnMut(&str),
     ) -> Result<Vec<ToolCall>> {
-        // Gemini uses a completely different API format.
-        if self.config.auth_type == "gemini_key" {
-            return self.chat_step_gemini(model, messages, tools, cancelled, on_token);
-        }
-
         let url = format!("{}/chat/completions", self.config.base_url);
 
         let mut body = serde_json::json!({
@@ -444,41 +436,7 @@ impl AiClient {
             .json(&body);
         let req = self.apply_auth_headers(req)?;
 
-        let mut last_err = String::new();
-        let mut response = None;
-        for attempt in 0..3u32 {
-            if attempt > 0 {
-                let backoff = std::time::Duration::from_secs(1 << attempt);
-                std::thread::sleep(backoff);
-                if cancelled.load(Ordering::Relaxed) {
-                    anyhow::bail!("cancelled during retry backoff");
-                }
-            }
-            let r = match req.try_clone().context("clone request")?.send() {
-                Ok(r) => r,
-                Err(e) => {
-                    last_err = e.to_string();
-                    log::warn!("HTTP attempt {}: {}", attempt + 1, last_err);
-                    continue;
-                }
-            };
-            let status = r.status();
-            if status.is_success() {
-                response = Some(r);
-                break;
-            }
-            let code = status.as_u16();
-            let body = r.text().unwrap_or_default();
-            if code == 429 || code >= 500 {
-                let preview: String = body.chars().take(200).collect();
-                last_err = format!("API error {}: {}", code, preview);
-                log::warn!("HTTP attempt {} retryable: {}", attempt + 1, last_err);
-                continue;
-            }
-            anyhow::bail!("API error {}: {}", code, body);
-        }
-        let response = response
-            .ok_or_else(|| anyhow::anyhow!("API request failed after 3 attempts: {}", last_err))?;
+        let response = send_with_retry(req, "API", cancelled)?;
 
         let reader = BufReader::new(response);
         // Accumulate tool call fragments by index; each index is one pending call.
@@ -573,47 +531,65 @@ impl AiClient {
             Ok(vec![])
         }
     }
+}
 
-    fn chat_step_gemini(
-        &self,
-        model: &str,
-        messages: &[ApiMessage],
-        tools: &[serde_json::Value],
-        cancelled: &AtomicBool,
-        on_token: &mut dyn FnMut(&str),
-    ) -> Result<Vec<ToolCall>> {
-        let raw_messages: Vec<serde_json::Value> = messages.iter().map(|m| m.0.clone()).collect();
-        let effective_tools: &[serde_json::Value] = if self.config.chat_tools_enabled {
-            tools
-        } else {
-            &[]
+/// Send a request up to 3 times with exponential backoff on transient
+/// failures (network errors, HTTP 429, HTTP 5xx). Non-retryable HTTP errors
+/// (4xx other than 429) bail immediately so misconfiguration surfaces fast.
+///
+/// `provider_label` is folded into log lines and the final error message so a
+/// user reading logs can tell which transport failed.
+fn send_with_retry(
+    req: reqwest::blocking::RequestBuilder,
+    provider_label: &str,
+    cancelled: &AtomicBool,
+) -> Result<reqwest::blocking::Response> {
+    let mut last_err = String::new();
+    for attempt in 0..3u32 {
+        if attempt > 0 {
+            let backoff = std::time::Duration::from_secs(1 << attempt);
+            std::thread::sleep(backoff);
+            if cancelled.load(Ordering::Relaxed) {
+                anyhow::bail!("cancelled during retry backoff");
+            }
+        }
+        let r = match req.try_clone().context("clone request")?.send() {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = e.to_string();
+                log::warn!(
+                    "{} HTTP attempt {}: {}",
+                    provider_label,
+                    attempt + 1,
+                    last_err
+                );
+                continue;
+            }
         };
-
-        let body = ai_gemini::openai_messages_to_gemini(&raw_messages, effective_tools);
-        let url = ai_gemini::gemini_stream_url(&self.config.base_url, model);
-
-        let mut req = self
-            .client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .header("Accept", "text/event-stream")
-            .header("Accept-Encoding", "identity");
-        if !self.config.api_key.is_empty() {
-            req = req.header("x-goog-api-key", &self.config.api_key);
+        let status = r.status();
+        if status.is_success() {
+            return Ok(r);
         }
-        let response = req
-            .json(&body)
-            .send()
-            .context("Gemini HTTP request failed")?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body_text = response.text().unwrap_or_default();
-            anyhow::bail!("Gemini API error {}: {}", status, body_text);
+        let code = status.as_u16();
+        let body = r.text().unwrap_or_default();
+        if code == 429 || code >= 500 {
+            let preview: String = body.chars().take(200).collect();
+            last_err = format!("{} error {}: {}", provider_label, code, preview);
+            log::warn!(
+                "{} HTTP attempt {} retryable: {}",
+                provider_label,
+                attempt + 1,
+                last_err
+            );
+            continue;
         }
-
-        ai_gemini::stream_gemini_response(response, cancelled, on_token)
+        anyhow::bail!("{} error {}: {}", provider_label, code, body);
     }
+    Err(anyhow::anyhow!(
+        "{} request failed after 3 attempts: {}",
+        provider_label,
+        last_err
+    ))
 }
 
 // ─── Private helpers ──────────────────────────────────────────────────────────
@@ -628,16 +604,58 @@ struct ToolCallBuf {
 
 /// Maps (base_url, auth_type) to a display provider name.
 ///
-/// Mirrors `assistant_config::detect_provider_with_auth` from the kaku crate;
-/// kept local to avoid a cross-binary dependency.
+/// Single source of truth for provider naming. The `kaku` binary used to
+/// carry a parallel `#[allow(dead_code)]` table; that copy was removed in
+/// V0.10.0 because it never matched the GUI version under maintenance.
 fn detect_provider_with_auth(base_url: &str, auth_type: &str) -> &'static str {
     let normalized = base_url.trim().trim_end_matches('/').to_ascii_lowercase();
     match (normalized.as_str(), auth_type) {
         ("https://api.githubcopilot.com", _) => "Copilot",
-        ("https://generativelanguage.googleapis.com", _) => "Gemini",
         ("https://api.openai.com/v1", "codex") => "Codex",
         _ => "Custom",
     }
 }
 
 // Delegated to kaku-ai-utils crate to avoid cross-binary drift.
+
+#[cfg(test)]
+mod tests {
+    use super::detect_provider_with_auth;
+
+    #[test]
+    fn detects_copilot_and_codex_and_falls_back_to_custom() {
+        assert_eq!(
+            detect_provider_with_auth("https://api.githubcopilot.com", "copilot"),
+            "Copilot"
+        );
+        assert_eq!(
+            detect_provider_with_auth("https://api.openai.com/v1", "codex"),
+            "Codex"
+        );
+        // Same OpenAI URL with the default api_key auth is treated as a generic
+        // OpenAI-compatible endpoint, so we surface it as Custom.
+        assert_eq!(
+            detect_provider_with_auth("https://api.openai.com/v1", "api_key"),
+            "Custom"
+        );
+        // Unknown / removed providers (Gemini was dropped in V0.10.0) fall
+        // through to Custom rather than crashing detection.
+        assert_eq!(
+            detect_provider_with_auth("https://generativelanguage.googleapis.com", "gemini_key"),
+            "Custom"
+        );
+        assert_eq!(detect_provider_with_auth("", "api_key"), "Custom");
+    }
+
+    #[test]
+    fn trailing_slash_does_not_break_match() {
+        assert_eq!(
+            detect_provider_with_auth("https://api.githubcopilot.com/", "copilot"),
+            "Copilot"
+        );
+        assert_eq!(
+            detect_provider_with_auth("https://api.openai.com/v1/", "codex"),
+            "Codex"
+        );
+    }
+}

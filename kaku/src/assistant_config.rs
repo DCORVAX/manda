@@ -19,79 +19,11 @@ pub const DEFAULT_CHAT_MODEL: &str = "gpt-5.4";
 /// Default API base URL for the AI service.
 pub const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 
-/// A provider preset with its API base URL and available models.
-#[allow(dead_code)]
-pub struct ProviderPreset {
-    /// Display name for the provider.
-    pub name: &'static str,
-    /// Base URL for the provider's OpenAI-compatible API.
-    pub base_url: &'static str,
-    /// Available model identifiers for this provider (empty = free-text).
-    pub models: &'static [&'static str],
-    /// Auth mechanism: "api_key", "copilot", "codex", or "gemini_key".
-    pub auth_type: &'static str,
-}
-
-/// Built-in provider presets for the Kaku Assistant.
-/// To add a new provider: add an entry here. Provider detection derives everything
-/// (base_url, model list, auth_type) from this table. No other changes needed.
-#[allow(dead_code)]
-pub const PROVIDER_PRESETS: &[ProviderPreset] = &[
-    ProviderPreset {
-        name: "Copilot",
-        base_url: "https://api.githubcopilot.com",
-        models: &["gpt-4.1", "gpt-4.5", "claude-sonnet-4-5", "o4-mini"],
-        auth_type: "copilot",
-    },
-    ProviderPreset {
-        name: "Codex",
-        base_url: "https://api.openai.com/v1",
-        models: &["codex-mini-latest", "o4-mini", "o3"],
-        auth_type: "codex",
-    },
-    ProviderPreset {
-        name: "Gemini",
-        base_url: "https://generativelanguage.googleapis.com",
-        models: &["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
-        auth_type: "gemini_key",
-    },
-    ProviderPreset {
-        name: "Custom",
-        base_url: "",
-        models: &[],
-        auth_type: "api_key",
-    },
-];
-
-/// Detects the provider name from a base URL.
-///
-/// Returns the matching preset name if the base URL matches a known provider,
-/// or `"Custom"` otherwise.
-#[allow(dead_code)]
-pub fn detect_provider(base_url: &str) -> &'static str {
-    detect_provider_with_auth(base_url, "api_key")
-}
-
-/// Detects the provider name from a base URL and stored auth_type.
-///
-/// Codex shares the OpenAI base URL (`https://api.openai.com/v1`);
-/// pass `auth_type = "codex"` to get "Codex" back instead of "Custom".
-#[allow(dead_code)]
-pub fn detect_provider_with_auth(base_url: &str, auth_type: &str) -> &'static str {
-    let normalized = base_url.trim().trim_end_matches('/').to_ascii_lowercase();
-    for preset in PROVIDER_PRESETS {
-        if preset.base_url.is_empty() {
-            continue;
-        }
-        if normalized != preset.base_url.trim_end_matches('/').to_ascii_lowercase() {
-            continue;
-        }
-        if preset.auth_type == auth_type {
-            return preset.name;
-        }
-    }
-    "Custom"
-}
+// Provider detection (`detect_provider_with_auth`) and the preset table live
+// in `kaku-gui/src/ai_client.rs` next to the only consumer. There used to be
+// a `#[allow(dead_code)]` second copy here that was never wired into the kaku
+// binary; it just bit-rotted out of sync with the GUI one. Adding a new
+// provider preset is now a one-file edit in `ai_client.rs`.
 
 /// Returns the path to the assistant.toml configuration file.
 ///
@@ -377,37 +309,9 @@ fn top_level_toml_has_key(content: &str, key: &str) -> bool {
 mod tests {
     use super::*;
 
-    #[test]
-    fn detect_provider_returns_custom_for_openai_url() {
-        assert_eq!(detect_provider("https://api.openai.com/v1"), "Custom");
-        assert_eq!(detect_provider("https://api.openai.com/v1/"), "Custom");
-    }
-
-    #[test]
-    fn detect_provider_returns_custom_for_unknown_urls() {
-        assert_eq!(detect_provider("https://my-proxy.example.com/v1"), "Custom");
-        assert_eq!(detect_provider(""), "Custom");
-    }
-
-    #[test]
-    fn detect_provider_with_auth_distinguishes_codex() {
-        assert_eq!(
-            detect_provider_with_auth("https://api.openai.com/v1", "codex"),
-            "Codex"
-        );
-        assert_eq!(
-            detect_provider_with_auth("https://api.openai.com/v1", "api_key"),
-            "Custom"
-        );
-        assert_eq!(
-            detect_provider_with_auth("https://api.githubcopilot.com", "copilot"),
-            "Copilot"
-        );
-        assert_eq!(
-            detect_provider_with_auth("https://generativelanguage.googleapis.com", "gemini_key"),
-            "Gemini"
-        );
-    }
+    // detect_provider* tests live in `kaku-gui/src/ai_client.rs` next to the
+    // single canonical implementation. The previously duplicated tests here
+    // were exercising dead code in this binary.
 
     #[test]
     fn top_level_key_check_ignores_table_keys() {

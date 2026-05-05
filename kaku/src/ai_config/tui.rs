@@ -1,3 +1,34 @@
+//! Interactive TUI for `kaku ai`.
+//!
+//! # Layout (current)
+//!
+//! Today this is one ~5.6k-line file because the V0.10.0 work concentrated
+//! on shipping correct behavior for every provider rather than landing a
+//! refactor. The natural split (planned for V0.11) is per-provider adapter
+//! modules. The trait skeleton in [`provider_adapter`] anchors that split:
+//! it is intentionally minimal so existing code keeps working unchanged
+//! while future PRs can move one provider at a time behind the trait.
+//!
+//! ```text
+//! ai_config/
+//!   tui.rs              // event loop + screen state (still here)
+//!   tui/ui.rs           // already its own file (rendering)
+//!   providers/
+//!     mod.rs            // pub use of each adapter
+//!     kaku_assistant.rs // implements ProviderAdapter
+//!     claude.rs
+//!     codex.rs
+//!     copilot.rs
+//!     kimi.rs
+//!     antigravity.rs
+//!     gemini_cli.rs     // external Gemini CLI status (NOT the removed API)
+//!     droid.rs
+//! ```
+//!
+//! When extracting an adapter, leave the existing inline code in place and
+//! delegate to the new module — keeping the `Tool` enum match arms thin lets
+//! the migration land in reviewable chunks.
+
 use crate::assistant_config;
 use crate::utils::{is_jsonc_path, open_path_in_editor, parse_json_or_jsonc, write_atomic};
 use anyhow::Context;
@@ -23,6 +54,40 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 mod ui;
+
+/// Trait skeleton for the planned per-provider split. Empty body until V0.11
+/// — extracting an adapter is then "make `XYZ` implement `ProviderAdapter`,
+/// move its match arms behind dynamic dispatch, delete the inline code".
+///
+/// Kept here (not in a separate file) so adding a new provider doesn't have
+/// to bounce between two files; once two providers have moved, promote this
+/// to `ai_config/provider_adapter.rs` and shed the doc comment above.
+#[allow(dead_code)]
+pub(crate) mod provider_adapter {
+    use super::Tool;
+    use std::path::PathBuf;
+
+    /// Common surface every provider already implements ad hoc on `Tool`
+    /// and around the dispatcher. Capturing it as a trait makes the future
+    /// per-provider modules pluggable without changing the call sites.
+    pub(super) trait ProviderAdapter {
+        /// `Tool` variant this adapter answers to.
+        fn tool(&self) -> Tool;
+
+        /// Human-readable name shown in the picker (e.g. "Kaku Assistant").
+        fn label(&self) -> &'static str;
+
+        /// On-disk config path the adapter reads / writes.
+        fn config_path(&self) -> PathBuf;
+
+        // The methods below are intentionally **not** declared yet. Each
+        // future PR that extracts a provider adds its own slice (loader,
+        // refresher, OAuth flow, usage probe, …) and lifts the
+        // corresponding match arm out of the inline code in `tui.rs`.
+        // Adding them prematurely would force every existing inline
+        // implementation to migrate at once.
+    }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tool {
@@ -120,8 +185,6 @@ const ASSISTANT_MODEL_FALLBACKS: &[&str] = &[
     "o4-mini",
     "claude-sonnet-4-6",
     "claude-opus-4-6",
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
 ];
 const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const UI_STATUS_TTL: Duration = Duration::from_secs(3);
@@ -2643,13 +2706,19 @@ struct KakuAssistantConfig {
     model: String,
     /// Base URL for the API endpoint (never empty, falls back to default)
     base_url: String,
-    /// Auth mechanism: "api_key", "copilot", "codex", or "gemini_key". Stored as opaque
+    /// Auth mechanism: "api_key", "copilot", or "codex". Stored as opaque
     /// round-trip value; TUI does not branch on this.
     auth_type: String,
     /// Optional extra request headers as `Name: Value`
     custom_headers: Vec<String>,
     /// Optional fast model for the chat overlay (empty = not set).
     fast_model: String,
+    /// Chat overlay model. Round-tripped through the TUI even though it is not
+    /// editable here; clearing it would silently push GUI users back onto `model`.
+    chat_model: String,
+    /// Optional curated chat-overlay model list. Round-tripped through the TUI
+    /// to avoid losing user choices made via direct edits or the GUI.
+    chat_model_choices: Vec<String>,
     /// Web search backend: "none" (disabled), "brave", "pipellm", or "tavily".
     web_search_provider: String,
     /// API key for the web search provider (empty = not configured).
@@ -2689,6 +2758,8 @@ impl KakuAssistantConfig {
             auth_type: "api_key".to_string(),
             custom_headers: vec![],
             fast_model: String::new(),
+            chat_model: String::new(),
+            chat_model_choices: Vec::new(),
             web_search_provider: "none".to_string(),
             web_search_api_key: String::new(),
         }
@@ -2749,6 +2820,25 @@ impl KakuAssistantConfig {
     fn custom_headers(&self) -> &[String] {
         &self.custom_headers
     }
+
+    fn chat_model(&self) -> &str {
+        &self.chat_model
+    }
+
+    fn chat_model_choices(&self) -> &[String] {
+        &self.chat_model_choices
+    }
+
+    /// Carry over the chat-overlay model fields from another config.
+    ///
+    /// The TUI does not edit `chat_model` / `chat_model_choices`; without this
+    /// passthrough, every save would silently drop them and force GUI users
+    /// back onto the inline `model`.
+    fn with_chat_model_passthrough(mut self, src: &KakuAssistantConfig) -> Self {
+        self.chat_model = src.chat_model.clone();
+        self.chat_model_choices = src.chat_model_choices.clone();
+        self
+    }
 }
 
 impl Default for KakuAssistantConfig {
@@ -2803,11 +2893,30 @@ fn parse_kaku_assistant_config(raw: &str) -> KakuAssistantConfig {
         .unwrap_or("")
         .to_string();
 
+    let chat_model = parsed
+        .get("chat_model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let chat_model_choices = parsed
+        .get("chat_model_choices")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .filter(|s| !s.trim().is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
     let mut cfg = KakuAssistantConfig::new(enabled, api_key, model, base_url)
         .with_custom_headers(custom_headers)
         .with_fast_model(fast_model)
         .with_web_search(web_search_provider, web_search_api_key);
     cfg.auth_type = stored_auth_type.to_string();
+    cfg.chat_model = chat_model;
+    cfg.chat_model_choices = chat_model_choices;
     cfg
 }
 
@@ -3112,6 +3221,23 @@ fn write_kaku_assistant_config(path: &Path, cfg: &KakuAssistantConfig) -> anyhow
         "model = {}\n",
         render_toml_string(cfg.model().trim())
     ));
+    // Round-trip chat_model and chat_model_choices so the GUI overlay's
+    // configuration is preserved even though this TUI does not edit them.
+    if !cfg.chat_model().trim().is_empty() {
+        out.push_str(&format!(
+            "chat_model = {}\n",
+            render_toml_string(cfg.chat_model().trim())
+        ));
+    }
+    if !cfg.chat_model_choices().is_empty() {
+        let arr = toml::Value::Array(
+            cfg.chat_model_choices()
+                .iter()
+                .map(|item| toml::Value::String(item.clone()))
+                .collect(),
+        );
+        out.push_str(&format!("chat_model_choices = {}\n", arr));
+    }
     if !cfg.fast_model().trim().is_empty() {
         out.push_str(&format!(
             "fast_model = {}\n",
@@ -3196,7 +3322,8 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
     let cfg = parse_kaku_assistant_config(&raw);
 
     // Build updated config based on which field changed.
-    // Every arm must round-trip ALL fields to avoid losing values not in the changed arm.
+    // Every arm must round-trip ALL fields to avoid losing values not in the changed arm,
+    // including chat_model / chat_model_choices (via with_chat_model_passthrough).
     // auth_type is copied after the match to preserve round-trip for power-user hand-edited toml.
     let mut updated = match field_key {
         "Enabled" => {
@@ -3205,6 +3332,7 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
                 .with_custom_headers(cfg.custom_headers().to_vec())
                 .with_fast_model(cfg.fast_model())
                 .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key())
+                .with_chat_model_passthrough(&cfg)
         }
         "Model" => {
             let model = if new_val.trim().is_empty() || new_val == "-" {
@@ -3216,6 +3344,7 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
                 .with_custom_headers(cfg.custom_headers().to_vec())
                 .with_fast_model(cfg.fast_model())
                 .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key())
+                .with_chat_model_passthrough(&cfg)
         }
         "Fast Model" => {
             let fm = if new_val.trim().is_empty() || new_val == "-" {
@@ -3227,6 +3356,7 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
                 .with_custom_headers(cfg.custom_headers().to_vec())
                 .with_fast_model(fm)
                 .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key())
+                .with_chat_model_passthrough(&cfg)
         }
         "Base URL" => {
             let base_url = if new_val.trim().is_empty() || new_val == "-" {
@@ -3238,6 +3368,7 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
                 .with_custom_headers(cfg.custom_headers().to_vec())
                 .with_fast_model(cfg.fast_model())
                 .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key())
+                .with_chat_model_passthrough(&cfg)
         }
         "API Key" => KakuAssistantConfig::new(
             cfg.is_enabled(),
@@ -3247,7 +3378,8 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
         )
         .with_custom_headers(cfg.custom_headers().to_vec())
         .with_fast_model(cfg.fast_model())
-        .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key()),
+        .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key())
+        .with_chat_model_passthrough(&cfg),
         "Web Search" => {
             const VALID: &[&str] = &["none", "brave", "pipellm", "tavily"];
             let provider = if VALID.contains(&new_val.trim()) {
@@ -3265,16 +3397,24 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
                 .with_custom_headers(cfg.custom_headers().to_vec())
                 .with_fast_model(cfg.fast_model())
                 .with_web_search(provider, key)
+                .with_chat_model_passthrough(&cfg)
         }
         "Search Key" => {
             KakuAssistantConfig::new(cfg.is_enabled(), cfg.api_key(), cfg.model(), cfg.base_url())
                 .with_custom_headers(cfg.custom_headers().to_vec())
                 .with_fast_model(cfg.fast_model())
                 .with_web_search(cfg.web_search_provider(), new_val.trim())
+                .with_chat_model_passthrough(&cfg)
         }
         _ => return Ok(()),
     };
-    updated.auth_type = cfg.auth_type().to_string();
+    // Migrate legacy "gemini_key" to "api_key" so users who had Gemini
+    // configured can escape the broken state through the TUI.
+    updated.auth_type = if cfg.auth_type() == "gemini_key" {
+        "api_key".to_string()
+    } else {
+        cfg.auth_type().to_string()
+    };
 
     write_kaku_assistant_config(&path, &updated)
 }
@@ -6705,6 +6845,60 @@ provider = "managed:kimi-code"
         let saved = std::fs::read_to_string(&path).expect("read saved");
         assert!(saved.contains("model = \"my-model\""));
         assert!(saved.contains("base_url = \"https://my-proxy.example.com/v1\""));
+    }
+
+    #[test]
+    fn kaku_assistant_save_preserves_chat_model_keys() {
+        // Regression: saving any field through the TUI must not drop chat_model
+        // or chat_model_choices, which the GUI overlay relies on.
+        let raw = "enabled = true\nmodel = \"gpt-5.4-mini\"\nchat_model = \"gpt-5.4\"\nchat_model_choices = [\"gpt-5.4\", \"claude-sonnet-4-6\"]\nbase_url = \"https://api.openai.com/v1\"\n";
+        let cfg = parse_kaku_assistant_config(raw);
+        assert_eq!(cfg.chat_model(), "gpt-5.4");
+        assert_eq!(cfg.chat_model_choices(), &["gpt-5.4", "claude-sonnet-4-6"]);
+
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("assistant.toml");
+        write_kaku_assistant_config(&path, &cfg).expect("write config");
+        let saved = std::fs::read_to_string(&path).expect("read saved");
+        assert!(
+            saved.contains("chat_model = \"gpt-5.4\""),
+            "chat_model must round-trip but was missing: {}",
+            saved
+        );
+        assert!(
+            saved.contains("chat_model_choices = [\"gpt-5.4\", \"claude-sonnet-4-6\"]"),
+            "chat_model_choices must round-trip but was missing: {}",
+            saved
+        );
+
+        // Re-parse and confirm full round trip.
+        let cfg2 = parse_kaku_assistant_config(&saved);
+        assert_eq!(cfg2.chat_model(), "gpt-5.4");
+        assert_eq!(cfg2.chat_model_choices(), &["gpt-5.4", "claude-sonnet-4-6"]);
+    }
+
+    #[test]
+    fn kaku_assistant_save_omits_chat_model_when_unset() {
+        // When the user has no chat_model, neither key should appear in the
+        // file (keeps the default template clean).
+        let raw =
+            "enabled = true\nmodel = \"gpt-5.4-mini\"\nbase_url = \"https://api.openai.com/v1\"\n";
+        let cfg = parse_kaku_assistant_config(raw);
+        assert!(cfg.chat_model().is_empty());
+        assert!(cfg.chat_model_choices().is_empty());
+
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("assistant.toml");
+        write_kaku_assistant_config(&path, &cfg).expect("write config");
+        let saved = std::fs::read_to_string(&path).expect("read saved");
+        assert!(
+            !saved.lines().any(|l| {
+                let head = l.split('#').next().unwrap_or("").trim_start();
+                head.starts_with("chat_model =") || head.starts_with("chat_model_choices =")
+            }),
+            "chat_model keys must stay absent when unset: {}",
+            saved
+        );
     }
 
     #[test]
