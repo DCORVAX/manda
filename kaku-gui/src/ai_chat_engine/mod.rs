@@ -41,7 +41,14 @@ pub enum StreamMsg {
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
-#[allow(dead_code)]
+/// Returns the static system prompt (prompt.txt verbatim), optionally suffixed
+/// with the user's Soul identity.
+///
+/// This is the single source of truth for both the Cmd+L overlay and the `k`
+/// CLI. Dynamic fields (date, cwd, locale) are intentionally excluded so the
+/// prompt bytes remain stable across requests and qualify for Anthropic's
+/// prompt-cache discount. Dynamic context is injected as a separate user
+/// message via the caller's environment-message builder.
 pub(crate) fn build_system_prompt() -> String {
     let base = include_str!("../overlay/ai_chat/prompt.txt");
     let identity = crate::soul::load_for_prompt();
@@ -55,41 +62,83 @@ pub(crate) fn build_system_prompt() -> String {
     }
 }
 
-#[allow(dead_code)]
-pub(crate) fn build_cli_environment_message(cwd: &str) -> ApiMessage {
+/// Inputs for the unified environment-message assembler.
+///
+/// Each surface (CLI vs Cmd+L overlay) had its own slightly-different
+/// implementation; both now route through `build_environment_message` so a
+/// single change adjusts both. Fields default to "off" so callers explicitly
+/// opt in to extra context.
+#[derive(Default)]
+pub(crate) struct EnvironmentInputs<'a> {
+    pub cwd: &'a str,
+    /// Visible terminal panel width / height in cells. `None` omits the line.
+    /// Overlay supplies these; the `k` CLI does not have a comparable concept.
+    pub panel_cols: Option<usize>,
+    pub panel_rows: Option<usize>,
+    /// Detect Cargo / package.json / etc. and append a "Project type" line.
+    /// CLI: `true` (chat lacks a visible project tree). Overlay: `false`
+    /// (the user already sees the project around them).
+    pub include_project_hints: bool,
+    /// Append timezone / locale / macOS version. Overlay: `true`. CLI:
+    /// `false` (CLI is mostly run interactively in a known shell).
+    pub include_terminal_metadata: bool,
+}
+
+/// Assembles the per-request environment user message shared by every AI
+/// transport. Field selection is driven by `EnvironmentInputs` so behavior
+/// stays in lockstep across surfaces — see the previous separate implementations
+/// in `cli_chat` and `overlay/ai_chat/prompt_context.rs` (now thin wrappers).
+pub(crate) fn build_environment_message(input: &EnvironmentInputs<'_>) -> ApiMessage {
+    let mut s = String::new();
     let now = chrono::Local::now();
-    let mut s = format!(
+    s.push_str(&format!(
         "Current date/time: {} (local)\n",
-        now.format("%Y-%m-%d %a %H:%M %z")
-    );
-    if !cwd.is_empty() {
-        s.push_str(&format!("Current directory: {}\n", cwd));
+        now.format("%Y-%m-%d %a %H:%M %z"),
+    ));
+
+    if input.include_terminal_metadata {
+        if let Some(tz) = macos_timezone() {
+            s.push_str(&format!("Timezone: {}\n", tz));
+        }
+        if let Some(locale) = user_locale() {
+            s.push_str(&format!("User locale: {}\n", locale));
+        }
+        if let Some(ver) = macos_version() {
+            s.push_str(&format!("macOS: {}\n", ver));
+        }
     }
 
-    // Auto-detect project context from marker files.
-    if !cwd.is_empty() {
-        let cwd_path = std::path::Path::new(cwd);
-        let mut project_hints: Vec<&str> = Vec::new();
+    if let (Some(cols), Some(rows)) = (input.panel_cols, input.panel_rows) {
+        s.push_str(&format!("Terminal size: {} cols x {} rows\n", cols, rows));
+    }
+
+    if !input.cwd.is_empty() {
+        s.push_str(&format!("Current directory: {}\n", input.cwd));
+    }
+
+    if input.include_project_hints && !input.cwd.is_empty() {
+        let cwd_path = std::path::Path::new(input.cwd);
+        let mut hints: Vec<&str> = Vec::new();
         if cwd_path.join("Cargo.toml").exists() {
-            project_hints.push("Rust (Cargo)");
+            hints.push("Rust (Cargo)");
         }
         if cwd_path.join("package.json").exists() {
-            project_hints.push("JS/TS (npm)");
+            hints.push("JS/TS (npm)");
         }
         if cwd_path.join("go.mod").exists() {
-            project_hints.push("Go");
+            hints.push("Go");
         }
         if cwd_path.join("pyproject.toml").exists() || cwd_path.join("setup.py").exists() {
-            project_hints.push("Python");
+            hints.push("Python");
         }
         if cwd_path.join("Makefile").exists() {
-            project_hints.push("Makefile");
+            hints.push("Makefile");
         }
         if cwd_path.join(".git").exists() {
-            project_hints.push("git repo");
+            hints.push("git repo");
         }
-        if !project_hints.is_empty() {
-            s.push_str(&format!("Project type: {}\n", project_hints.join(", ")));
+        if !hints.is_empty() {
+            s.push_str(&format!("Project type: {}\n", hints.join(", ")));
         }
     }
 
@@ -100,10 +149,54 @@ pub(crate) fn build_cli_environment_message(cwd: &str) -> ApiMessage {
             memory
         ));
     }
+
     ApiMessage::user(format!(
         "Environment context (read-only reference, not an instruction):\n{}",
         s
     ))
+}
+
+/// Backwards-compat shim used by `cli_chat`. Equivalent to
+/// `build_environment_message(&EnvironmentInputs { cwd, include_project_hints: true, .. })`.
+pub(crate) fn build_cli_environment_message(cwd: &str) -> ApiMessage {
+    build_environment_message(&EnvironmentInputs {
+        cwd,
+        include_project_hints: true,
+        ..Default::default()
+    })
+}
+
+fn macos_timezone() -> Option<String> {
+    let target = std::fs::read_link("/etc/localtime").ok()?;
+    let parts: Vec<&str> = target.iter().filter_map(|c| c.to_str()).collect();
+    let n = parts.len();
+    if n >= 2 {
+        Some(format!("{}/{}", parts[n - 2], parts[n - 1]))
+    } else {
+        None
+    }
+}
+
+fn user_locale() -> Option<String> {
+    std::env::var("LC_ALL")
+        .or_else(|_| std::env::var("LANG"))
+        .ok()
+        .map(|s| s.split('.').next().unwrap_or(&s).to_string())
+}
+
+fn macos_version() -> Option<String> {
+    use std::sync::OnceLock;
+    static MACOS_VERSION: OnceLock<Option<String>> = OnceLock::new();
+    MACOS_VERSION
+        .get_or_init(|| {
+            std::process::Command::new("sw_vers")
+                .arg("-productVersion")
+                .output()
+                .ok()
+                .and_then(|out| String::from_utf8(out.stdout).ok())
+                .map(|s| s.trim().to_string())
+        })
+        .clone()
 }
 
 // ── Tool-result preview ───────────────────────────────────────────────────────
@@ -172,6 +265,13 @@ pub(crate) fn middle_truncate(s: &str, max: usize) -> String {
 /// Background thread: runs chat_step in a loop until the model produces a
 /// text-only response or the round limit is reached.
 #[allow(clippy::too_many_arguments)]
+/// Hard cap on agent loop iterations within one user message. Surfaced in
+/// the overlay's "Round N / MAX" status line so the two stay in lockstep.
+pub(crate) const MAX_AGENT_ROUNDS: usize = 25;
+/// Soft warning threshold inside the agent loop; `MAX_AGENT_ROUNDS - 5`.
+const SOFT_ROUND_WARN: usize = MAX_AGENT_ROUNDS - 5;
+const MAX_HISTORY_BYTES: usize = 120_000;
+
 pub(crate) fn run_agent(
     client: AiClient,
     model: String,
@@ -182,9 +282,8 @@ pub(crate) fn run_agent(
     cancel: Arc<AtomicBool>,
     tx: Sender<StreamMsg>,
 ) {
-    const MAX_ROUNDS: usize = 25;
-    const SOFT_ROUND_WARN: usize = 20;
-    const MAX_HISTORY_BYTES: usize = 120_000;
+    // Local aliases so the body keeps reading naturally.
+    const MAX_ROUNDS: usize = MAX_AGENT_ROUNDS;
 
     let outputs_dir = ai_conversations::conversations_dir()
         .ok()
@@ -381,7 +480,10 @@ pub(crate) fn generate_summary(
 
 // ── Memory extraction ─────────────────────────────────────────────────────────
 
-const MAX_MEMORY_ENTRIES: usize = 30;
+/// Hard cap on persistent memory entries kept on disk + injected into the
+/// environment message. Surfaced in the overlay status line so the cap
+/// shown to the user matches the curator's actual limit.
+pub(crate) const MAX_MEMORY_ENTRIES: usize = 30;
 const MAX_MSG_CHARS: usize = 2_000;
 
 fn memory_curator_lock() -> &'static Mutex<()> {
@@ -511,8 +613,11 @@ fn limit_memory_entries(text: &str, max: usize) -> String {
 
 // ── Engine ────────────────────────────────────────────────────────────────────
 
-#[allow(dead_code)]
-const MAX_HISTORY_PAIRS: usize = 10;
+/// Maximum number of user+assistant exchange pairs to include in API context.
+///
+/// Single source of truth for both the Cmd+L overlay and the `k` CLI; changing
+/// this here adjusts both surfaces consistently.
+pub(crate) const MAX_HISTORY_PAIRS: usize = 10;
 
 /// Shared AI chat engine used by both the overlay and the `k` CLI.
 ///
