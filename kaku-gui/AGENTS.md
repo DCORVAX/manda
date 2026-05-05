@@ -22,7 +22,7 @@
 - `src/overlay/`: launcher and overlays
 - `src/overlay/ai_chat/`: AI chat overlay, markdown rendering, syntax highlighting, and Waza integration
 - `src/ai_chat_engine/`: AI chat engine, approval, and compaction flow
-- `src/ai_client.rs`, `src/ai_gemini.rs`, `src/ai_remote.rs`, `src/ai_tools.rs`: provider and tool integration
+- `src/ai_client.rs`, `src/ai_remote.rs`, `src/ai_tools/`: provider and tool integration. `ai_tools/` is fully split into submodules: `paths.rs` (sandbox + sensitive-path guards), `fs.rs` (read/list/write/patch/mkdir/delete), `shell.rs` (exec + bg + poll), `web.rs` (search + fetch + read_url), `search.rs` (grep + symbol), `project.rs` (project_summary + file_tree), `soul.rs` (memory_read + soul_read), `registry.rs` (`ToolDef`, `all_tools`, `to_api_schema`). Keep tool-name strings stable so persisted conversations replay correctly.
 - `src/cli_chat/`: command-line chat flow
 - `src/thread_util.rs`: macOS worker thread lifetime helpers
 - `src/tabbar.rs`: tab bar behavior
