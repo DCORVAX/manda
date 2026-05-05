@@ -230,8 +230,22 @@ fn write_snapshot(snapshot: &SavedWindowSnapshot) -> anyhow::Result<()> {
     }
 
     let encoded = serde_json::to_string_pretty(snapshot).context("encode window snapshot")?;
-    std::fs::write(&file_name, format!("{encoded}\n"))
-        .with_context(|| format!("write {}", file_name.display()))?;
+    // Atomic write: a crash mid-write would otherwise leave a truncated JSON
+    // file that fails to parse on the next launch. Write to a sibling temp
+    // file and rename on top, which is atomic on POSIX.
+    let tmp = file_name.with_file_name(format!(
+        "{}.{}.{}.tmp",
+        file_name.file_stem().unwrap_or_default().to_string_lossy(),
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::write(&tmp, format!("{encoded}\n"))
+        .with_context(|| format!("write {}", tmp.display()))?;
+    std::fs::rename(&tmp, &file_name)
+        .with_context(|| format!("rename {} -> {}", tmp.display(), file_name.display()))?;
     Ok(())
 }
 
@@ -281,26 +295,53 @@ pub fn request_save_window_snapshot(window_id: MuxWindowId) {
     .detach();
 }
 
-fn load_snapshot() -> anyhow::Result<SavedWindowSnapshot> {
+/// Reads the on-disk snapshot.
+///
+/// Returns `Ok(None)` when there is nothing usable to restore (no file, an
+/// older/newer version we don't recognize, a corrupt JSON, or an empty tab
+/// list). The menu treats this as a soft "nothing to restore" instead of
+/// surfacing a noisy error toast — version bumps would otherwise greet every
+/// upgrading user with a failure.
+///
+/// `Err` is reserved for unexpected I/O errors that the user should know
+/// about (e.g. permission denied).
+fn load_snapshot() -> anyhow::Result<Option<SavedWindowSnapshot>> {
     let file_name = snapshot_file();
-    let contents = std::fs::read_to_string(&file_name)
-        .with_context(|| format!("read {}", file_name.display()))?;
-    let snapshot: SavedWindowSnapshot = serde_json::from_str(&contents)
-        .with_context(|| format!("parse {}", file_name.display()))?;
+    let contents = match std::fs::read_to_string(&file_name) {
+        Ok(s) => s,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => {
+            return Err(anyhow::Error::new(err).context(format!("read {}", file_name.display())));
+        }
+    };
+
+    let snapshot: SavedWindowSnapshot = match serde_json::from_str(&contents) {
+        Ok(s) => s,
+        Err(err) => {
+            log::warn!(
+                "ignoring corrupt window snapshot at {}: {err}",
+                file_name.display()
+            );
+            return Ok(None);
+        }
+    };
 
     if snapshot.version != SNAPSHOT_VERSION {
-        anyhow::bail!(
-            "unsupported window snapshot version {} in {}",
+        log::warn!(
+            "ignoring window snapshot at {} with unsupported version {} (expected {})",
+            file_name.display(),
             snapshot.version,
-            file_name.display()
+            SNAPSHOT_VERSION
         );
+        return Ok(None);
     }
 
     if snapshot.tabs.is_empty() {
-        anyhow::bail!("snapshot {} does not contain any tabs", file_name.display());
+        log::debug!("snapshot {} has no tabs", file_name.display());
+        return Ok(None);
     }
 
-    Ok(snapshot)
+    Ok(Some(snapshot))
 }
 
 async fn spawn_panes_for_tab(
@@ -423,14 +464,28 @@ async fn restore_snapshot(snapshot: SavedWindowSnapshot) -> anyhow::Result<()> {
 pub fn restore_previous_window_from_menu() {
     spawn(async move {
         let result = async {
-            let snapshot = load_snapshot()?;
-            restore_snapshot(snapshot).await
+            match load_snapshot()? {
+                Some(snapshot) => {
+                    restore_snapshot(snapshot).await?;
+                    Ok::<bool, anyhow::Error>(true)
+                }
+                None => Ok(false),
+            }
         }
         .await;
 
-        if let Err(err) = result {
-            log::warn!("failed to restore previous window: {err:#}");
-            persistent_toast_notification("Restore Previous Window", &format!("{err:#}"));
+        match result {
+            Ok(true) => {}
+            Ok(false) => {
+                persistent_toast_notification(
+                    "Restore Previous Window",
+                    "No previous window snapshot is available to restore.",
+                );
+            }
+            Err(err) => {
+                log::warn!("failed to restore previous window: {err:#}");
+                persistent_toast_notification("Restore Previous Window", &format!("{err:#}"));
+            }
         }
     })
     .detach();
