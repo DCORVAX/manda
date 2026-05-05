@@ -259,7 +259,7 @@ fn parse_color_scheme_selection_line(line: &str) -> Option<ColorSchemeSelection>
     {
         return Some(ColorSchemeSelection::Dark);
     }
-    if rhs.contains("get_appearance") {
+    if rhs.contains("get_appearance") || rhs.contains("resolve_kaku_color_scheme") {
         return Some(ColorSchemeSelection::Auto);
     }
     Some(ColorSchemeSelection::Other)
@@ -464,6 +464,15 @@ mod tests {
         assert_eq!(
             parse_color_scheme_selection_line(
                 "config.color_scheme = (wezterm.gui and wezterm.gui.get_appearance() or 'Dark'):find('Dark') and 'Kaku Dark' or 'Kaku Light'"
+            ),
+            Some(ColorSchemeSelection::Auto)
+        );
+        // The bundled kaku.lua uses resolve_kaku_color_scheme which
+        // internally delegates to get_appearance. The Rust-side detection
+        // must recognize this wrapper as Auto too.
+        assert_eq!(
+            parse_color_scheme_selection_line(
+                "config.color_scheme = resolve_kaku_color_scheme(config.color_scheme)"
             ),
             Some(ColorSchemeSelection::Auto)
         );

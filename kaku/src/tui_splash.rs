@@ -1,3 +1,10 @@
+//! Centered splash frame used for transient in-session feedback such as the
+//! `Saving...` / `Saved` flash in the config TUI. The on-entry "Loading..."
+//! splash was intentionally removed because it produced a visible flash of
+//! centered text that the real TUI overwrote within ~100 ms; entry-time
+//! waits now happen against the user's existing shell instead of the
+//! alternate screen.
+
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::Style;
 use ratatui::text::Line;
@@ -22,9 +29,4 @@ pub fn render_splash_with_spinner(frame: &mut ratatui::Frame, message: &str, spi
     let para = Paragraph::new(Line::from(text).style(Style::default().fg(muted())))
         .alignment(Alignment::Center);
     frame.render_widget(para, chunks[1]);
-}
-
-/// Render a centered splash frame. Call via `terminal.draw(|f| render_splash(f, "Loading..."))`.
-pub fn render_splash(frame: &mut ratatui::Frame, message: &str) {
-    render_splash_with_spinner(frame, message, '●');
 }

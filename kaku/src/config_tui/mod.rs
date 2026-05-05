@@ -34,6 +34,16 @@ pub fn run(
     config_override: Vec<(String, String)>,
     skip_config: bool,
 ) -> anyhow::Result<()> {
+    // Load config and build app state *before* entering the alternate screen
+    // so the user is not greeted by a flash of "Loading..." that the real
+    // TUI overwrites <100 ms later. On cold cache they keep seeing their
+    // shell until paint is ready, which feels smoother.
+    if let Err(e) = config::common_init(config_file.as_ref(), &config_override, skip_config) {
+        log::error!("config init failed: {:#}", e);
+    }
+    let mut app = App::new(config_path);
+    app.load_config();
+
     enable_raw_mode().context("enable raw mode")?;
     let mut stdout = io::stdout();
     stdout
@@ -41,17 +51,6 @@ pub fn run(
         .context("enter alternate screen")?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).context("create terminal")?;
-
-    terminal
-        .draw(|f| crate::tui_splash::render_splash(f, "Loading..."))
-        .ok();
-
-    if let Err(e) = config::common_init(config_file.as_ref(), &config_override, skip_config) {
-        log::error!("config init failed: {:#}", e);
-    }
-
-    let mut app = App::new(config_path);
-    app.load_config();
 
     let result = run_app(&mut terminal, &mut app);
     let saved = app.has_saved;
@@ -1106,17 +1105,21 @@ impl App {
             if field.skip_write {
                 continue;
             }
-            let is_default = field.value.is_empty() || field.value == field.default;
-            // Keep tab bar position explicit so switching back to Bottom
-            // does not depend on removing a line and inheriting bundled defaults.
-            let always_write = field.lua_key == "tab_bar_at_bottom";
-            if is_default && !always_write {
-                // Remove the config line if it exists
-                content = self.remove_lua_config(&content, field.lua_key);
-            } else {
-                // Update or add the config line
-                content = self.update_lua_config(&content, field);
+            // Always write the field, even when the value matches the default.
+            // kaku.lua is a single-file config (not an overlay on bundled
+            // defaults): removing a "default-valued" line deletes it from the
+            // only source of truth, which silently breaks line_height,
+            // window_decorations, opacity, and close-confirmation settings.
+            //
+            // Skip fields whose value is still the empty init sentinel AND
+            // whose line does not already exist in the file: these were never
+            // loaded (the file didn't have the line), and writing them would
+            // produce invalid Lua (`config.xxx = `). Fields that DO exist in
+            // the file already have a non-empty value from load_config().
+            if field.value.is_empty() && !Self::has_config_line(&content, field.lua_key) {
+                continue;
             }
+            content = self.update_lua_config(&content, field);
         }
 
         // Compose window_decorations from the two pseudo-fields.
@@ -1134,13 +1137,12 @@ impl App {
                 } else {
                     true
                 };
-                if tl_on && sh_on && resize {
-                    // Default state: remove explicit override so bundled default applies.
-                    content = self.remove_lua_config(&content, "window_decorations");
-                } else {
-                    let lua_value = Self::compose_window_decorations(tl_on, sh_on, resize);
-                    content = self.set_lua_config(&content, "window_decorations", lua_value);
-                }
+                // Always write window_decorations explicitly. Removing the
+                // line when all bits match the bundled default is unsafe:
+                // kaku.lua is the single source of truth and the line may
+                // not be re-synthesized on the next load.
+                let lua_value = Self::compose_window_decorations(tl_on, sh_on, resize);
+                content = self.set_lua_config(&content, "window_decorations", lua_value);
             }
         }
 
@@ -1182,6 +1184,7 @@ impl App {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn remove_lua_config(&self, content: &str, lua_key: &str) -> String {
         let pattern = format!("config.{}", lua_key);
         let lines: Vec<&str> = content.lines().collect();
@@ -2016,20 +2019,22 @@ mod tests {
 
     #[test]
     fn window_decorations_save_all_four_combinations() {
-        let cases: &[(&str, &str, Option<&str>)] = &[
-            ("On", "On", None), // default: line removed
-            ("Off", "On", Some("config.window_decorations = 'RESIZE'")),
+        let cases: &[(&str, &str, &str)] = &[
+            (
+                "On",
+                "On",
+                "config.window_decorations = 'INTEGRATED_BUTTONS|RESIZE'",
+            ),
+            ("Off", "On", "config.window_decorations = 'RESIZE'"),
             (
                 "On",
                 "Off",
-                Some(
-                    "config.window_decorations = 'INTEGRATED_BUTTONS|RESIZE|MACOS_FORCE_DISABLE_SHADOW'",
-                ),
+                "config.window_decorations = 'INTEGRATED_BUTTONS|RESIZE|MACOS_FORCE_DISABLE_SHADOW'",
             ),
             (
                 "Off",
                 "Off",
-                Some("config.window_decorations = 'RESIZE|MACOS_FORCE_DISABLE_SHADOW'"),
+                "config.window_decorations = 'RESIZE|MACOS_FORCE_DISABLE_SHADOW'",
             ),
         ];
         for (tl_val, sh_val, expected_line) in cases {
@@ -2057,19 +2062,12 @@ mod tests {
             app.save_config().expect("save_config");
             let content = std::fs::read_to_string(&config_path).expect("read config");
 
-            match expected_line {
-                Some(line) => assert!(
-                    content.contains(line),
-                    "expected '{}' in:\n{}",
-                    line,
-                    content
-                ),
-                None => assert!(
-                    !content.contains("window_decorations"),
-                    "default should remove line, got:\n{}",
-                    content
-                ),
-            }
+            assert!(
+                content.contains(expected_line),
+                "expected '{}' in:\n{}",
+                expected_line,
+                content
+            );
         }
     }
 
@@ -2198,8 +2196,8 @@ mod tests {
         let content = std::fs::read_to_string(&config_path).expect("read config");
 
         assert!(
-            !content.contains("window_decorations"),
-            "TL=On + Shadow=On is default, line should be removed, got:\n{}",
+            content.contains("config.window_decorations = 'INTEGRATED_BUTTONS|RESIZE'"),
+            "TL=On + Shadow=On is the default state; line must be preserved explicitly, got:\n{}",
             content
         );
     }
@@ -2258,7 +2256,7 @@ mod tests {
     }
 
     #[test]
-    fn window_decorations_default_state_removes_explicit_line() {
+    fn window_decorations_default_state_preserves_explicit_line() {
         let dir = tempdir().expect("tempdir");
         let config_path = dir.path().join("kaku.lua");
         std::fs::write(
@@ -2270,12 +2268,14 @@ mod tests {
         let mut app = App::new(config_path.clone());
         app.load_config();
 
-        // Both loaded as "On" (default state). Save should remove the line.
+        // Both loaded as "On" (default state). Save must keep the line
+        // because kaku.lua is the single source of truth; removing it
+        // would silently break window_decorations on the next launch.
         app.save_config().expect("save_config");
         let content = std::fs::read_to_string(&config_path).expect("read config");
         assert!(
-            !content.contains("window_decorations"),
-            "default state should remove explicit override, got:\n{}",
+            content.contains("window_decorations"),
+            "default state must preserve the explicit line, got:\n{}",
             content
         );
     }
