@@ -7,7 +7,7 @@ use kaku_gui_lib::cli_chat::{run, CliArgs};
 #[command(
     name = "k",
     about = "AI chat from any terminal",
-    long_about = "Slash commands (interactive mode): /new  /resume [id]  /clear  /status  /memory  /exit"
+    long_about = "Slash commands (interactive mode): /new  /resume [id]  /clear  /status  /memory  /exit\n\nThe CLI intentionally supports a smaller command set than the Cmd+L overlay."
 )]
 struct Cli {
     /// One-shot query (omit for interactive mode)

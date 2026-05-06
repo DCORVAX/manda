@@ -58,7 +58,9 @@ pub fn run(args: CliArgs) -> anyhow::Result<()> {
                 .unwrap_or_default();
             let mut engine = Engine::with_conv_id(cwd.clone(), client, model, &id)?;
             let _ = ai_conversations::write_cwd_index(&cwd, &id);
-            return run_repl(&mut engine);
+            let result = run_repl(&mut engine);
+            crate::ai_tools::cleanup_spill_files();
+            return result;
         } else {
             print_recent_conversations();
             return Ok(());
@@ -80,15 +82,16 @@ pub fn run(args: CliArgs) -> anyhow::Result<()> {
     // Keep the cwd index up to date in case this is a newly created conv.
     let _ = ai_conversations::write_cwd_index(&cwd, &engine.active_id);
 
-    if let Some(prompt) = args.prompt {
+    let result = if let Some(prompt) = args.prompt {
         // One-shot mode: stream tokens to stdout (pipe-friendly).
-        run_one_shot(&mut engine, prompt)?;
+        run_one_shot(&mut engine, prompt)
     } else {
         // Interactive TUI.
-        run_repl(&mut engine)?;
-    }
+        run_repl(&mut engine)
+    };
 
-    Ok(())
+    crate::ai_tools::cleanup_spill_files();
+    result
 }
 
 // ── One-shot (pipe-friendly) ──────────────────────────────────────────────────

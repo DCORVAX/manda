@@ -637,6 +637,7 @@ pub struct Engine {
 impl Engine {
     /// Create a new engine for the given `cwd`, loading the active conversation.
     pub fn new(cwd: String, client: AiClient, model: String) -> anyhow::Result<Self> {
+        crate::soul::migrate_if_needed();
         let (active_id, messages) = ai_conversations::ensure_active()?;
         Ok(Self {
             active_id,
@@ -655,6 +656,7 @@ impl Engine {
         model: String,
         conv_id: &str,
     ) -> anyhow::Result<Self> {
+        crate::soul::migrate_if_needed();
         let messages = ai_conversations::switch_active(conv_id)?;
         Ok(Self {
             active_id: conv_id.to_string(),
