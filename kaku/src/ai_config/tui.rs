@@ -1649,12 +1649,45 @@ fn format_reset_time_from_iso(reset_at: &str) -> Option<String> {
 fn supports_remote_usage(tool: Tool) -> bool {
     matches!(
         tool,
-        Tool::ClaudeCode | Tool::Codex | Tool::Kimi | Tool::Antigravity | Tool::Copilot
+        Tool::KakuAssistant
+            | Tool::ClaudeCode
+            | Tool::Codex
+            | Tool::Kimi
+            | Tool::Antigravity
+            | Tool::Copilot
     )
 }
 
 fn load_usage_update(tool: Tool) -> UsageSummaryUpdate {
     match tool {
+        Tool::KakuAssistant => {
+            let path = match assistant_config::ensure_assistant_toml_exists() {
+                Ok(path) => path,
+                Err(err) => {
+                    return UsageSummaryUpdate {
+                        tool,
+                        summary: Some("Setup failed".into()),
+                        fields: Some(vec![FieldEntry {
+                            key: "error".into(),
+                            value: err.to_string(),
+                            options: vec![],
+                            editable: false,
+                        }]),
+                    };
+                }
+            };
+            let raw = std::fs::read_to_string(&path).unwrap_or_default();
+            let cfg = parse_kaku_assistant_config(&raw);
+            let model_options = assistant_model_options_for_config_remote(&cfg);
+            UsageSummaryUpdate {
+                tool,
+                summary: None,
+                fields: Some(extract_kaku_assistant_fields_with_model_options(
+                    &raw,
+                    model_options,
+                )),
+            }
+        }
         Tool::Antigravity => {
             let snapshot = load_antigravity_usage_snapshot();
             UsageSummaryUpdate {
@@ -2811,6 +2844,11 @@ impl KakuAssistantConfig {
         self
     }
 
+    fn with_chat_model(mut self, chat_model: impl Into<String>) -> Self {
+        self.chat_model = chat_model.into();
+        self
+    }
+
     fn with_web_search(mut self, provider: impl Into<String>, api_key: impl Into<String>) -> Self {
         self.web_search_provider = provider.into();
         self.web_search_api_key = api_key.into();
@@ -2829,13 +2867,23 @@ impl KakuAssistantConfig {
         &self.chat_model_choices
     }
 
-    /// Carry over the chat-overlay model fields from another config.
+    /// Carry over the chat-overlay model choices from another config.
     ///
-    /// The TUI does not edit `chat_model` / `chat_model_choices`; without this
-    /// passthrough, every save would silently drop them and force GUI users
-    /// back onto the inline `model`.
+    /// The TUI edits `chat_model`, but not the curated `chat_model_choices`;
+    /// without this passthrough, every save would silently drop direct edits
+    /// or GUI-curated choices.
     fn with_chat_model_passthrough(mut self, src: &KakuAssistantConfig) -> Self {
-        self.chat_model = src.chat_model.clone();
+        if self.chat_model.is_empty() {
+            self.chat_model = src.chat_model.clone();
+        }
+        self.chat_model_choices = src.chat_model_choices.clone();
+        self
+    }
+
+    /// Carry over only `chat_model_choices` from another config, leaving
+    /// `chat_model` untouched. Use this in save arms that set `chat_model`
+    /// explicitly, including clearing it to empty.
+    fn with_chat_model_choices_passthrough(mut self, src: &KakuAssistantConfig) -> Self {
         self.chat_model_choices = src.chat_model_choices.clone();
         self
     }
@@ -2980,9 +3028,9 @@ fn save_assistant_models_cache(path: &Path, base_url: &str, models: &[String]) {
 
 /// Fetch available chat models from the assistant API's `/models` endpoint.
 ///
-/// Uses a 3-second curl timeout. Results are cached to disk for 30 minutes
-/// per base URL. Returns an empty vec on any failure so the field gracefully
-/// falls back to free-text entry.
+/// Uses a 3-second curl timeout and writes successful results to disk. Callers
+/// should prefer `assistant_model_options_for_config` during TUI startup so the
+/// remote fetch happens in the background instead of blocking first paint.
 ///
 /// The API key is passed via stdin (curl --config -) to avoid exposing it in
 /// process arguments visible to ps/audit logs.
@@ -2994,10 +3042,6 @@ fn fetch_kaku_assistant_models(api_key: &str, base_url: &str) -> Vec<String> {
     }
 
     let cache_path = assistant_models_cache_path();
-
-    if let Some(cached) = load_assistant_models_cache(&cache_path, base_url) {
-        return cached;
-    }
 
     let url = format!("{}/models", base_url);
     // Pass Authorization header via --config - (stdin) to avoid argv exposure.
@@ -3068,7 +3112,6 @@ fn fetch_kaku_assistant_models(api_key: &str, base_url: &str) -> Vec<String> {
 
     models.sort();
     models.dedup();
-    models.truncate(50);
 
     if !models.is_empty() {
         save_assistant_models_cache(&cache_path, base_url, &models);
@@ -3100,11 +3143,26 @@ fn normalize_assistant_model_options(
         }
     }
 
-    ordered.truncate(50);
     ordered
 }
 
 fn assistant_model_options_for_config(cfg: &KakuAssistantConfig) -> Vec<String> {
+    let cache_path = assistant_models_cache_path();
+    let base_url = cfg.base_url().trim().trim_end_matches('/');
+    let mut models = load_assistant_models_cache(&cache_path, base_url)
+        .unwrap_or_else(|| load_assistant_models_stale_cache(&cache_path, base_url));
+
+    if models.is_empty() {
+        models = ASSISTANT_MODEL_FALLBACKS
+            .iter()
+            .map(|m| (*m).to_string())
+            .collect();
+    }
+
+    normalize_assistant_model_options(models, cfg.model(), cfg.fast_model())
+}
+
+fn assistant_model_options_for_config_remote(cfg: &KakuAssistantConfig) -> Vec<String> {
     let mut models = fetch_kaku_assistant_models(cfg.api_key(), cfg.base_url());
 
     if models.is_empty() {
@@ -3117,9 +3175,11 @@ fn assistant_model_options_for_config(cfg: &KakuAssistantConfig) -> Vec<String> 
     normalize_assistant_model_options(models, cfg.model(), cfg.fast_model())
 }
 
-fn extract_kaku_assistant_fields(raw: &str) -> Vec<FieldEntry> {
+fn extract_kaku_assistant_fields_with_model_options(
+    raw: &str,
+    model_options: Vec<String>,
+) -> Vec<FieldEntry> {
     let cfg = parse_kaku_assistant_config(raw);
-    let model_options = assistant_model_options_for_config(&cfg);
     let mut fast_model_options = model_options.clone();
     if !fast_model_options.iter().any(|m| m == "-") {
         fast_model_options.insert(0, "-".into());
@@ -3135,6 +3195,16 @@ fn extract_kaku_assistant_fields(raw: &str) -> Vec<FieldEntry> {
         FieldEntry {
             key: "Model".into(),
             value: cfg.model().to_string(),
+            options: model_options.clone(),
+            editable: true,
+        },
+        FieldEntry {
+            key: "Chat Model".into(),
+            value: if cfg.chat_model().is_empty() {
+                cfg.model().to_string()
+            } else {
+                cfg.chat_model().to_string()
+            },
             options: model_options.clone(),
             editable: true,
         },
@@ -3184,6 +3254,12 @@ fn extract_kaku_assistant_fields(raw: &str) -> Vec<FieldEntry> {
     }
 
     fields
+}
+
+fn extract_kaku_assistant_fields(raw: &str) -> Vec<FieldEntry> {
+    let cfg = parse_kaku_assistant_config(raw);
+    let model_options = assistant_model_options_for_config(&cfg);
+    extract_kaku_assistant_fields_with_model_options(raw, model_options)
 }
 
 fn render_toml_string(value: &str) -> String {
@@ -3292,6 +3368,14 @@ fn write_kaku_assistant_config(path: &Path, cfg: &KakuAssistantConfig) -> anyhow
 
 fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<()> {
     let path = assistant_config::ensure_assistant_toml_exists()?;
+    save_kaku_assistant_field_to_path(&path, field_key, new_val)
+}
+
+fn save_kaku_assistant_field_to_path(
+    path: &Path,
+    field_key: &str,
+    new_val: &str,
+) -> anyhow::Result<()> {
     let raw = match std::fs::read_to_string(&path) {
         Ok(raw) => raw,
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
@@ -3323,7 +3407,7 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
 
     // Build updated config based on which field changed.
     // Every arm must round-trip ALL fields to avoid losing values not in the changed arm,
-    // including chat_model / chat_model_choices (via with_chat_model_passthrough).
+    // including chat_model_choices (via with_chat_model_passthrough).
     // auth_type is copied after the match to preserve round-trip for power-user hand-edited toml.
     let mut updated = match field_key {
         "Enabled" => {
@@ -3345,6 +3429,21 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
                 .with_fast_model(cfg.fast_model())
                 .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key())
                 .with_chat_model_passthrough(&cfg)
+        }
+        "Chat Model" => {
+            let chat_model = if new_val.trim().is_empty() || new_val == "-" {
+                ""
+            } else {
+                new_val.trim()
+            };
+            // Use choices-only passthrough: the user's explicit choice (including
+            // empty) must not be overwritten by the full passthrough's restore logic.
+            KakuAssistantConfig::new(cfg.is_enabled(), cfg.api_key(), cfg.model(), cfg.base_url())
+                .with_custom_headers(cfg.custom_headers().to_vec())
+                .with_fast_model(cfg.fast_model())
+                .with_chat_model(chat_model)
+                .with_web_search(cfg.web_search_provider(), cfg.web_search_api_key())
+                .with_chat_model_choices_passthrough(&cfg)
         }
         "Fast Model" => {
             let fm = if new_val.trim().is_empty() || new_val == "-" {
@@ -3416,7 +3515,7 @@ fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<(
         cfg.auth_type().to_string()
     };
 
-    write_kaku_assistant_config(&path, &updated)
+    write_kaku_assistant_config(path, &updated)
 }
 
 /// Get Gemini account email from google_accounts.json
@@ -4427,7 +4526,9 @@ enum AppMode {
     Selecting {
         field_idx: usize,
         options: Vec<String>,
+        filtered: Vec<usize>,
         selected: usize,
+        filter: String,
     },
 }
 
@@ -4621,13 +4722,23 @@ impl App {
         }
     }
 
-    fn selecting_view(&self) -> Option<(usize, &[String], usize)> {
+    fn selecting_view(&self) -> Option<(usize, Vec<String>, usize, String)> {
         match &self.mode {
             AppMode::Selecting {
                 field_idx,
                 options,
+                filtered,
                 selected,
-            } => Some((*field_idx, options.as_slice(), *selected)),
+                filter,
+            } => Some((
+                *field_idx,
+                filtered
+                    .iter()
+                    .filter_map(|idx| options.get(*idx).cloned())
+                    .collect(),
+                *selected,
+                filter.clone(),
+            )),
             _ => None,
         }
     }
@@ -4827,13 +4938,64 @@ impl App {
 
     fn move_select_down(&mut self) {
         if let AppMode::Selecting {
-            selected, options, ..
+            selected, filtered, ..
         } = &mut self.mode
         {
-            if *selected + 1 < options.len() {
+            if *selected + 1 < filtered.len() {
                 *selected += 1;
             }
         }
+    }
+
+    fn rebuild_select_filter(&mut self) {
+        if let AppMode::Selecting {
+            options,
+            filtered,
+            selected,
+            filter,
+            ..
+        } = &mut self.mode
+        {
+            let query = filter.trim().to_lowercase();
+            filtered.clear();
+            if query.is_empty() {
+                filtered.extend(0..options.len());
+            } else {
+                filtered.extend(
+                    options
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, option)| option.to_lowercase().contains(&query))
+                        .map(|(idx, _)| idx),
+                );
+            }
+            if filtered.is_empty() {
+                *selected = 0;
+            } else {
+                *selected = (*selected).min(filtered.len() - 1);
+            }
+        }
+    }
+
+    fn push_select_filter(&mut self, c: char) {
+        if let AppMode::Selecting { filter, .. } = &mut self.mode {
+            filter.push(c);
+        }
+        self.rebuild_select_filter();
+    }
+
+    fn pop_select_filter(&mut self) {
+        if let AppMode::Selecting { filter, .. } = &mut self.mode {
+            filter.pop();
+        }
+        self.rebuild_select_filter();
+    }
+
+    fn clear_select_filter(&mut self) {
+        if let AppMode::Selecting { filter, .. } = &mut self.mode {
+            filter.clear();
+        }
+        self.rebuild_select_filter();
     }
 
     fn start_edit(&mut self) {
@@ -4891,14 +5053,18 @@ impl App {
         }
 
         if !field.options.is_empty() {
+            let options = field.options.clone();
+            let filtered = (0..options.len()).collect();
             self.mode = AppMode::Selecting {
                 field_idx: selected_field_idx,
-                options: field.options.clone(),
+                options,
+                filtered,
                 selected: field
                     .options
                     .iter()
                     .position(|o| *o == field.value)
                     .unwrap_or(0),
+                filter: String::new(),
             };
             self.focus = Focus::Editor;
             return;
@@ -4925,16 +5091,18 @@ impl App {
         let AppMode::Selecting {
             field_idx,
             options,
+            filtered,
             selected,
+            ..
         } = std::mem::replace(&mut self.mode, AppMode::Browsing)
         else {
             return;
         };
         self.focus = Focus::ToolList;
 
-        if selected >= options.len() {
+        let Some(option_idx) = filtered.get(selected).copied() else {
             return;
-        }
+        };
 
         let Some((tool_kind, field_key, old_val)) = self.current_tool().and_then(|tool| {
             tool.fields
@@ -4944,7 +5112,9 @@ impl App {
             return;
         };
         self.field_index = self.display_index_for_field(tool_kind, field_idx);
-        let new_val = options[selected].clone();
+        let Some(new_val) = options.get(option_idx).cloned() else {
+            return;
+        };
 
         if new_val == old_val {
             return;
@@ -5606,8 +5776,23 @@ fn run_loop(
                     match key.code {
                         code if is_confirm_key(code) => app.confirm_select(),
                         KeyCode::Esc => app.cancel_select(),
-                        KeyCode::Up | KeyCode::Char('k') => app.move_select_up(),
-                        KeyCode::Down | KeyCode::Char('j') => app.move_select_down(),
+                        KeyCode::Up => app.move_select_up(),
+                        KeyCode::Down => app.move_select_down(),
+                        KeyCode::Backspace => {
+                            if key.modifiers.contains(KeyModifiers::CONTROL)
+                                || key.modifiers.contains(KeyModifiers::SUPER)
+                            {
+                                app.clear_select_filter();
+                            } else {
+                                app.pop_select_filter();
+                            }
+                        }
+                        KeyCode::Char(c)
+                            if !key.modifiers.contains(KeyModifiers::CONTROL)
+                                && !key.modifiers.contains(KeyModifiers::SUPER) =>
+                        {
+                            app.push_select_filter(c);
+                        }
                         _ => {}
                     }
                     continue;
@@ -6883,6 +7068,7 @@ provider = "managed:kimi-code"
         for key in &[
             "Enabled",
             "Model",
+            "Chat Model",
             "Fast Model",
             "Base URL",
             "API Key",
@@ -6896,6 +7082,8 @@ provider = "managed:kimi-code"
         }
         let model = fields.iter().find(|f| f.key == "Model").unwrap();
         assert_eq!(model.value, "gpt-5.4-mini");
+        let chat_model = fields.iter().find(|f| f.key == "Chat Model").unwrap();
+        assert_eq!(chat_model.value, "gpt-5.4-mini");
         let fast_model = fields.iter().find(|f| f.key == "Fast Model").unwrap();
         assert_eq!(fast_model.value, "-");
         assert!(
@@ -6925,6 +7113,25 @@ provider = "managed:kimi-code"
         assert_eq!(models.first().map(String::as_str), Some("gpt-5.5"));
         assert_eq!(models.get(1).map(String::as_str), Some("gpt-5.2"));
         assert!(models.iter().any(|m| m == "gpt-5.4-mini"));
+    }
+
+    #[test]
+    fn normalize_assistant_model_options_keeps_more_than_fifty_models() {
+        let mut remote_models: Vec<String> = (0..75)
+            .map(|idx| format!("openrouter/model-{idx:02}"))
+            .collect();
+        remote_models.push("gpt-5.5".into());
+
+        let models =
+            normalize_assistant_model_options(remote_models, "custom/current", "custom/fast");
+
+        assert_eq!(models.first().map(String::as_str), Some("custom/current"));
+        assert_eq!(models.get(1).map(String::as_str), Some("custom/fast"));
+        assert!(
+            models.len() > 50,
+            "model selector must not drop providers with large catalogs"
+        );
+        assert!(models.iter().any(|m| m == "openrouter/model-74"));
     }
 
     #[test]
@@ -6983,6 +7190,48 @@ provider = "managed:kimi-code"
         let cfg2 = parse_kaku_assistant_config(&saved);
         assert_eq!(cfg2.chat_model(), "gpt-5.4");
         assert_eq!(cfg2.chat_model_choices(), &["gpt-5.4", "claude-sonnet-4-6"]);
+    }
+
+    #[test]
+    fn kaku_assistant_chat_model_field_is_editable() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("assistant.toml");
+        std::fs::write(
+            &path,
+            "enabled = true\nmodel = \"gpt-5.4-mini\"\nchat_model = \"gpt-5.5\"\nbase_url = \"https://api.openai.com/v1\"\n",
+        )
+        .expect("write temp config");
+
+        save_kaku_assistant_field_to_path(&path, "Chat Model", "claude-sonnet-4-6")
+            .expect("save chat model");
+        let saved = std::fs::read_to_string(&path).expect("read saved");
+        assert!(saved.contains("model = \"gpt-5.4-mini\""));
+        assert!(saved.contains("chat_model = \"claude-sonnet-4-6\""));
+    }
+
+    #[test]
+    fn kaku_assistant_chat_model_clears_when_dash_selected() {
+        // Regression: picking "-" in the Chat Model selector must drop the key,
+        // not silently restore the previous value via passthrough.
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("assistant.toml");
+        std::fs::write(
+            &path,
+            "enabled = true\nmodel = \"gpt-5.4-mini\"\nchat_model = \"gpt-5.5\"\nbase_url = \"https://api.openai.com/v1\"\n",
+        )
+        .expect("write temp config");
+
+        save_kaku_assistant_field_to_path(&path, "Chat Model", "-").expect("save cleared chat model");
+        let saved = std::fs::read_to_string(&path).expect("read saved");
+        assert!(
+            !saved.lines().any(|l| {
+                let head = l.split('#').next().unwrap_or("").trim_start();
+                head.starts_with("chat_model =")
+            }),
+            "chat_model must be absent after clearing with '-': {}",
+            saved
+        );
+        assert!(saved.contains("model = \"gpt-5.4-mini\""), "model must be preserved");
     }
 
     #[test]

@@ -433,7 +433,8 @@ fn render_selector(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     let Some(tool) = app.tools.get(app.tool_index) else {
         return;
     };
-    let Some((field_idx, select_options, select_index)) = app.selecting_view() else {
+    let Some((field_idx, select_options, select_index, select_filter)) = app.selecting_view()
+    else {
         return;
     };
     if field_idx >= tool.fields.len() {
@@ -453,7 +454,7 @@ fn render_selector(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         min_popup_width,
         longest_option_width.saturating_add(6).min(max_popup_width),
     );
-    let popup_height = (option_count + 2).min(area.height.saturating_sub(4));
+    let popup_height = (option_count + 3).min(area.height.saturating_sub(4));
     let popup = Rect::new(
         (area.width.saturating_sub(popup_width)) / 2,
         (area.height.saturating_sub(popup_height)) / 2,
@@ -472,6 +473,8 @@ fn render_selector(frame: &mut ratatui::Frame, area: Rect, app: &App) {
             Span::styled(": Apply  ", Style::default().fg(muted())),
             Span::styled("Esc", Style::default().fg(primary())),
             Span::styled(": Cancel ", Style::default().fg(muted())),
+            Span::styled("Type", Style::default().fg(primary())),
+            Span::styled(": Filter ", Style::default().fg(muted())),
         ]))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(primary()))
@@ -479,6 +482,24 @@ fn render_selector(frame: &mut ratatui::Frame, area: Rect, app: &App) {
 
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
+
+    let filter_line = if select_filter.is_empty() {
+        "Filter: type to narrow large model lists".to_string()
+    } else {
+        format!("Filter: {select_filter}")
+    };
+    let filter_area = Rect::new(inner.x, inner.y, inner.width, 1);
+    frame.render_widget(
+        Paragraph::new(filter_line).style(Style::default().fg(muted()).bg(panel())),
+        filter_area,
+    );
+
+    let list_area = Rect::new(
+        inner.x,
+        inner.y.saturating_add(1),
+        inner.width,
+        inner.height.saturating_sub(1),
+    );
 
     let items: Vec<ListItem> = select_options
         .iter()
@@ -501,11 +522,19 @@ fn render_selector(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         })
         .collect();
 
+    if items.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No matches").style(Style::default().fg(muted()).bg(panel())),
+            list_area,
+        );
+        return;
+    }
+
     let mut state = ListState::default();
     state.select(Some(select_index));
 
     let list = List::new(items).highlight_style(Style::default());
-    frame.render_stateful_widget(list, inner, &mut state);
+    frame.render_stateful_widget(list, list_area, &mut state);
 }
 
 #[cfg(test)]
