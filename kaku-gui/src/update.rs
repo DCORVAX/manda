@@ -79,7 +79,7 @@ pub fn staged_update_available() -> Option<StagedUpdateInfo> {
     let now = now_unix_secs();
     if now.saturating_sub(info.staged_at) > STAGED_MAX_AGE_SECS {
         log::info!("staged update {} expired, removing", info.tag);
-        let _ = std::fs::remove_dir_all(staged_dir());
+        cleanup_staged_update();
         return None;
     }
     Some(info)
@@ -234,7 +234,7 @@ fn get_latest_tag_via_redirect(proxy: &Option<String>) -> anyhow::Result<Release
 pub fn get_nightly_release_info() -> anyhow::Result<Release> {
     let proxy = detect_system_proxy();
     curl_get_release_json(
-        "https://api.github.com/repos/wezterm/wezterm/releases/tags/nightly",
+        "https://api.github.com/repos/tw93/Kaku/releases/tags/nightly",
         &proxy,
     )
 }
