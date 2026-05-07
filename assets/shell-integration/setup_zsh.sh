@@ -1371,7 +1371,7 @@ _kaku_ai_query_accept_line() {
             _kaku_ai_waiting=1
             _kaku_ai_waiting_ts=\$EPOCHSECONDS
             # Keep # query visible; Lua sends \x15 to clear it when result arrives.
-            # Do NOT call `zle reset-prompt` here: it redraws the prompt with
+            # Do NOT call 'zle reset-prompt' here: it redraws the prompt with
             # BUFFER still set, causing the query line to appear twice.
             POSTDISPLAY=
             return
