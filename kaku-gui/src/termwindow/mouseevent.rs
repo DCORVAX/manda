@@ -499,12 +499,16 @@ impl super::TermWindow {
                 self.current_mouse_buttons.push(*press);
 
                 if press == &MousePress::Left
-                    && first_line_offset > 0
-                    && (event.coords.y as usize) < first_line_offset as usize
+                    && terminal_origin_y > 0
+                    && (event.coords.y as isize) < terminal_origin_y
                 {
-                    // A left press in the title/tab strip may turn into a native
-                    // window drag. Enter drag-protection immediately so we don't
-                    // route follow-up motion/wheel into terminal selection/scroll.
+                    // A left press above the terminal's first row may turn into
+                    // a native window drag (title / tab strip). Enter
+                    // drag-protection so follow-up motion/wheel isn't routed
+                    // into terminal selection/scroll. Use terminal_origin_y
+                    // rather than first_line_offset so the band of top
+                    // padding above row 0 isn't claimed as draggable — that
+                    // band is part of the terminal pane (#356, 3-finger drag).
                     self.current_mouse_capture = Some(MouseCapture::UI);
                     self.is_window_dragging = true;
                 }
