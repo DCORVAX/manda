@@ -638,6 +638,14 @@ pub fn set_window_position(pos: GuiPosition) {
     POSITION.lock().unwrap().replace(pos);
 }
 
+fn centered_window_position(screen: ScreenRect, width: usize, height: usize) -> ScreenPoint {
+    let width = width as isize;
+    let height = height as isize;
+    let x = screen.origin.x + ((screen.size.width - width) / 2).max(0);
+    let y = screen.origin.y + ((screen.size.height - height) / 2).max(0);
+    ScreenPoint::new(x, y)
+}
+
 pub fn set_window_class(cls: &str) {
     *WINDOW_CLASS.lock().unwrap() = cls.to_owned();
 }
@@ -3541,6 +3549,32 @@ impl TermWindow {
         Ok(())
     }
 
+    fn center_current_window(&self) {
+        if self
+            .window_state
+            .intersects(WindowState::FULL_SCREEN | WindowState::MAXIMIZED | WindowState::HIDDEN)
+        {
+            return;
+        }
+
+        let Some(window) = self.window.as_ref() else {
+            return;
+        };
+        let Some(conn) = Connection::get() else {
+            return;
+        };
+        let Ok(screens) = conn.screens() else {
+            return;
+        };
+
+        let pos = centered_window_position(
+            screens.active.rect,
+            self.dimensions.pixel_width,
+            self.dimensions.pixel_height,
+        );
+        window.set_window_position(pos);
+    }
+
     fn activate_tab(&mut self, tab_idx: isize) -> anyhow::Result<()> {
         let mux = Mux::get();
         let mut window = mux
@@ -4125,6 +4159,9 @@ impl TermWindow {
                 if let Some(w) = self.window.as_ref() {
                     w.toggle_fullscreen();
                 }
+            }
+            CenterWindow => {
+                self.center_current_window();
             }
             MaximizeWindow => {
                 if let Some(w) = self.window.as_ref() {
@@ -6021,7 +6058,10 @@ impl Drop for TermWindow {
 
 #[cfg(test)]
 mod tests {
-    use super::{bell_notification_message, InputBroadcastMode, RenderableDimensions, TermWindow};
+    use super::{
+        bell_notification_message, centered_window_position, InputBroadcastMode,
+        RenderableDimensions, TermWindow,
+    };
     use mux::tab::TabId;
     use wezterm_term::StableRowIndex;
 
@@ -6073,6 +6113,24 @@ mod tests {
         assert!(!InputBroadcastMode::CurrentTab.applies_to_active_tab(None, Some(tab_a)));
         assert!(InputBroadcastMode::AllTabs.applies_to_active_tab(Some(tab_a), Some(tab_b)));
         assert!(!InputBroadcastMode::Off.applies_to_active_tab(Some(tab_a), Some(tab_a)));
+    }
+
+    #[test]
+    fn centered_window_position_centers_inside_screen() {
+        let screen = euclid::rect(100, 200, 1200, 800);
+        assert_eq!(
+            centered_window_position(screen, 800, 500),
+            euclid::point2(300, 350)
+        );
+    }
+
+    #[test]
+    fn centered_window_position_keeps_oversized_window_at_screen_origin() {
+        let screen = euclid::rect(-900, 100, 800, 600);
+        assert_eq!(
+            centered_window_position(screen, 1000, 700),
+            euclid::point2(-900, 100)
+        );
     }
 
     fn dims(physical_top: StableRowIndex, scrollback_top: StableRowIndex) -> RenderableDimensions {
