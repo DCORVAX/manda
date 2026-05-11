@@ -178,6 +178,8 @@ impl super::TermWindow {
         self.sync_tab_bar_visibility_for_window_state("resize:sync_tab_bar");
         let fullscreen_transition = last_state.contains(WindowState::FULL_SCREEN)
             != self.window_state.contains(WindowState::FULL_SCREEN);
+        let maximize_transition = last_state.contains(WindowState::MAXIMIZED)
+            != self.window_state.contains(WindowState::MAXIMIZED);
 
         if let Some(webgpu) = self.webgpu.as_mut() {
             webgpu.resize(dimensions);
@@ -221,13 +223,16 @@ impl super::TermWindow {
 
         // Align fullscreen transition handling with maximize/restore behavior:
         // keep current dpi for this transition frame so text doesn't pop larger/smaller.
-        } else if fullscreen_transition && self.dimensions.dpi != dimensions.dpi {
+        } else if (fullscreen_transition || maximize_transition)
+            && self.dimensions.dpi != dimensions.dpi
+        {
             let mut stabilized = dimensions;
             stabilized.dpi = self.dimensions.dpi;
             self.apply_dimensions(&stabilized, None, window, true);
             // Force a render_metrics refresh against the stabilized dpi so a
-            // later fullscreen exit on an external display can't leave
-            // cell_size stale (caused mouse y → row off-by-N selection, #312).
+            // later fullscreen / maximize transition on an external display
+            // can't leave cell_size stale (mouse y → row off-by-N selection
+            // on external monitors, #312/#356).
             self.apply_scale_change(&stabilized, self.fonts.get_font_scale());
         } else if live_resizing && self.dimensions.dpi == dimensions.dpi {
             // For simple, user-interactive resizes where the dpi doesn't change,
