@@ -82,21 +82,11 @@ impl AssistantConfig {
             );
         }
 
-        // OAuth providers (Copilot, Codex) do not need an api_key in the TOML.
-        let api_key_required = auth_type == "api_key";
-
         let api_key = parsed
             .get("api_key")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-
-        if api_key_required && api_key.trim().is_empty() {
-            anyhow::bail!(
-                "api_key not set in {}. Run `kaku ai` to configure.",
-                path.display()
-            );
-        }
 
         let model = parsed
             .get("model")
@@ -471,9 +461,11 @@ impl AiClient {
                 req.header("Authorization", format!("Bearer {token}"))
             }
             _ => {
-                // Default: api_key as a Bearer header for all OpenAI-compatible
-                // providers (OpenAI, DeepSeek, Kimi, custom proxies).
-                req.header("Authorization", format!("Bearer {}", self.config.api_key))
+                if self.config.api_key.trim().is_empty() {
+                    req
+                } else {
+                    req.header("Authorization", format!("Bearer {}", self.config.api_key))
+                }
             }
         };
         self.apply_custom_headers(req)
