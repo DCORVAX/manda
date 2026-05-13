@@ -3067,6 +3067,11 @@ fn is_ascii_punctuation_text(s: &str) -> bool {
     matches!((chars.next(), chars.next()), (Some(c), None) if c.is_ascii_punctuation())
 }
 
+fn is_ascii_letter_text(s: &str) -> bool {
+    let mut chars = s.chars();
+    matches!((chars.next(), chars.next()), (Some(c), None) if c.is_ascii_alphabetic())
+}
+
 fn is_command_alnum_shortcut(unmod: &str, modifiers: Modifiers, virtual_key: u16) -> bool {
     // Require Cmd (SUPER), disallow Alt/Ctrl (Shift is permitted).
     // Prevents Cmd+alnum shortcuts from failing when a non-Latin IME is active,
@@ -3275,6 +3280,26 @@ mod tests {
             Modifiers::SUPER,
             kVK_ANSI_M
         ));
+    }
+
+    #[test]
+    fn command_alnum_shortcut_still_matches_letter_on_remapped_vkey() {
+        // AZERTY "a" sits on kVK_ANSI_Q; must still intercept so NSMenu's
+        // non-Latin-IME mismatch path cannot run.
+        assert!(is_command_alnum_shortcut("a", Modifiers::SUPER, kVK_ANSI_Q));
+        assert!(is_command_alnum_shortcut("z", Modifiers::SUPER, kVK_ANSI_W));
+    }
+
+    #[test]
+    fn ascii_letter_text_matches_only_single_latin_letters() {
+        assert!(is_ascii_letter_text("a"));
+        assert!(is_ascii_letter_text("Z"));
+        assert!(!is_ascii_letter_text(""));
+        assert!(!is_ascii_letter_text("ab"));
+        assert!(!is_ascii_letter_text(","));
+        assert!(!is_ascii_letter_text("1"));
+        assert!(!is_ascii_letter_text("\u{3148}"));
+        assert!(!is_ascii_letter_text("\u{00e9}"));
     }
 
     #[test]
@@ -4319,7 +4344,10 @@ impl WindowView {
                 // Use exact match to avoid affecting Cmd+Ctrl+Shift+symbol etc.
                 (true, unmod)
             } else if is_command_alnum_shortcut(unmod, modifiers, virtual_key) {
-                (true, unmod)
+                // Latin layouts: trust the labeled letter (AZERTY "a" sits on
+                // kVK_ANSI_Q, so the physical key would mis-fire Cmd+Q). Empty
+                // or non-ASCII unmod (true non-Latin IME) keeps the vkey path.
+                (!is_ascii_letter_text(unmod), unmod)
             } else {
                 (false, unmod)
             };
