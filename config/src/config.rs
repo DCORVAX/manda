@@ -142,6 +142,9 @@ pub struct Config {
     pub prefer_to_spawn_tabs: bool,
 
     #[dynamic(default)]
+    pub restore_previous_session: bool,
+
+    #[dynamic(default)]
     pub window_frame: WindowFrameConfig,
 
     /// Font to use for CharSelect
@@ -829,6 +832,9 @@ pub struct Config {
     /// fixed-width content (tables, logs, records) that naturally end at column N.
     #[dynamic(default)]
     pub copy_unwrap_tui_lines: bool,
+
+    #[dynamic(default)]
+    pub copy_strip_leading_whitespace: bool,
 
     #[dynamic(default = "default_enq_answerback")]
     pub enq_answerback: String,

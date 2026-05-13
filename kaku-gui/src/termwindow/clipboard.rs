@@ -41,6 +41,11 @@ fn should_emit_ai_notice(kind: &str, message: &str) -> bool {
 
 impl TermWindow {
     pub fn copy_to_clipboard(&self, clipboard: ClipboardCopyDestination, text: String) {
+        let text = if self.config.copy_strip_leading_whitespace {
+            strip_common_leading_whitespace(&text)
+        } else {
+            text
+        };
         let clipboard = match clipboard {
             ClipboardCopyDestination::Clipboard => [Some(Clipboard::Clipboard), None],
             ClipboardCopyDestination::PrimarySelection => [Some(Clipboard::PrimarySelection), None],
@@ -265,4 +270,31 @@ fn quote_path_for_clipboard_paste(
             quote_dropped_files.escape(path.as_ref())
         }
     }
+}
+
+fn strip_common_leading_whitespace(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() < 2 {
+        return text.to_string();
+    }
+    let min_indent = lines
+        .iter()
+        .filter(|line| !line.trim_start().is_empty())
+        .map(|line| line.len() - line.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    if min_indent == 0 {
+        return text.to_string();
+    }
+    lines
+        .iter()
+        .map(|line| {
+            if line.trim_start().is_empty() {
+                *line
+            } else {
+                &line[min_indent..]
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
