@@ -718,10 +718,7 @@ fn reasoning_delta_text<'a>(
 
 // ─── Inline <think> / <thinking> tag filter ─────────────────────────────────
 
-const THINK_TAG_PAIRS: &[(&str, &str)] = &[
-    ("<think>", "</think>"),
-    ("<thinking>", "</thinking>"),
-];
+const THINK_TAG_PAIRS: &[(&str, &str)] = &[("<think>", "</think>"), ("<thinking>", "</thinking>")];
 
 enum ThinkSegment {
     Token(String),
@@ -760,10 +757,7 @@ impl InlineThinkFilter {
         let mut min_safe = len;
         for tag in tags {
             for i in 1..=tag.len().min(len) {
-                if tag
-                    .as_bytes()
-                    .starts_with(&pending.as_bytes()[len - i..])
-                {
+                if tag.as_bytes().starts_with(&pending.as_bytes()[len - i..]) {
                     min_safe = min_safe.min(len - i);
                     break;
                 }

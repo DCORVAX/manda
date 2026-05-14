@@ -418,10 +418,7 @@ fn migrate_visible_reasoning_blocks(mut msg: PersistedMessage) -> PersistedMessa
 }
 
 fn split_visible_reasoning_blocks(content: &str) -> (String, String) {
-    const TAG_PAIRS: &[(&str, &str)] = &[
-        ("<think>", "</think>"),
-        ("<thinking>", "</thinking>"),
-    ];
+    const TAG_PAIRS: &[(&str, &str)] = &[("<think>", "</think>"), ("<thinking>", "</thinking>")];
 
     let mut visible = String::new();
     let mut reasoning = String::new();
