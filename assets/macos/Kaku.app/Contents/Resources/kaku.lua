@@ -3807,7 +3807,12 @@ config.window_background_opacity = 1.0
 config.text_background_opacity = 1.0
 
 -- ===== Close Protection =====
-config.window_close_confirmation = 'NeverPrompt'
+-- 'SmartPrompt': Cmd+Q (and the Quit Kaku menu) quit silently when every
+-- pane is at a bare shell prompt, and pop a confirm overlay when anything
+-- stateful is running (claude / codex / cursor-agent / vim / cargo / ...).
+-- Same smart-skip logic as Cmd+W. Use 'NeverPrompt' to always quit
+-- instantly, or 'AlwaysPrompt' to always ask.
+config.window_close_confirmation = 'SmartPrompt'
 -- These two booleans are the strict "always ask, even bare zsh" mode.
 -- They stay off by default because Kaku's Cmd+W / Cmd+Shift+W keybinds
 -- already invoke the *smart-skip* path (`confirm = true` is hard-coded

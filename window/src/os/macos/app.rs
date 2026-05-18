@@ -604,10 +604,15 @@ extern "C" fn application_should_terminate(
 ) -> u64 {
     unsafe {
         match config::configuration().window_close_confirmation {
-            WindowCloseConfirmation::NeverPrompt => terminate_now(
-                QuitOrigin::AppKitShouldTerminate,
-                Some("applicationShouldTerminate"),
-            ),
+            // SmartPrompt's process-aware prompt lives in the GUI layer
+            // (it needs Mux, unreachable from here). Dock-quit is a
+            // deliberate action, so terminate without prompting.
+            WindowCloseConfirmation::NeverPrompt | WindowCloseConfirmation::SmartPrompt => {
+                terminate_now(
+                    QuitOrigin::AppKitShouldTerminate,
+                    Some("applicationShouldTerminate"),
+                )
+            }
             WindowCloseConfirmation::AlwaysPrompt => {
                 let alert: id = msg_send![class!(NSAlert), alloc];
                 let alert: id = msg_send![alert, init];

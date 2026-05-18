@@ -1137,7 +1137,10 @@ impl TermWindow {
                     _window.close();
                     front_end().forget_known_window(_window);
                 }
-                WindowCloseConfirmation::AlwaysPrompt => {
+                // SmartPrompt and AlwaysPrompt share the same close path:
+                // both already skip the prompt when the window has no
+                // stateful process via can_close_without_prompting() below.
+                WindowCloseConfirmation::AlwaysPrompt | WindowCloseConfirmation::SmartPrompt => {
                     let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
                         Some(tab) => tab,
                         None => {
@@ -4326,34 +4329,41 @@ impl TermWindow {
                 let mux = Mux::get();
                 let config = &self.config;
 
-                match config.window_close_confirmation {
-                    WindowCloseConfirmation::NeverPrompt => {
-                        #[cfg(target_os = "macos")]
-                        {
-                            ::window::request_terminate(
-                                ::window::QuitOrigin::WindowScopeQuitApplication,
-                            );
-                        }
-                        #[cfg(not(target_os = "macos"))]
-                        {
-                            let con = Connection::get().expect("call on gui thread");
-                            con.terminate_message_loop();
-                        }
-                    }
-                    WindowCloseConfirmation::AlwaysPrompt => {
-                        let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
-                            Some(tab) => tab,
-                            None => anyhow::bail!("no active tab!?"),
-                        };
+                let prompt = match config.window_close_confirmation {
+                    WindowCloseConfirmation::NeverPrompt => false,
+                    WindowCloseConfirmation::AlwaysPrompt => true,
+                    // Prompt only when some window still has a stateful
+                    // process running; quit silently otherwise.
+                    WindowCloseConfirmation::SmartPrompt => mux.iter_windows().iter().any(|id| {
+                        mux.get_window(*id)
+                            .map_or(false, |w| !w.can_close_without_prompting())
+                    }),
+                };
 
-                        if let Some(window) = self.window.clone() {
-                            let (overlay, future) =
-                                start_overlay(self, &tab, move |tab_id, term| {
-                                    confirm_quit_program(term, window, tab_id)
-                                });
-                            self.assign_overlay(tab.tab_id(), overlay);
-                            promise::spawn::spawn(future).detach();
-                        }
+                if prompt {
+                    let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
+                        Some(tab) => tab,
+                        None => anyhow::bail!("no active tab!?"),
+                    };
+
+                    if let Some(window) = self.window.clone() {
+                        let (overlay, future) = start_overlay(self, &tab, move |tab_id, term| {
+                            confirm_quit_program(term, window, tab_id)
+                        });
+                        self.assign_overlay(tab.tab_id(), overlay);
+                        promise::spawn::spawn(future).detach();
+                    }
+                } else {
+                    #[cfg(target_os = "macos")]
+                    {
+                        ::window::request_terminate(
+                            ::window::QuitOrigin::WindowScopeQuitApplication,
+                        );
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        let con = Connection::get().expect("call on gui thread");
+                        con.terminate_message_loop();
                     }
                 }
             }

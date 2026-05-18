@@ -2649,8 +2649,10 @@ pub enum WindowCloseConfirmation {
     #[default]
     AlwaysPrompt,
     NeverPrompt,
-    // TODO: something smart where we see whether the
-    // running programs are stateful
+    /// Only prompt when a window still has a stateful process running
+    /// (anything outside `skip_close_confirmation_for_processes_named`).
+    /// Quits silently when every pane is at a bare shell prompt.
+    SmartPrompt,
 }
 
 struct PathPossibility {
