@@ -8,17 +8,15 @@ use window::color::LinearRgba;
 
 impl crate::TermWindow {
     pub fn paint_tab_bar(&mut self, layers: &mut TripleLayerQuadAllocator) -> anyhow::Result<()> {
-        let _border = self.get_os_border();
+        let border = self.get_os_border();
         let tab_bar_height = self.tab_bar_pixel_height()?;
         let tab_bar_y = if self.config.tab_bar_at_bottom {
-            // Position tab bar at the very bottom for a "flush" appearance.
-            // The tab bar renders its own background, covering the bottom area.
-            ((self.dimensions.pixel_height as f32) - tab_bar_height).max(0.)
+            ((self.dimensions.pixel_height as f32) - tab_bar_height - border.bottom.get() as f32)
+                .max(0.)
         } else {
-            // Position tab bar at the very top (y=0) for a "flush" appearance.
-            // The fancy tab bar renders its own background, so it will cover
-            // the titlebar area completely.
-            0.0
+            // Offset below the OS top inset so cells aren't clipped by the
+            // macOS rounded corner / integrated buttons window mask.
+            border.top.get() as f32
         };
         let panes = self.get_panes_to_render();
         let force_opaque_tab_bar_background = forces_opaque_kaku_tui_window_background(&panes);
@@ -67,11 +65,14 @@ impl crate::TermWindow {
 
         let palette = self.palette().clone();
 
-        // Register the tab bar location
+        // Natural metrics keep the single-line bar from inheriting the
+        // terminal's line_height padding.
+        let tab_metrics = RenderMetrics::with_font_metrics(&self.fonts.default_font()?.metrics());
+
         self.ui_items.append(&mut self.tab_bar.compute_ui_items(
             tab_bar_y as usize,
-            self.render_metrics.cell_size.height as usize,
-            self.render_metrics.cell_size.width as usize,
+            tab_metrics.cell_size.height as usize,
+            tab_metrics.cell_size.width as usize,
         ));
 
         let window_is_transparent =
@@ -127,14 +128,13 @@ impl crate::TermWindow {
                 cursor: &Default::default(),
                 palette: &palette,
                 dims: &RenderableDimensions {
-                    cols: self.dimensions.pixel_width
-                        / self.render_metrics.cell_size.width as usize,
+                    cols: self.dimensions.pixel_width / tab_metrics.cell_size.width as usize,
                     physical_top: 0,
                     scrollback_rows: 0,
                     scrollback_top: 0,
                     viewport_rows: 1,
                     dpi: self.terminal_size.dpi,
-                    pixel_height: self.render_metrics.cell_size.height as usize,
+                    pixel_height: tab_metrics.cell_size.height as usize,
                     pixel_width: self.terminal_size.pixel_width,
                     reverse_video: false,
                 },
@@ -155,7 +155,7 @@ impl crate::TermWindow {
                 style: None,
                 font: None,
                 use_pixel_positioning: self.config.experimental_pixel_positioning,
-                render_metrics: self.render_metrics,
+                render_metrics: tab_metrics,
                 shape_key: None,
                 password_input: false,
             },
@@ -174,7 +174,7 @@ impl crate::TermWindow {
             let font = fontconfig.title_font()?;
             Ok((font.metrics().cell_height.get() as f32 * 1.75).ceil())
         } else {
-            Ok(render_metrics.cell_size.height as f32)
+            Ok(render_metrics.natural_cell_height as f32)
         }
     }
 
@@ -193,7 +193,7 @@ impl crate::TermWindow {
             // height. The two differ by ~1-2 pixels in typical configs.
             (render_metrics.cell_size.height as f32 * 1.75).ceil()
         } else {
-            render_metrics.cell_size.height as f32
+            render_metrics.natural_cell_height as f32
         }
     }
 
