@@ -37,6 +37,28 @@ pub struct KeyTableState {
     stack: Vec<KeyTableStateEntry>,
 }
 
+/// Bundle of keyboard-related per-window state. Lives in `keyevent.rs`
+/// because every field is consumed by code in this module, and pulling
+/// them out of `TermWindow`'s flat field list keeps ownership clearer.
+pub struct KeyboardInputState {
+    pub input_map: InputMap,
+    /// If is_some, the LEADER modifier is active until the specified instant.
+    pub leader_is_down: Option<Instant>,
+    pub dead_key_status: DeadKeyStatus,
+    pub key_table_state: KeyTableState,
+}
+
+impl KeyboardInputState {
+    pub fn new(input_map: InputMap) -> Self {
+        Self {
+            input_map,
+            leader_is_down: None,
+            dead_key_status: DeadKeyStatus::None,
+            key_table_state: KeyTableState::default(),
+        }
+    }
+}
+
 impl KeyTableState {
     pub fn activate(&mut self, args: KeyTableArgs) {
         if args.replace_current {
@@ -300,7 +322,7 @@ impl super::TermWindow {
     ) -> Option<(KeyTableEntry, Option<String>)> {
         if let Some(overlay) = self.pane_state(pane.pane_id()).overlay.as_mut() {
             if let Some((entry, table_name)) = overlay.key_table_state.lookup_key(
-                &self.input_map,
+                &self.keyboard.input_map,
                 keycode,
                 mods,
                 only_key_bindings,
@@ -308,13 +330,16 @@ impl super::TermWindow {
                 return Some((entry, table_name.map(|s| s.to_string())));
             }
         }
-        if let Some((entry, table_name)) =
-            self.key_table_state
-                .lookup_key(&self.input_map, keycode, mods, only_key_bindings)
-        {
+        if let Some((entry, table_name)) = self.keyboard.key_table_state.lookup_key(
+            &self.keyboard.input_map,
+            keycode,
+            mods,
+            only_key_bindings,
+        ) {
             return Some((entry, table_name.map(|s| s.to_string())));
         }
-        self.input_map
+        self.keyboard
+            .input_map
             .lookup_key(keycode, mods, None)
             .map(|entry| (entry, None))
     }
@@ -333,10 +358,10 @@ impl super::TermWindow {
     ) -> bool {
         if is_down && !leader_active {
             // Check to see if this key-press is the leader activating
-            if let Some(duration) = self.input_map.is_leader(&keycode, raw_modifiers) {
+            if let Some(duration) = self.keyboard.input_map.is_leader(&keycode, raw_modifiers) {
                 // Yes; record its expiration
                 let target = std::time::Instant::now() + duration;
-                self.leader_is_down.replace(target);
+                self.keyboard.leader_is_down.replace(target);
                 self.update_title();
                 // schedule an invalidation so that the cursor or status
                 // area will be repainted at the right time
@@ -371,7 +396,7 @@ impl super::TermWindow {
                     );
                 }
 
-                self.key_table_state.did_process_key();
+                self.keyboard.key_table_state.did_process_key();
                 let handled = match self.perform_key_assignment(&pane, &entry.action) {
                     Ok(PerformAssignmentResult::Handled) => true,
                     Err(e) => {
@@ -520,7 +545,7 @@ impl super::TermWindow {
 
         // During IME composition, skip key binding processing so that
         // interpretKeyEvents can handle the key (e.g. Tab completing "table").
-        if self.dead_key_status != DeadKeyStatus::None {
+        if self.keyboard.dead_key_status != DeadKeyStatus::None {
             return;
         }
 
@@ -608,7 +633,7 @@ impl super::TermWindow {
     }
 
     pub fn leader_is_active(&self) -> bool {
-        match self.leader_is_down.as_ref() {
+        match self.keyboard.leader_is_down.as_ref() {
             Some(expiry) if *expiry > std::time::Instant::now() => {
                 self.update_next_frame_time(Some(*expiry));
                 true
@@ -619,7 +644,7 @@ impl super::TermWindow {
     }
 
     pub fn leader_is_active_mut(&mut self) -> bool {
-        match self.leader_is_down.as_ref() {
+        match self.keyboard.leader_is_down.as_ref() {
             Some(expiry) if *expiry > std::time::Instant::now() => {
                 self.update_next_frame_time(Some(*expiry));
                 true
@@ -650,9 +675,13 @@ impl super::TermWindow {
             }
         }
         if name.is_none() {
-            name = self.key_table_state.current_table().map(|s| s.to_string());
+            name = self
+                .keyboard
+                .key_table_state
+                .current_table()
+                .map(|s| s.to_string());
         }
-        if let Some(entry) = self.key_table_state.stack.last() {
+        if let Some(entry) = self.keyboard.key_table_state.stack.last() {
             if let Some(expiry) = entry.expiration {
                 self.update_next_frame_time(Some(expiry));
             }
@@ -661,11 +690,11 @@ impl super::TermWindow {
     }
 
     pub fn composition_status(&self) -> &DeadKeyStatus {
-        &self.dead_key_status
+        &self.keyboard.dead_key_status
     }
 
     fn leader_done(&mut self) {
-        self.leader_is_down.take();
+        self.keyboard.leader_is_down.take();
         self.update_title();
         if let Some(window) = &self.window {
             window.invalidate();
@@ -1102,7 +1131,7 @@ impl super::TermWindow {
         // any key table rules. Therefore, we should pop all `until_unknown`
         // entries from the stack.
         if window_key.key_is_down {
-            self.key_table_state.pop_until_unknown();
+            self.keyboard.key_table_state.pop_until_unknown();
         }
 
         // Fallback for shell prompt line-editing habits on macOS.
@@ -1127,7 +1156,7 @@ impl super::TermWindow {
                         self.leader_done();
                         return;
                     }
-                    self.key_table_state.did_process_key();
+                    self.keyboard.key_table_state.did_process_key();
                 }
 
                 if self.config.debug_key_events {
@@ -1182,7 +1211,7 @@ impl super::TermWindow {
                     self.leader_done();
                     return;
                 }
-                self.key_table_state.did_process_key();
+                self.keyboard.key_table_state.did_process_key();
                 if self.config.debug_key_events {
                     log::info!("send to pane string={:?}", s);
                 }

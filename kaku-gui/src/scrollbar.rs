@@ -1,5 +1,21 @@
 use mux::pane::Pane;
+use mux::renderable::RenderableDimensions;
+use std::time::Instant;
 use wezterm_term::StableRowIndex;
+
+/// Per-window scrollbar UI state. Bundled here so `TermWindow` keeps one
+/// scrollbar field instead of several related timers and snapshots.
+#[derive(Default)]
+pub struct ScrollbarState {
+    /// The render dimensions snapshot used to detect when the scrollbar
+    /// needs a repaint.
+    pub last_scroll_info: RenderableDimensions,
+    /// True while the cursor is inside the scrollbar hover slop region.
+    pub hovering: bool,
+    /// When set, the scrollbar stays painted until this deadline (auto-hide
+    /// fade-out timer driven by recent scroll activity).
+    pub visible_until: Option<Instant>,
+}
 
 const MAX_SCROLLBAR_THUMB_WIDTH: usize = 11;
 const MIN_SCROLLBAR_THUMB_WIDTH: usize = 8;

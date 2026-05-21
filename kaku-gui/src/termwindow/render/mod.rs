@@ -612,7 +612,7 @@ impl crate::TermWindow {
                 };
             }
 
-            let dead_key_active = self.dead_key_status != DeadKeyStatus::None;
+            let dead_key_active = self.keyboard.dead_key_status != DeadKeyStatus::None;
 
             if dead_key_active && params.is_active_pane {
                 let fg_color = self.ensure_min_contrast(params.fg_color, params.bg_color);

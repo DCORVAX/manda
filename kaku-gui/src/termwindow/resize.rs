@@ -181,7 +181,7 @@ impl super::TermWindow {
         let maximize_transition = last_state.contains(WindowState::MAXIMIZED)
             != self.window_state.contains(WindowState::MAXIMIZED);
 
-        if let Some(webgpu) = self.webgpu.as_mut() {
+        if let Some(webgpu) = self.webgpu() {
             webgpu.resize(dimensions);
         }
 

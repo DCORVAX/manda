@@ -31,6 +31,25 @@ enum MouseDispatchTarget {
     Terminal,
 }
 
+/// Per-window state describing in-flight window-level drag interactions
+/// (manual title-bar drag, OS edge resize suppression, click-to-focus
+/// suppression). Bundled to keep the drag invariants in one place.
+#[derive(Default)]
+pub(crate) struct WindowDragState {
+    /// Latest mouse event captured when we began driving a manual window
+    /// drag via the title bar. None means no drag in progress.
+    pub position: Option<MouseEvent>,
+    /// Set when a mouse press occurs near the window edge (resize zone).
+    /// Suppresses subsequent Move/Release events to prevent unwanted
+    /// text selection in TUI applications during OS-level window resize.
+    pub edge_drag_in_progress: bool,
+    /// True while the manual title-bar drag is active.
+    pub is_window_dragging: bool,
+    /// True for the duration of the click-press that brought this window
+    /// into focus, so we can ignore the corresponding release.
+    pub is_click_to_focus: bool,
+}
+
 fn mouse_dispatch_target(
     has_ui_item: bool,
     coords_y: isize,
@@ -519,15 +538,15 @@ impl super::TermWindow {
 
         match event.kind {
             WMEK::Release(ref press) => {
-                if press == &MousePress::Left && self.edge_drag_in_progress {
-                    self.edge_drag_in_progress = false;
+                if press == &MousePress::Left && self.window_drag.edge_drag_in_progress {
+                    self.window_drag.edge_drag_in_progress = false;
                     self.finish_mouse_release(*press);
                     return;
                 }
                 if press == &MousePress::Left {
-                    let was_dragging_window = self.is_window_dragging;
-                    self.is_window_dragging = false;
-                    let had_manual_drag_anchor = self.window_drag_position.take().is_some();
+                    let was_dragging_window = self.window_drag.is_window_dragging;
+                    self.window_drag.is_window_dragging = false;
+                    let had_manual_drag_anchor = self.window_drag.position.take().is_some();
                     if had_manual_drag_anchor || was_dragging_window {
                         if let Some(state) = self.tab_drag_state.take() {
                             if state.has_dragged {
@@ -565,7 +584,7 @@ impl super::TermWindow {
 
             WMEK::Press(ref press) => {
                 // If a previous edge drag never received its Release, reset now.
-                self.edge_drag_in_progress = false;
+                self.window_drag.edge_drag_in_progress = false;
                 capture_mouse = true;
 
                 // Perform click counting
@@ -605,18 +624,18 @@ impl super::TermWindow {
                     // padding above row 0 isn't claimed as draggable — that
                     // band is part of the terminal pane (#356, 3-finger drag).
                     self.current_mouse_capture = Some(MouseCapture::UI);
-                    self.is_window_dragging = true;
+                    self.window_drag.is_window_dragging = true;
                 }
             }
 
             WMEK::Move => {
-                if self.edge_drag_in_progress {
+                if self.window_drag.edge_drag_in_progress {
                     return;
                 }
-                if let Some(start) = self.window_drag_position.clone() {
+                if let Some(start) = self.window_drag.position.clone() {
                     if event.mouse_buttons != WMB::LEFT {
-                        self.window_drag_position = None;
-                        self.is_window_dragging = false;
+                        self.window_drag.position = None;
+                        self.window_drag.is_window_dragging = false;
                         self.current_mouse_capture = None;
                     } else {
                         // Dragging the window
@@ -639,10 +658,10 @@ impl super::TermWindow {
                         return;
                     }
                 }
-                if self.is_window_dragging {
+                if self.window_drag.is_window_dragging {
                     if event.mouse_buttons == WMB::NONE {
                         // Defensive reset in case release was consumed by native drag.
-                        self.is_window_dragging = false;
+                        self.window_drag.is_window_dragging = false;
                         self.current_mouse_capture = None;
                     } else {
                         // We requested a native drag move; while it is active,
@@ -669,7 +688,7 @@ impl super::TermWindow {
                 }
             }
             WMEK::VertWheel(_) | WMEK::HorzWheel(_) => {
-                if self.is_window_dragging {
+                if self.window_drag.is_window_dragging {
                     return;
                 }
                 if event.mouse_buttons != WMB::NONE
@@ -752,9 +771,9 @@ impl super::TermWindow {
                             return;
                         }
                         self.current_mouse_capture = Some(MouseCapture::UI);
-                        self.is_window_dragging = true;
+                        self.window_drag.is_window_dragging = true;
                         if !maximized && !cfg!(target_os = "macos") {
-                            self.window_drag_position.replace(event.clone());
+                            self.window_drag.position.replace(event.clone());
                         }
                         context.request_drag_move();
                         return;
@@ -790,14 +809,14 @@ impl super::TermWindow {
             self.finish_mouse_release(press);
         }
 
-        if prior_ui_item != ui_item && !self.is_window_dragging {
+        if prior_ui_item != ui_item && !self.window_drag.is_window_dragging {
             self.update_title_post_status();
         }
     }
 
     pub fn mouse_leave_impl(&mut self, context: &dyn WindowOps) {
         self.current_mouse_event = None;
-        self.scrollbar_hovering = false;
+        self.scrollbar.hovering = false;
         self.update_title();
         context.set_cursor(Some(MouseCursor::Arrow));
         context.invalidate();
@@ -1028,8 +1047,8 @@ impl super::TermWindow {
         match event.kind {
             WMEK::Press(MousePress::Left) => {
                 if !tab_bar_item_starts_window_drag(item) {
-                    self.is_window_dragging = false;
-                    self.window_drag_position = None;
+                    self.window_drag.is_window_dragging = false;
+                    self.window_drag.position = None;
                 }
 
                 match item {
@@ -1071,9 +1090,9 @@ impl super::TermWindow {
                                 return;
                             }
                         }
-                        self.is_window_dragging = true;
+                        self.window_drag.is_window_dragging = true;
                         if !maximized && !cfg!(target_os = "macos") {
-                            self.window_drag_position.replace(event.clone());
+                            self.window_drag.position.replace(event.clone());
                         }
                         context.request_drag_move();
                     }
@@ -1365,7 +1384,7 @@ impl super::TermWindow {
         }
 
         if matches!(event.kind, WMEK::Press(MousePress::Left)) && in_resize_zone {
-            self.edge_drag_in_progress = true;
+            self.window_drag.edge_drag_in_progress = true;
         }
 
         let is_focused = if let Some(focused) = self.focused.as_ref() {
@@ -1380,21 +1399,21 @@ impl super::TermWindow {
                 && self.config.swallow_mouse_click_on_window_focus
             {
                 // Entering click to focus state
-                self.is_click_to_focus_window = true;
+                self.window_drag.is_click_to_focus = true;
                 context.invalidate();
                 log::trace!("enter click to focus");
                 return;
             }
         }
-        if self.is_click_to_focus_window && matches!(&event.kind, WMEK::Release(_)) {
+        if self.window_drag.is_click_to_focus && matches!(&event.kind, WMEK::Release(_)) {
             // Exiting click to focus state
-            self.is_click_to_focus_window = false;
+            self.window_drag.is_click_to_focus = false;
             context.invalidate();
             log::trace!("exit click to focus");
             return;
         }
 
-        let allow_action = if self.is_click_to_focus_window || !is_focused {
+        let allow_action = if self.window_drag.is_click_to_focus || !is_focused {
             matches!(&event.kind, WMEK::VertWheel(_) | WMEK::HorzWheel(_))
         } else {
             true
@@ -1476,7 +1495,7 @@ impl super::TermWindow {
         } else if pane.is_mouse_grabbed()
             || outside_window
             || in_resize_zone
-            || self.edge_drag_in_progress
+            || self.window_drag.edge_drag_in_progress
         {
             MouseCursor::Arrow
         } else {
@@ -1620,7 +1639,10 @@ impl super::TermWindow {
             return;
         }
 
-        if allow_action && !self.edge_drag_in_progress && !bypass_wheel_assignment_in_alt {
+        if allow_action
+            && !self.window_drag.edge_drag_in_progress
+            && !bypass_wheel_assignment_in_alt
+        {
             if let Some(mut event_trigger_type) = event_trigger_type {
                 self.current_event = Some(event_trigger_type.to_dynamic());
                 let mut modifiers = event.modifiers;
@@ -1752,7 +1774,11 @@ impl super::TermWindow {
                     },
                 };
 
-                if let Some(action) = self.input_map.lookup_mouse(event_trigger_type, mouse_mods) {
+                if let Some(action) = self
+                    .keyboard
+                    .input_map
+                    .lookup_mouse(event_trigger_type, mouse_mods)
+                {
                     if let Err(err) = self.perform_key_assignment(&pane, &action) {
                         log::debug!("mouse assignment failed: {err:#}");
                     }
@@ -1773,7 +1799,7 @@ impl super::TermWindow {
         };
 
         if allow_action
-            && !self.edge_drag_in_progress
+            && !self.window_drag.edge_drag_in_progress
             && !(self.config.swallow_mouse_click_on_pane_focus && is_click_to_focus_pane)
         {
             if let Err(err) = pane.mouse_event(mouse_event) {

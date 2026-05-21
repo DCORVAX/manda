@@ -19,8 +19,9 @@ use crate::tabbar::{TabBarItem, TabBarState};
 use crate::termwindow::background::{
     load_background_image, reload_background_image, LoadedBackgroundLayer,
 };
-use crate::termwindow::keyevent::{KeyTableArgs, KeyTableState};
+use crate::termwindow::keyevent::{KeyTableArgs, KeyTableState, KeyboardInputState};
 use crate::termwindow::modal::Modal;
+use crate::termwindow::mouseevent::WindowDragState;
 use crate::termwindow::render::paint::AllowImage;
 use crate::termwindow::render::{
     CachedLineState, LineQuadCacheKey, LineQuadCacheValue, LineToEleShapeCacheKey,
@@ -955,6 +956,14 @@ pub(crate) enum LineEditorSelectionState {
     Unknown,
 }
 
+/// Discriminated union over the two GPU backends. Replaces the previous
+/// `gl: Option<_>` + `webgpu: Option<_>` pair so the "exactly one alive"
+/// invariant is enforced by the type system.
+pub enum RenderBackend {
+    OpenGl(Rc<glium::backend::Context>),
+    WebGpu(Rc<WebGpuState>),
+}
+
 pub struct TermWindow {
     pub window: Option<Window>,
     pub config: ConfigHandle,
@@ -975,11 +984,10 @@ pub struct TermWindow {
     pub mux_window_id_for_subscriptions: Arc<Mutex<MuxWindowId>>,
     pub render_metrics: RenderMetrics,
     render_state: Option<RenderState>,
-    input_map: InputMap,
-    /// If is_some, the LEADER modifier is active until the specified instant.
-    leader_is_down: Option<std::time::Instant>,
-    dead_key_status: DeadKeyStatus,
-    key_table_state: KeyTableState,
+    /// All keyboard-input state (input map, key tables, leader, dead keys).
+    /// Bundled so the flat `TermWindow` field list stays smaller; see
+    /// `KeyboardInputState` in `keyevent.rs`.
+    keyboard: KeyboardInputState,
     show_tab_bar: bool,
     show_scroll_bar: bool,
     tab_bar: TabBarState,
@@ -987,21 +995,15 @@ pub struct TermWindow {
     pub right_status: String,
     pub left_status: String,
     last_ui_item: Option<UIItem>,
-    /// Tracks whether the current mouse-down event is part of click-focus.
-    /// If so, we ignore mouse events until released
-    is_click_to_focus_window: bool,
     last_mouse_coords: (usize, i64),
-    window_drag_position: Option<MouseEvent>,
-    /// Set when a mouse press occurs near the window edge (resize zone).
-    /// Suppresses subsequent Move/Release events to prevent unwanted
-    /// text selection in TUI applications during OS-level window resize.
-    edge_drag_in_progress: bool,
-    is_window_dragging: bool,
+    /// All window-level drag / focus suppression flags (manual title-bar
+    /// drag, OS edge-resize, click-to-focus). See `WindowDragState`.
+    window_drag: WindowDragState,
     current_mouse_event: Option<MouseEvent>,
     prev_cursor: PrevCursorPos,
-    last_scroll_info: RenderableDimensions,
-    scrollbar_hovering: bool,
-    scrollbar_visible_until: Option<Instant>,
+    /// Scrollbar UI state (last-snapshot, hover, fade-out timer).
+    /// Bundled to keep the `TermWindow` field list shorter.
+    scrollbar: ScrollbarState,
     line_editor_selection: LineEditorSelectionState,
     line_editor_selection_owner: Option<PaneId>,
     input_broadcast_mode: InputBroadcastMode,
@@ -1081,8 +1083,11 @@ pub struct TermWindow {
     pending_screen_change_resize: bool,
     pending_pty_flush_after_resize: bool,
 
-    gl: Option<Rc<glium::backend::Context>>,
-    webgpu: Option<Rc<WebGpuState>>,
+    /// The active GPU rendering backend. Exactly one variant is alive for
+    /// the lifetime of the window; `None` only while the window is still
+    /// initializing. Lifts the previous `gl: Option<_> + webgpu: Option<_>`
+    /// pair into the type system so "both Some" is no longer representable.
+    render_backend: Option<RenderBackend>,
     config_subscription: Option<config::ConfigSubscription>,
     pending_config_reload_after_resize: bool,
     silent_reload_queued: bool,
@@ -1100,6 +1105,22 @@ pub struct TermWindow {
 }
 
 impl TermWindow {
+    /// Accessor for the OpenGL backend, if active.
+    pub(crate) fn opengl(&self) -> Option<&Rc<glium::backend::Context>> {
+        match &self.render_backend {
+            Some(RenderBackend::OpenGl(gl)) => Some(gl),
+            _ => None,
+        }
+    }
+
+    /// Accessor for the WebGpu backend, if active.
+    pub(crate) fn webgpu(&self) -> Option<&Rc<WebGpuState>> {
+        match &self.render_backend {
+            Some(RenderBackend::WebGpu(w)) => Some(w),
+            _ => None,
+        }
+    }
+
     fn should_reload_config_for_user_var(name: &str, _window_contains_pane: bool) -> bool {
         // We used to require `window_contains_pane && name == "KAKU_CONFIG_CHANGED"`
         // to avoid duplicate reloads when multiple windows are open. However, when
@@ -1206,7 +1227,7 @@ impl TermWindow {
             self.last_mouse_click = None;
             self.current_mouse_buttons.clear();
             self.current_mouse_capture = None;
-            self.is_click_to_focus_window = false;
+            self.window_drag.is_click_to_focus = false;
 
             for state in self.pane_state.borrow_mut().values_mut() {
                 state.mouse_terminal_coords.take();
@@ -1581,8 +1602,7 @@ impl TermWindow {
             layout_sticky_fullscreen_until: None,
             closed_tab_history: std::collections::VecDeque::new(),
             os_parameters: None,
-            gl: None,
-            webgpu: None,
+            render_backend: None,
             window: None,
             window_background,
             config: config.clone(),
@@ -1600,9 +1620,7 @@ impl TermWindow {
             pending_scale_changes: LinkedList::new(),
             terminal_size,
             render_state,
-            input_map: InputMap::new(&config),
-            leader_is_down: None,
-            dead_key_status: DeadKeyStatus::None,
+            keyboard: KeyboardInputState::new(InputMap::new(&config)),
             show_tab_bar,
             show_scroll_bar: config.enable_scroll_bar,
             tab_bar: TabBarState::default(),
@@ -1610,15 +1628,11 @@ impl TermWindow {
             right_status: String::new(),
             left_status: String::new(),
             last_mouse_coords: (0, -1),
-            window_drag_position: None,
-            edge_drag_in_progress: false,
-            is_window_dragging: false,
+            window_drag: WindowDragState::default(),
             current_mouse_event: None,
             current_modifier_and_leds: Default::default(),
             prev_cursor: PrevCursorPos::new(),
-            last_scroll_info: RenderableDimensions::default(),
-            scrollbar_hovering: false,
-            scrollbar_visible_until: None,
+            scrollbar: ScrollbarState::default(),
             line_editor_selection: LineEditorSelectionState::None,
             line_editor_selection_owner: None,
             input_broadcast_mode: InputBroadcastMode::Off,
@@ -1694,8 +1708,6 @@ impl TermWindow {
             tab_drag_state: None,
             tab_position_animations: HashMap::new(),
             last_ui_item: None,
-            is_click_to_focus_window: false,
-            key_table_state: KeyTableState::default(),
             modal: RefCell::new(None),
             opengl_info: None,
             toast: None,
@@ -1819,13 +1831,14 @@ impl TermWindow {
             }
 
             crate::startup_trace::mark("  TermWindow::created start");
+            // The backend init above always yields exactly one of (gl, webgpu).
+            // The `if let` ladder collapses to a single assignment + one call.
             if let Some(gl) = gl {
-                myself.gl.replace(Rc::clone(&gl));
-                myself.created(RenderContext::Glium(Rc::clone(&gl)))?;
-            }
-            if let Some(webgpu) = webgpu {
-                myself.webgpu.replace(Rc::clone(&webgpu));
-                myself.created(RenderContext::WebGpu(Rc::clone(&webgpu)))?;
+                myself.render_backend = Some(RenderBackend::OpenGl(Rc::clone(&gl)));
+                myself.created(RenderContext::Glium(gl))?;
+            } else if let Some(webgpu) = webgpu {
+                myself.render_backend = Some(RenderBackend::WebGpu(Rc::clone(&webgpu)));
+                myself.created(RenderContext::WebGpu(webgpu))?;
             }
             crate::startup_trace::mark("  TermWindow::created done");
             myself.subscribe_to_pane_updates();
@@ -1926,7 +1939,7 @@ impl TermWindow {
                 self.resizes_pending -= 1;
                 if self.is_repaint_pending {
                     self.is_repaint_pending = false;
-                    if self.webgpu.is_some() {
+                    if self.webgpu().is_some() {
                         self.do_paint_webgpu()?;
                     } else {
                         self.do_paint(window);
@@ -1955,7 +1968,7 @@ impl TermWindow {
                 } else {
                     log::trace!("DeadKeyStatus now: {:?}", status);
                 }
-                self.dead_key_status = status;
+                self.keyboard.dead_key_status = status;
                 self.update_title();
                 // Ensure that we repaint so that any composing
                 // text is updated
@@ -1966,7 +1979,7 @@ impl TermWindow {
                 if self.resizes_pending > 0 {
                     self.is_repaint_pending = true;
                     Ok(true)
-                } else if self.webgpu.is_some() {
+                } else if self.webgpu().is_some() {
                     self.do_paint_webgpu()
                 } else {
                     Ok(self.do_paint(window))
@@ -2024,8 +2037,8 @@ impl TermWindow {
     }
 
     fn do_paint(&mut self, window: &Window) -> bool {
-        let gl = match self.gl.as_ref() {
-            Some(gl) => gl,
+        let gl = match self.opengl() {
+            Some(gl) => Rc::clone(gl),
             None => return false,
         };
 
@@ -2050,14 +2063,17 @@ impl TermWindow {
     }
 
     fn do_paint_webgpu(&mut self) -> anyhow::Result<bool> {
-        self.webgpu.as_mut().unwrap().resize(self.dimensions);
+        // WebGpuState::resize takes &self; the enum accessor returns a
+        // borrow we can call straight through.
+        let dims = self.dimensions;
+        self.webgpu().expect("webgpu backend present").resize(dims);
         match self.do_paint_webgpu_impl() {
             Ok(ok) => Ok(ok),
             Err(err) => {
                 match err.downcast_ref::<wgpu::SurfaceError>() {
                     Some(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                         log::warn!("wgpu surface lost/outdated, reconfiguring and retrying");
-                        self.webgpu.as_mut().unwrap().resize(self.dimensions);
+                        self.webgpu().expect("webgpu backend present").resize(dims);
                         return self.do_paint_webgpu_impl();
                     }
                     Some(wgpu::SurfaceError::Timeout) => {
@@ -2892,7 +2908,7 @@ impl TermWindow {
             "config was reloaded, overrides: {:?}",
             self.config_overrides
         );
-        self.key_table_state.clear_stack();
+        self.keyboard.key_table_state.clear_stack();
         self.connection_name = Connection::get().map_or_else(
             || {
                 log::warn!(
@@ -2951,9 +2967,7 @@ impl TermWindow {
         );
 
         self.show_scroll_bar = config.enable_scroll_bar;
-        self.last_scroll_info = RenderableDimensions::default();
-        self.scrollbar_hovering = false;
-        self.scrollbar_visible_until = None;
+        self.scrollbar = ScrollbarState::default();
         self.shape_generation += 1;
         {
             let mut shape_cache = self.shape_cache.borrow_mut();
@@ -2968,8 +2982,8 @@ impl TermWindow {
         self.fancy_tab_bar.take();
         self.invalidate_fancy_tab_bar();
         self.invalidate_modal();
-        self.input_map = InputMap::new(&config);
-        self.leader_is_down = None;
+        self.keyboard.input_map = InputMap::new(&config);
+        self.keyboard.leader_is_down = None;
         self.render_state.as_mut().map(|rs| rs.config_changed());
         let dimensions = self.dimensions;
 
@@ -3080,11 +3094,11 @@ impl TermWindow {
         };
 
         let render_dims = tab.get_dimensions();
-        if render_dims == self.last_scroll_info {
+        if render_dims == self.scrollbar.last_scroll_info {
             return;
         }
 
-        self.last_scroll_info = render_dims;
+        self.scrollbar.last_scroll_info = render_dims;
 
         if let Some(window) = self.window.as_ref() {
             window.invalidate();
@@ -3139,14 +3153,14 @@ impl TermWindow {
                 })
         });
 
-        if hovering != self.scrollbar_hovering {
-            self.scrollbar_hovering = hovering;
+        if hovering != self.scrollbar.hovering {
+            self.scrollbar.hovering = hovering;
             context.invalidate();
         }
     }
 
     fn reveal_scrollbar(&mut self) {
-        self.scrollbar_visible_until = Some(Instant::now() + Duration::from_millis(900));
+        self.scrollbar.visible_until = Some(Instant::now() + Duration::from_millis(900));
         if let Some(window) = self.window.as_ref() {
             window.invalidate();
         }
@@ -3218,7 +3232,8 @@ impl TermWindow {
 
         let now = Instant::now();
         if let Some(deadline) = self
-            .scrollbar_visible_until
+            .scrollbar
+            .visible_until
             .filter(|deadline| *deadline > now)
         {
             let progress = (deadline - now).as_secs_f32() / 0.9;
@@ -4106,11 +4121,11 @@ impl TermWindow {
                 prevent_fallback,
             } => {
                 anyhow::ensure!(
-                    self.input_map.has_table(name),
+                    self.keyboard.input_map.has_table(name),
                     "ActivateKeyTable: no key_table named {}",
                     name
                 );
-                self.key_table_state.activate(KeyTableArgs {
+                self.keyboard.key_table_state.activate(KeyTableArgs {
                     name,
                     timeout_milliseconds: *timeout_milliseconds,
                     replace_current: *replace_current,
@@ -4121,11 +4136,11 @@ impl TermWindow {
                 self.update_title();
             }
             PopKeyTable => {
-                self.key_table_state.pop();
+                self.keyboard.key_table_state.pop();
                 self.update_title();
             }
             ClearKeyTableStack => {
-                self.key_table_state.clear_stack();
+                self.keyboard.key_table_state.clear_stack();
                 self.update_title();
             }
             Multiple(actions) => {
@@ -4386,8 +4401,8 @@ impl TermWindow {
                 self.clear_selection(pane);
             }
             StartWindowDrag => {
-                self.window_drag_position = self.current_mouse_event.clone();
-                self.is_window_dragging = self.window_drag_position.is_some();
+                self.window_drag.position = self.current_mouse_event.clone();
+                self.window_drag.is_window_dragging = self.window_drag.position.is_some();
             }
             OpenLinkAtMouseCursor => {
                 self.do_open_link_at_mouse_cursor(pane);
