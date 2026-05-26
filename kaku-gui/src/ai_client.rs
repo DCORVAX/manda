@@ -338,42 +338,48 @@ pub struct AiClient {
     client: reqwest::blocking::Client,
 }
 
+/// Build a blocking reqwest client that respects the user's system proxy.
+///
+/// Reqwest already honors standard proxy env vars; this helper additionally
+/// falls back to `scutil --proxy` on macOS so launches from the menu bar or
+/// Finder, which inherit launchd's empty environment, still go through the
+/// user's configured proxy. Without this fallback such launches silently
+/// bypass the proxy — the same hazard already fixed in the curl-based
+/// update path.
+///
+/// `timeout` controls the per-request ceiling; AI chat needs minutes for
+/// long streaming completions while web tools should fail fast.
+pub(crate) fn build_client_with_proxy(timeout: std::time::Duration) -> reqwest::blocking::Client {
+    let mut builder = reqwest::blocking::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .timeout(timeout);
+
+    if let Some(proxy_url) = config::proxy::detect_system_proxy() {
+        match reqwest::Proxy::all(&proxy_url) {
+            Ok(proxy) => {
+                log::info!("HTTP client using system proxy: {}", proxy_url);
+                builder = builder.proxy(proxy);
+            }
+            Err(e) => log::warn!(
+                "Failed to apply detected system proxy {}: {}; continuing without proxy",
+                proxy_url,
+                e
+            ),
+        }
+    }
+
+    builder.build().unwrap_or_else(|e| {
+        log::warn!("Failed to build HTTP client: {e}; falling back to default client");
+        reqwest::blocking::Client::new()
+    })
+}
+
 /// Process-level HTTP client shared across all overlay sessions.
 ///
 /// TLS stack is initialized once; subsequent `AiClient::new` calls are free.
-///
-/// Proxy resolution: respects the standard proxy env vars when present
-/// (reqwest does this by default), and otherwise falls back to the system
-/// proxy detected via `scutil --proxy` on macOS. Without that fallback,
-/// launches from the menu bar / Finder inherit launchd's empty environment
-/// and silently bypass the user's configured proxy — the same hazard already
-/// fixed in the curl-based update path.
 fn shared_http_client() -> &'static reqwest::blocking::Client {
     static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        let mut builder = reqwest::blocking::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(30))
-            .timeout(std::time::Duration::from_secs(600));
-
-        if let Some(proxy_url) = config::proxy::detect_system_proxy() {
-            match reqwest::Proxy::all(&proxy_url) {
-                Ok(proxy) => {
-                    log::info!("AI HTTP client using system proxy: {}", proxy_url);
-                    builder = builder.proxy(proxy);
-                }
-                Err(e) => log::warn!(
-                    "Failed to apply detected system proxy {}: {}; continuing without proxy",
-                    proxy_url,
-                    e
-                ),
-            }
-        }
-
-        builder.build().unwrap_or_else(|e| {
-            log::warn!("Failed to build HTTP client: {e}; falling back to default client");
-            reqwest::blocking::Client::new()
-        })
-    })
+    CLIENT.get_or_init(|| build_client_with_proxy(std::time::Duration::from_secs(600)))
 }
 
 impl AiClient {

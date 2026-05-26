@@ -6,18 +6,14 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 /// Shared HTTP client for all web tool calls (connection pool, keep-alive).
+///
+/// Built via `ai_client::build_client_with_proxy` so the user's system proxy
+/// applies to `web_fetch` / `web_search` / `http_request` the same way it
+/// already does for the chat client. The 60s timeout is intentionally
+/// shorter than the chat client's: web tools should fail fast.
 pub(super) fn web_client() -> &'static reqwest::blocking::Client {
     static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        reqwest::blocking::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .timeout(Duration::from_secs(60))
-            .build()
-            .unwrap_or_else(|e| {
-                log::warn!("web client build failed ({e}), falling back to default");
-                reqwest::blocking::Client::new()
-            })
-    })
+    CLIENT.get_or_init(|| crate::ai_client::build_client_with_proxy(Duration::from_secs(60)))
 }
 
 /// Maximum bytes to buffer from any single HTTP fetch response.
