@@ -339,8 +339,13 @@ fn write_json_atomic<T: Serialize>(file_name: &std::path::Path, value: &T) -> an
     ));
     std::fs::write(&tmp, format!("{encoded}\n"))
         .with_context(|| format!("write {}", tmp.display()))?;
-    std::fs::rename(&tmp, &file_name)
-        .with_context(|| format!("rename {} -> {}", tmp.display(), file_name.display()))?;
+    if let Err(e) = std::fs::rename(&tmp, &file_name) {
+        // Don't leave the sibling temp file behind to accumulate in the
+        // long-lived config dir when the rename half of the swap fails.
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e)
+            .with_context(|| format!("rename {} -> {}", tmp.display(), file_name.display()));
+    }
     Ok(())
 }
 
