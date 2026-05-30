@@ -333,11 +333,17 @@ pub(crate) fn run_agent(
 ) {
     // Local aliases so the body keeps reading naturally.
     const MAX_ROUNDS: usize = MAX_AGENT_ROUNDS;
+    // Rounds to skip summarization after an attempt that couldn't fold (model
+    // error, or nothing foldable). Without this, a history stuck in the
+    // [threshold, max) band issues a blocking fast_model call every round.
+    const SUMMARIZE_COOLDOWN_ROUNDS: usize = 3;
 
     let outputs_dir = ai_conversations::conversations_dir()
         .ok()
         .filter(|_| !conv_id.is_empty())
         .map(|d| d.join(&conv_id).join("tool_outputs"));
+
+    let mut summarize_cooldown: usize = 0;
 
     for round in 0..MAX_ROUNDS {
         if cancel.load(Ordering::Relaxed) {
@@ -351,7 +357,9 @@ pub(crate) fn run_agent(
         let history_bytes: usize = messages.iter().map(|m| m.byte_len()).sum();
         // Try summarization first: cheaper context fold than the hard wrap-up
         // nag. Uses fast_model when available so cost stays low.
-        if history_bytes >= summarize::SUMMARIZE_THRESHOLD_BYTES
+        if summarize_cooldown > 0 {
+            summarize_cooldown -= 1;
+        } else if history_bytes >= summarize::SUMMARIZE_THRESHOLD_BYTES
             && history_bytes < MAX_HISTORY_BYTES
         {
             let summ_model = client
@@ -360,7 +368,9 @@ pub(crate) fn run_agent(
                 .as_deref()
                 .filter(|s| !s.is_empty())
                 .unwrap_or(&model);
-            summarize::summarize_in_place(&client, summ_model, &mut messages);
+            if !summarize::summarize_in_place(&client, summ_model, &mut messages) {
+                summarize_cooldown = SUMMARIZE_COOLDOWN_ROUNDS;
+            }
         }
         let history_bytes: usize = messages.iter().map(|m| m.byte_len()).sum();
         if history_bytes >= MAX_HISTORY_BYTES {

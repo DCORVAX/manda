@@ -28,6 +28,11 @@ const KEEP_TAIL: usize = 6;
 
 const SUMMARIZE_PROMPT: &str = include_str!("../../../assets/prompts/summarize.txt");
 
+/// Leading marker for the folded-summary user message. Kept as a constant so
+/// the generator (`summarize_in_place`) and the detector (`is_summary_message`)
+/// can't drift apart.
+const SUMMARY_PREFIX: &str = "Previous conversation summary";
+
 fn role_of(msg: &ApiMessage) -> &str {
     msg.0.get("role").and_then(|v| v.as_str()).unwrap_or("user")
 }
@@ -72,6 +77,10 @@ fn is_tool_result(msg: &ApiMessage) -> bool {
     role_of(msg) == "tool"
 }
 
+fn is_summary_message(msg: &ApiMessage) -> bool {
+    role_of(msg) == "user" && content_of(msg).starts_with(SUMMARY_PREFIX)
+}
+
 fn first_tool_interaction(messages: &[ApiMessage]) -> Option<usize> {
     messages
         .iter()
@@ -101,7 +110,20 @@ fn summary_split_index(messages: &[ApiMessage]) -> Option<usize> {
         split -= 1;
     }
 
-    (split > PREFIX_KEEP).then_some(split)
+    if split <= PREFIX_KEEP {
+        return None;
+    }
+
+    // Don't fold when the only foldable content is a prior summary block.
+    // Recompressing a summary in isolation adds no new context and just
+    // compounds information loss every round (and, paired with an oversized
+    // tail that keeps total bytes above the threshold, would re-fire each
+    // round). Folding a summary together with genuinely new turns is fine.
+    if messages[PREFIX_KEEP..split].iter().all(is_summary_message) {
+        return None;
+    }
+
+    Some(split)
 }
 
 /// Replace older ordinary history with a single summary user message. Returns
@@ -141,8 +163,8 @@ pub(crate) fn summarize_in_place(
     };
 
     let summary_msg = ApiMessage::user(format!(
-        "Previous conversation summary (covers turns earlier than the {} most recent):\n{}",
-        KEEP_TAIL, summary
+        "{} (covers turns earlier than the {} most recent):\n{}",
+        SUMMARY_PREFIX, KEEP_TAIL, summary
     ));
 
     let tail: Vec<ApiMessage> = messages.drain(split..).collect();
@@ -219,5 +241,53 @@ mod tests {
         ];
 
         assert_eq!(summary_split_index(&messages), None);
+    }
+
+    fn summary_msg() -> ApiMessage {
+        ApiMessage::user(format!(
+            "{} (covers turns earlier than the {} most recent):\nfolded",
+            SUMMARY_PREFIX, KEEP_TAIL
+        ))
+    }
+
+    #[test]
+    fn summary_message_is_detected() {
+        assert!(is_summary_message(&summary_msg()));
+        assert!(!is_summary_message(&ApiMessage::user("ordinary user turn")));
+        assert!(!is_summary_message(&ApiMessage::assistant(SUMMARY_PREFIX)));
+    }
+
+    #[test]
+    fn summary_split_skips_when_only_prior_summary_is_foldable() {
+        // [system, env, summary, +KEEP_TAIL plain] -> foldable region is just
+        // the prior summary, so we must not re-fold it.
+        let mut messages = vec![
+            ApiMessage::system("system"),
+            ApiMessage::user("environment"),
+            summary_msg(),
+        ];
+        for idx in 0..KEEP_TAIL {
+            messages.push(ApiMessage::user(format!("tail {idx}")));
+        }
+
+        assert_eq!(summary_split_index(&messages), None);
+    }
+
+    #[test]
+    fn summary_split_folds_new_turns_after_prior_summary() {
+        // A prior summary followed by genuinely new turns is foldable: rolling
+        // the new content into the summary is the intended behavior.
+        let mut messages = vec![
+            ApiMessage::system("system"),
+            ApiMessage::user("environment"),
+            summary_msg(),
+            ApiMessage::user("new turn 1"),
+            ApiMessage::assistant("new turn 2"),
+        ];
+        for idx in 0..KEEP_TAIL {
+            messages.push(ApiMessage::user(format!("tail {idx}")));
+        }
+
+        assert_eq!(summary_split_index(&messages), Some(5));
     }
 }
