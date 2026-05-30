@@ -380,7 +380,16 @@ impl super::TermWindow {
                     schedule_deferred_font_scale_pty_resize_epoch(window, next.epoch);
                 }
             }
-            DeferredFontScalePtyResizeAction::Remove | DeferredFontScalePtyResizeAction::Stale => {}
+            DeferredFontScalePtyResizeAction::Remove => {
+                // Cells have stabilized after the font-scale debounce. The defer
+                // path only updated split-tree geometry via resize_visual, so the
+                // PTY never saw the post-scale size. Emit one final SIGWINCH now,
+                // mirroring the live-resize flush, so the shell learns the new
+                // pixel geometry (and the row/col count when the window was
+                // clamped at the screen edge or the WM is tiling).
+                self.flush_all_pane_pty_sizes();
+            }
+            DeferredFontScalePtyResizeAction::Stale => {}
         }
     }
 
