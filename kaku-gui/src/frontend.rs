@@ -180,10 +180,9 @@ pub fn confirm_and_apply_update() {
     promise::spawn::spawn_into_main_thread(async move {
         if let Some(fe) = try_front_end() {
             if let Some(gui) = fe.gui_windows().first() {
-                gui.window
-                    .notify(TermWindowNotif::Apply(Box::new(|tw| {
-                        tw.show_update_confirmation();
-                    })));
+                gui.window.notify(TermWindowNotif::Apply(Box::new(|tw| {
+                    tw.show_update_confirmation();
+                })));
                 return;
             }
         }
