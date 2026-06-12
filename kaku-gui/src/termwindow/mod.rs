@@ -171,6 +171,14 @@ const VSCODE_OPEN_CANDIDATES: &[&str] = &[
 ];
 
 const TOP_TAB_LAYOUT_FULLSCREEN_STICKY_MS: u64 = 160;
+/// Consecutive surface acquire timeouts before forcing a swapchain
+/// reconfigure; the Metal backend reports a sleep/wake-invalidated layer
+/// as Timeout (nil nextDrawable), see #458.
+const CONSECUTIVE_TIMEOUTS_BEFORE_RECONFIGURE: u32 = 3;
+/// Stop self-scheduling recovery repaints after this many consecutive
+/// surface acquire failures; user input and PTY output still trigger
+/// paint attempts beyond it.
+const WEBGPU_SURFACE_RECOVERY_SELF_INVALIDATE_LIMIT: u32 = 120;
 
 #[derive(Clone, Debug)]
 struct FileLinkTarget {
@@ -2097,24 +2105,85 @@ impl TermWindow {
         let dims = self.dimensions;
         self.webgpu().expect("webgpu backend present").resize(dims);
         match self.do_paint_webgpu_impl() {
-            Ok(ok) => Ok(ok),
+            Ok(ok) => {
+                self.webgpu()
+                    .expect("webgpu backend present")
+                    .note_acquire_ok();
+                Ok(ok)
+            }
             Err(err) => {
                 match err.downcast_ref::<wgpu::SurfaceError>() {
                     Some(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        log::warn!("wgpu surface lost/outdated, reconfiguring and retrying");
-                        self.webgpu().expect("webgpu backend present").resize(dims);
-                        return self.do_paint_webgpu_impl();
+                        // resize() no-ops here because the dimensions did not
+                        // change: sleep/wake and display reconfiguration kill
+                        // the drawable without a size change (#458), so force
+                        // a fresh swapchain before retrying.
+                        log::warn!(
+                            "wgpu surface lost/outdated, reconfiguring surface and retrying"
+                        );
+                        let webgpu = self.webgpu().expect("webgpu backend present");
+                        webgpu.note_acquire_failure();
+                        webgpu.reconfigure_surface();
+                        return match self.do_paint_webgpu_impl() {
+                            Ok(ok) => {
+                                self.webgpu()
+                                    .expect("webgpu backend present")
+                                    .note_acquire_ok();
+                                Ok(ok)
+                            }
+                            Err(err) => {
+                                self.schedule_webgpu_surface_recovery();
+                                Err(err)
+                            }
+                        };
                     }
                     Some(wgpu::SurfaceError::Timeout) => {
                         // Under Fifo present mode this can happen transiently
-                        // during rapid resize; skip this frame rather than crash
-                        log::debug!("wgpu surface timeout, skipping frame");
+                        // during rapid resize, but the Metal backend also maps
+                        // a nil nextDrawable to Timeout, which is what a
+                        // sleep/wake-invalidated layer keeps returning (#458).
+                        // Skipping forever would freeze rendering while the
+                        // PTY stays alive, so periodically force a fresh
+                        // swapchain instead.
+                        let failures = self
+                            .webgpu()
+                            .expect("webgpu backend present")
+                            .note_acquire_failure();
+                        if failures % CONSECUTIVE_TIMEOUTS_BEFORE_RECONFIGURE == 0 {
+                            log::warn!(
+                                "wgpu surface timed out {failures} consecutive frames, \
+                                 reconfiguring surface"
+                            );
+                            self.webgpu()
+                                .expect("webgpu backend present")
+                                .reconfigure_surface();
+                        } else {
+                            log::debug!("wgpu surface timeout, skipping frame");
+                        }
+                        self.schedule_webgpu_surface_recovery();
                         return Ok(false);
                     }
                     _ => {}
                 }
                 Err(err)
             }
+        }
+    }
+
+    /// Keep repaint attempts flowing while the surface is broken so an idle
+    /// window recovers without user input. Capped so a surface that never
+    /// recovers does not busy-render at max_fps forever; key presses and PTY
+    /// output still trigger paint attempts past the cap.
+    fn schedule_webgpu_surface_recovery(&mut self) {
+        let failures = self
+            .webgpu()
+            .map(|webgpu| webgpu.acquire_failure_count())
+            .unwrap_or(0);
+        if failures > WEBGPU_SURFACE_RECOVERY_SELF_INVALIDATE_LIMIT {
+            return;
+        }
+        if let Some(window) = self.window.as_ref() {
+            window.invalidate();
         }
     }
 

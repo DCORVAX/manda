@@ -1,7 +1,7 @@
 use crate::quad::Vertex;
 use anyhow::anyhow;
 use config::{ConfigHandle, GpuInfo, WebGpuPowerPreference};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use window::bitmaps::Texture2d;
@@ -35,6 +35,10 @@ pub struct WebGpuState {
     pub texture_nearest_sampler: wgpu::Sampler,
     pub texture_linear_sampler: wgpu::Sampler,
     pub handle: RawHandlePair,
+    /// Consecutive get_current_texture failures. Drives forced surface
+    /// reconfiguration after sleep/wake or display reconfiguration
+    /// invalidates the drawable without a dimension change.
+    acquire_failures: Cell<u32>,
 }
 
 pub struct RawHandlePair {
@@ -510,6 +514,7 @@ impl WebGpuState {
             texture_bind_group_layout,
             texture_nearest_sampler,
             texture_linear_sampler,
+            acquire_failures: Cell::new(0),
         })
     }
 
@@ -552,5 +557,32 @@ impl WebGpuState {
             // <https://github.com/wezterm/wezterm/issues/2881>
             self.surface.configure(&self.device, &config);
         }
+    }
+
+    /// Reconfigure the surface even though the dimensions are unchanged.
+    /// resize() deliberately no-ops on identical dimensions (hot path, called
+    /// before every paint), but macOS sleep/wake and display reconfiguration
+    /// invalidate the Metal drawable while the window size stays the same;
+    /// a forced configure is the only way to obtain a fresh swapchain then.
+    pub fn reconfigure_surface(&self) {
+        let config = self.config.borrow();
+        if config.width > 0 && config.height > 0 {
+            self.surface.configure(&self.device, &config);
+        }
+    }
+
+    pub fn note_acquire_ok(&self) {
+        self.acquire_failures.set(0);
+    }
+
+    /// Record a get_current_texture failure; returns the consecutive count.
+    pub fn note_acquire_failure(&self) -> u32 {
+        let failures = self.acquire_failures.get().saturating_add(1);
+        self.acquire_failures.set(failures);
+        failures
+    }
+
+    pub fn acquire_failure_count(&self) -> u32 {
+        self.acquire_failures.get()
     }
 }
