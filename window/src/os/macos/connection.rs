@@ -13,7 +13,7 @@ use crate::spawn::*;
 use crate::Appearance;
 use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicyRegular, NSScreen};
 use cocoa::base::{id, nil};
-use cocoa::foundation::{NSArray, NSInteger, NSString};
+use cocoa::foundation::{NSArray, NSInteger, NSPoint, NSString};
 use core_foundation::base::TCFType;
 use core_foundation::string::{CFString, CFStringRef};
 use objc::runtime::{Object, BOOL, YES};
@@ -364,11 +364,22 @@ fn kaku_is_default_terminal() -> bool {
 pub fn nsscreen_to_screen_info(screen: *mut Object) -> ScreenInfo {
     let frame = unsafe { NSScreen::frame(screen) };
     let backing_frame = unsafe { NSScreen::convertRectToBacking_(screen, frame) };
+    // rect is expressed in the canonical ScreenPoint space (primary-screen
+    // scale, y-down, origin at the primary screen's top left) so that it can
+    // be combined directly with set_window_position / window_position.
+    let top_left = super::window::cartesian_to_screen_point(NSPoint::new(
+        frame.origin.x,
+        frame.origin.y + frame.size.height,
+    ));
+    let bottom_right = super::window::cartesian_to_screen_point(NSPoint::new(
+        frame.origin.x + frame.size.width,
+        frame.origin.y,
+    ));
     let rect = euclid::rect(
-        backing_frame.origin.x as isize,
-        backing_frame.origin.y as isize,
-        backing_frame.size.width as isize,
-        backing_frame.size.height as isize,
+        top_left.x,
+        top_left.y,
+        bottom_right.x - top_left.x,
+        bottom_right.y - top_left.y,
     );
     let has_name: BOOL = unsafe { msg_send!(screen, respondsToSelector: sel!(localizedName)) };
     let name = if has_name == YES {

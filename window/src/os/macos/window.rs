@@ -1101,8 +1101,8 @@ impl Window {
         let scale_factor = (conn.default_dpi() / crate::DEFAULT_DPI) as usize;
         let mut width = width / scale_factor;
         let mut height = height / scale_factor;
-        let x = x.map(|x| x / scale_factor as i32);
-        let y = y.map(|y| y / scale_factor as i32);
+        // x/y are canonical ScreenPoint pixels; set_window_position performs
+        // the conversion to AppKit points, so no scale division here.
 
         let explicit_initial_pos = match (x, y) {
             (Some(x), Some(y)) => Some(ScreenPoint::new(x as isize, y as isize)),
@@ -1713,7 +1713,7 @@ impl WindowOps for Window {
 
 /// Convert from a macOS screen coordinate with the origin in the bottom left
 /// to a pixel coordinate with its origin in the top left
-fn cartesian_to_screen_point(cartesian: NSPoint) -> ScreenPoint {
+pub(crate) fn cartesian_to_screen_point(cartesian: NSPoint) -> ScreenPoint {
     unsafe {
         let screens = NSScreen::screens(nil);
         let primary = screens.objectAtIndex(0);
