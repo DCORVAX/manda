@@ -513,13 +513,20 @@ pub(super) fn post_antigravity_lsp_json(
         .ok()?;
     let url = format!("https://127.0.0.1:{https_port}{path}");
 
-    // Token is sent through argv for portability across environments.
-    let output = std::process::Command::new("/usr/bin/curl")
+    // The CSRF token is a secret, so pass it via --config - (stdin) instead of
+    // argv to avoid exposing it in `ps` output. The payload and non-secret
+    // headers stay on argv. Escape backslash/quote for the curl config quoting
+    // rules. Non-secret headers and the data still go through argv.
+    let escaped_token = csrf_token.replace('\\', "\\\\").replace('"', "\\\"");
+    let curl_config = format!("header = \"{ANTIGRAVITY_CSRF_HEADER}: {escaped_token}\"");
+    let mut child = match std::process::Command::new("/usr/bin/curl")
         .args([
             "-k",
             "-sS",
             "--max-time",
             "3",
+            "--config",
+            "-",
             "-X",
             "POST",
             &url,
@@ -530,12 +537,29 @@ pub(super) fn post_antigravity_lsp_json(
                 "Connect-Protocol-Version: {}",
                 ANTIGRAVITY_CONNECT_PROTOCOL_VERSION
             ),
-            "-H",
-            &format!("{ANTIGRAVITY_CSRF_HEADER}: {csrf_token}"),
             "--data",
             &payload,
         ])
-        .output()
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(err) => {
+            log::debug!("antigravity lsp curl spawn failed for {}: {}", path, err);
+            return None;
+        }
+    };
+
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        let _ = stdin.write_all(curl_config.as_bytes());
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|err| log::debug!("antigravity lsp curl wait failed for {}: {}", path, err))
         .ok()?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
