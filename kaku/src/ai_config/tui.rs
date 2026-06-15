@@ -987,7 +987,8 @@ fn fetch_kaku_assistant_models(api_key: &str, base_url: &str) -> Vec<String> {
 
     let url = format!("{}/models", base_url);
     // Pass Authorization header via --config - (stdin) to avoid argv exposure.
-    let curl_config = format!("header = \"Authorization: Bearer {}\"", api_key);
+    let authorization = format!("Bearer {api_key}");
+    let curl_config = curl_config_header("Authorization", &authorization);
     let mut child = match std::process::Command::new("/usr/bin/curl")
         .args(["-sS", "--fail", "--max-time", "3", "--config", "-", &url])
         .stdin(std::process::Stdio::piped())
@@ -4037,6 +4038,27 @@ mod tests {
             outer.extend(encode_len_delimited(1, &entry));
         }
         base64::engine::general_purpose::STANDARD.encode(outer)
+    }
+
+    #[test]
+    fn curl_config_header_escapes_quoted_value() {
+        assert_eq!(
+            curl_config_header("Authorization", "Bearer a\\b\"c\n\r\tend"),
+            "header = \"Authorization: Bearer a\\\\b\\\"c\\n\\r\\tend\"\n"
+        );
+    }
+
+    #[test]
+    fn antigravity_lsp_curl_args_do_not_include_csrf_token() {
+        let token = "secret-csrf-token";
+        let args = antigravity_lsp_curl_args("https://127.0.0.1:56503/status", "{}");
+
+        assert!(!args.iter().any(|arg| arg.contains(token)));
+        assert!(!args.iter().any(|arg| arg.contains("x-codeium-csrf-token")));
+
+        let curl_config = curl_config_header("x-codeium-csrf-token", token);
+        assert!(curl_config.contains(token));
+        assert!(curl_config.contains("x-codeium-csrf-token"));
     }
 
     #[test]

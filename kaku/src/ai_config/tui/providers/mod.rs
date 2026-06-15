@@ -403,6 +403,33 @@ pub(super) fn antigravity_arg_value<'a>(args: &'a [&'a str], key: &str) -> Optio
         .and_then(|idx| args.get(idx + 1).copied())
 }
 
+pub(super) fn curl_config_quote(value: &str) -> String {
+    let mut quoted = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' => quoted.push_str("\\\\"),
+            '"' => quoted.push_str("\\\""),
+            '\n' => quoted.push_str("\\n"),
+            '\r' => quoted.push_str("\\r"),
+            '\t' => quoted.push_str("\\t"),
+            _ => quoted.push(ch),
+        }
+    }
+    quoted
+}
+
+pub(super) fn curl_config_header(name: &str, value: &str) -> String {
+    format!("header = \"{}: {}\"\n", name, curl_config_quote(value))
+}
+
+pub(super) fn curl_config_data_urlencode(name: &str, value: &str) -> String {
+    format!(
+        "data-urlencode = \"{}={}\"\n",
+        name,
+        curl_config_quote(value)
+    )
+}
+
 pub(super) fn parse_antigravity_process_info_line(line: &str) -> Option<AntigravityProcessInfo> {
     let mut parts = line.split_whitespace();
     let pid = parts.next()?.parse::<u32>().ok()?;
@@ -502,6 +529,27 @@ pub(super) fn read_antigravity_listen_ports(pid: u32) -> Vec<u16> {
         .collect()
 }
 
+pub(super) fn antigravity_lsp_curl_args(url: &str, payload: &str) -> Vec<String> {
+    vec![
+        "-k".into(),
+        "-sS".into(),
+        "--max-time".into(),
+        "3".into(),
+        "-X".into(),
+        "POST".into(),
+        url.into(),
+        "-H".into(),
+        "Content-Type: application/json".into(),
+        "-H".into(),
+        format!(
+            "Connect-Protocol-Version: {}",
+            ANTIGRAVITY_CONNECT_PROTOCOL_VERSION
+        ),
+        "--data".into(),
+        payload.into(),
+    ]
+}
+
 pub(super) fn post_antigravity_lsp_json(
     https_port: u16,
     csrf_token: &str,
@@ -512,30 +560,32 @@ pub(super) fn post_antigravity_lsp_json(
         .map_err(|err| log::debug!("antigravity payload serialize failed: {}", err))
         .ok()?;
     let url = format!("https://127.0.0.1:{https_port}{path}");
+    let args = antigravity_lsp_curl_args(&url, &payload);
+    let curl_config = curl_config_header(ANTIGRAVITY_CSRF_HEADER, csrf_token);
 
-    // Token is sent through argv for portability across environments.
-    let output = std::process::Command::new("/usr/bin/curl")
-        .args([
-            "-k",
-            "-sS",
-            "--max-time",
-            "3",
-            "-X",
-            "POST",
-            &url,
-            "-H",
-            "Content-Type: application/json",
-            "-H",
-            &format!(
-                "Connect-Protocol-Version: {}",
-                ANTIGRAVITY_CONNECT_PROTOCOL_VERSION
-            ),
-            "-H",
-            &format!("{ANTIGRAVITY_CSRF_HEADER}: {csrf_token}"),
-            "--data",
-            &payload,
-        ])
-        .output()
+    let mut child = match std::process::Command::new("/usr/bin/curl")
+        .args(&args)
+        .args(["--config", "-"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(err) => {
+            log::debug!("antigravity lsp curl spawn failed for {}: {}", path, err);
+            return None;
+        }
+    };
+
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        let _ = stdin.write_all(curl_config.as_bytes());
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|err| log::debug!("antigravity lsp curl wait failed for {}: {}", path, err))
         .ok()?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1375,12 +1425,26 @@ pub(super) fn write_json_cache(path: &Path, value: &serde_json::Value) {
     }
 }
 
-pub(super) fn run_curl(args: &[&str]) -> Option<serde_json::Value> {
-    // Request headers are passed via argv for portability, which means short-lived
-    // tokens may be visible to local process inspectors such as `ps` while curl runs.
-    let output = std::process::Command::new(OsStr::new("/usr/bin/curl"))
+pub(super) fn run_curl_with_config(args: &[&str], curl_config: &str) -> Option<serde_json::Value> {
+    let mut command = std::process::Command::new(OsStr::new("/usr/bin/curl"));
+    command
         .args(args)
-        .output()
+        .args(["--config", "-"])
+        .stdin(std::process::Stdio::piped());
+
+    let mut child = command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .ok()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        let _ = stdin.write_all(curl_config.as_bytes());
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|err| log::debug!("curl wait failed: {}", err))
         .ok()?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1407,18 +1471,23 @@ pub(super) fn fetch_codex_usage_json() -> Option<serde_json::Value> {
     }
 
     let (access_token, account_id) = read_codex_auth_info()?;
-    let live = run_curl(&[
-        "-sS",
-        "--max-time",
-        "3",
-        "-H",
-        &format!("Authorization: Bearer {access_token}"),
-        "-H",
-        &format!("ChatGPT-Account-Id: {account_id}"),
-        "-H",
-        "Accept: application/json",
-        "https://chatgpt.com/backend-api/wham/usage",
-    ]);
+    let authorization = format!("Bearer {access_token}");
+    let curl_config = format!(
+        "{}{}",
+        curl_config_header("Authorization", &authorization),
+        curl_config_header("ChatGPT-Account-Id", &account_id)
+    );
+    let live = run_curl_with_config(
+        &[
+            "-sS",
+            "--max-time",
+            "3",
+            "-H",
+            "Accept: application/json",
+            "https://chatgpt.com/backend-api/wham/usage",
+        ],
+        &curl_config,
+    );
 
     if let Some(value) = live {
         write_json_cache(&cache_path, &value);
@@ -1570,22 +1639,25 @@ pub(super) fn write_claude_oauth_credentials(credentials: &serde_json::Value) ->
 pub(super) fn refresh_claude_oauth_access_token() -> Option<String> {
     let current_credentials = read_claude_oauth_credentials()?;
     let refresh_token = read_claude_oauth_refresh_token()?;
-    let refreshed = run_curl(&[
-        "-sS",
-        "--max-time",
-        "5",
-        "-X",
-        "POST",
-        CLAUDE_OAUTH_TOKEN_URL,
-        "-H",
-        "Content-Type: application/x-www-form-urlencoded",
-        "--data-urlencode",
-        "grant_type=refresh_token",
-        "--data-urlencode",
-        &format!("refresh_token={refresh_token}"),
-        "--data-urlencode",
-        &format!("client_id={CLAUDE_OAUTH_CLIENT_ID}"),
-    ])?;
+    let client_id = format!("client_id={CLAUDE_OAUTH_CLIENT_ID}");
+    let curl_config = curl_config_data_urlencode("refresh_token", &refresh_token);
+    let refreshed = run_curl_with_config(
+        &[
+            "-sS",
+            "--max-time",
+            "5",
+            "-X",
+            "POST",
+            CLAUDE_OAUTH_TOKEN_URL,
+            "-H",
+            "Content-Type: application/x-www-form-urlencoded",
+            "--data-urlencode",
+            "grant_type=refresh_token",
+            "--data-urlencode",
+            &client_id,
+        ],
+        &curl_config,
+    )?;
 
     let access_token = refreshed
         .get("access_token")
@@ -1633,22 +1705,25 @@ pub(super) fn refresh_claude_oauth_access_token() -> Option<String> {
 pub(super) fn fetch_claude_usage_with_access_token(
     access_token: &str,
 ) -> Option<serde_json::Value> {
-    run_curl(&[
-        "-sS",
-        "--max-time",
-        "3",
-        "-H",
-        &format!("Authorization: Bearer {access_token}"),
-        "-H",
-        "anthropic-beta: oauth-2025-04-20",
-        "-H",
-        "Accept: application/json",
-        "-H",
-        "Content-Type: application/json",
-        "-H",
-        "User-Agent: claude-code/2.0.27",
-        "https://api.anthropic.com/api/oauth/usage",
-    ])
+    let authorization = format!("Bearer {access_token}");
+    let curl_config = curl_config_header("Authorization", &authorization);
+    run_curl_with_config(
+        &[
+            "-sS",
+            "--max-time",
+            "3",
+            "-H",
+            "anthropic-beta: oauth-2025-04-20",
+            "-H",
+            "Accept: application/json",
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            "User-Agent: claude-code/2.0.27",
+            "https://api.anthropic.com/api/oauth/usage",
+        ],
+        &curl_config,
+    )
 }
 
 pub(super) fn fetch_claude_usage_json() -> Option<serde_json::Value> {
@@ -1784,20 +1859,23 @@ pub(super) fn kimi_access_token_needs_refresh() -> bool {
 pub(super) fn refresh_kimi_access_token() -> Option<String> {
     let current_credentials = read_kimi_oauth_credentials()?;
     let refresh_token = read_kimi_refresh_token()?;
-    let refreshed = run_curl(&[
-        "-sS",
-        "--max-time",
-        "5",
-        "-X",
-        "POST",
-        KIMI_OAUTH_TOKEN_URL,
-        "--data-urlencode",
-        &format!("client_id={KIMI_OAUTH_CLIENT_ID}"),
-        "--data-urlencode",
-        "grant_type=refresh_token",
-        "--data-urlencode",
-        &format!("refresh_token={refresh_token}"),
-    ])?;
+    let client_id = format!("client_id={KIMI_OAUTH_CLIENT_ID}");
+    let curl_config = curl_config_data_urlencode("refresh_token", &refresh_token);
+    let refreshed = run_curl_with_config(
+        &[
+            "-sS",
+            "--max-time",
+            "5",
+            "-X",
+            "POST",
+            KIMI_OAUTH_TOKEN_URL,
+            "--data-urlencode",
+            &client_id,
+            "--data-urlencode",
+            "grant_type=refresh_token",
+        ],
+        &curl_config,
+    )?;
 
     let access_token = refreshed
         .get("access_token")
@@ -1856,14 +1934,12 @@ pub(super) fn read_kimi_base_url() -> String {
 
 pub(super) fn fetch_kimi_usage_with_access_token(access_token: &str) -> Option<serde_json::Value> {
     let usage_url = format!("{}/usages", read_kimi_base_url().trim_end_matches('/'));
-    run_curl(&[
-        "-sS",
-        "--max-time",
-        "3",
-        "-H",
-        &format!("Authorization: Bearer {access_token}"),
-        usage_url.as_str(),
-    ])
+    let authorization = format!("Bearer {access_token}");
+    let curl_config = curl_config_header("Authorization", &authorization);
+    run_curl_with_config(
+        &["-sS", "--max-time", "3", usage_url.as_str()],
+        &curl_config,
+    )
 }
 
 pub(super) fn fetch_kimi_usage_json() -> Option<serde_json::Value> {
@@ -2025,24 +2101,27 @@ pub(super) fn fetch_copilot_usage_json() -> Option<serde_json::Value> {
     let cache_path = copilot_usage_cache_path();
     fetch_usage_json_with_cache(cache_path, "copilot usage cache", || {
         let token = read_gh_auth_token()?;
-        run_curl(&[
-            "-sS",
-            "--max-time",
-            "3",
-            "-H",
-            &format!("Authorization: token {token}"),
-            "-H",
-            "Accept: application/json",
-            "-H",
-            "Editor-Version: vscode/1.96.2",
-            "-H",
-            "Editor-Plugin-Version: copilot-chat/0.26.7",
-            "-H",
-            "User-Agent: GitHubCopilotChat/0.26.7",
-            "-H",
-            "X-Github-Api-Version: 2025-04-01",
-            "https://api.github.com/copilot_internal/user",
-        ])
+        let authorization = format!("token {token}");
+        let curl_config = curl_config_header("Authorization", &authorization);
+        run_curl_with_config(
+            &[
+                "-sS",
+                "--max-time",
+                "3",
+                "-H",
+                "Accept: application/json",
+                "-H",
+                "Editor-Version: vscode/1.96.2",
+                "-H",
+                "Editor-Plugin-Version: copilot-chat/0.26.7",
+                "-H",
+                "User-Agent: GitHubCopilotChat/0.26.7",
+                "-H",
+                "X-Github-Api-Version: 2025-04-01",
+                "https://api.github.com/copilot_internal/user",
+            ],
+            &curl_config,
+        )
     })
 }
 
