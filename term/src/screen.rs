@@ -496,9 +496,13 @@ impl Screen {
         bidi_mode: BidiMode,
     ) {
         let line_idx = self.phys_row(y);
+        let physical_cols = self.physical_cols;
         let line = self.line_mut(line_idx);
         if cols.start == 0 {
             bidi_mode.apply_to_line(line, seqno);
+        }
+        if cols.end >= physical_cols && line.last_cell_was_wrapped() {
+            line.set_last_cell_was_wrapped(false, seqno);
         }
         line.fill_range(cols, &Cell::blank_with_attrs(attr.clone()), seqno);
     }

@@ -80,6 +80,51 @@ fn erase_in_line_clears_to_end_of_line() {
 }
 
 #[test]
+fn clack_style_rerender_clears_wrapped_lines() {
+    let mut term = TestTerm::new(5, 12, 0);
+
+    // skills/@clack rerenders by moving back to the top of the prompt block,
+    // clearing each visual row, then writing the next frame.
+    term.print("\x1b[36m│ ❯ ○ alpha-beta-gamma\x1b[0m\r\n");
+    term.print("│   ○ Other\r\n");
+    term.print("└\r\n");
+    assert!(
+        term.screen().visible_lines()[0].last_cell_was_wrapped(),
+        "long prompt label should wrap before the next clack frame"
+    );
+
+    term.print("\x1b[4A");
+    for _ in 0..4 {
+        term.print("\x1b[2K\x1b[1B");
+    }
+    for row in 0..4 {
+        assert!(
+            !term.screen().visible_lines()[row].last_cell_was_wrapped(),
+            "clear-line should reset wrapped state on row {}",
+            row
+        );
+    }
+    term.print("\x1b[4A");
+
+    term.print("│   ○ alpha\r\n");
+    term.print("\x1b[36m│ ❯ ○ Other\x1b[0m\r\n");
+    term.print("└\r\n");
+
+    assert_visible_contents(
+        &term,
+        file!(),
+        line!(),
+        &[
+            "│   ○ alpha ",
+            "│ ❯ ○ Other ",
+            "└           ",
+            "            ",
+            "",
+        ],
+    );
+}
+
+#[test]
 fn delete_lines_scrolls_content_up() {
     let mut term = TestTerm::new(4, 10, 0);
     term.print("line0\r\nline1\r\nline2\r\nline3");
