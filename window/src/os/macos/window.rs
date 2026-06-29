@@ -79,6 +79,11 @@ const ZOOM_HIDE_CONTENT_MS: u64 = 20;
 const FULLSCREEN_DISPLAY_CHANGE_OPENGL_PRESENT_DEFER_MS: u64 = 300;
 const WINDOWED_DISPLAY_CHANGE_OPENGL_PRESENT_DEFER_MS: u64 = 150;
 const MOVE_PERSIST_DELAY_SECS: f64 = 0.35;
+// cocoa 0.25 does not expose these newer AppKit collection-behavior bits.
+// Keep the raw values local so Kaku can opt into native macOS window tiling
+// without broadening the dependency surface.
+const NS_WINDOW_COLLECTION_BEHAVIOR_FULLSCREEN_ALLOWS_TILING_BITS: NSUInteger = 1 << 11;
+const NS_WINDOW_COLLECTION_BEHAVIOR_FULLSCREEN_DISALLOWS_TILING_BITS: NSUInteger = 1 << 12;
 // Keep these accessibility strings stable. Some voice input tools match
 // TextArea semantics and descriptions heuristically to decide whether the
 // view is editable text.
@@ -2620,6 +2625,42 @@ fn effective_decorations(
     decorations
 }
 
+fn fullscreen_allows_tiling_behavior() -> appkit::NSWindowCollectionBehavior {
+    unsafe {
+        appkit::NSWindowCollectionBehavior::from_bits_unchecked(
+            NS_WINDOW_COLLECTION_BEHAVIOR_FULLSCREEN_ALLOWS_TILING_BITS,
+        )
+    }
+}
+
+fn fullscreen_disallows_tiling_behavior() -> appkit::NSWindowCollectionBehavior {
+    unsafe {
+        appkit::NSWindowCollectionBehavior::from_bits_unchecked(
+            NS_WINDOW_COLLECTION_BEHAVIOR_FULLSCREEN_DISALLOWS_TILING_BITS,
+        )
+    }
+}
+
+fn native_macos_fullscreen_collection_behavior(
+    mut behavior: appkit::NSWindowCollectionBehavior,
+    native_macos_fullscreen_mode: bool,
+) -> appkit::NSWindowCollectionBehavior {
+    let primary = appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenPrimary;
+    let auxiliary =
+        appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary;
+    let allows_tiling = fullscreen_allows_tiling_behavior();
+    let disallows_tiling = fullscreen_disallows_tiling_behavior();
+
+    if native_macos_fullscreen_mode {
+        behavior.remove(auxiliary | disallows_tiling);
+        behavior.insert(primary | allows_tiling);
+    } else {
+        behavior.remove(primary | auxiliary | allows_tiling | disallows_tiling);
+    }
+
+    behavior
+}
+
 fn apply_decorations_to_window(
     window: &StrongPtr,
     decorations: WindowDecorations,
@@ -2630,22 +2671,10 @@ fn apply_decorations_to_window(
     let decorations = effective_decorations(decorations, integrated_title_button_style);
     unsafe {
         window.setStyleMask_(mask);
-        let mut behavior = window.collectionBehavior();
-        if native_macos_fullscreen_mode {
-            behavior.remove(
-                appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary,
-            );
-            behavior.insert(
-                appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenPrimary,
-            );
-            window.setCollectionBehavior_(behavior);
-        } else {
-            behavior.remove(
-                appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenPrimary
-                    | appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary,
-            );
-            window.setCollectionBehavior_(behavior);
-        }
+        window.setCollectionBehavior_(native_macos_fullscreen_collection_behavior(
+            window.collectionBehavior(),
+            native_macos_fullscreen_mode,
+        ));
 
         let hidden = if decorations.contains(WindowDecorations::TITLE)
             || decorations.contains(WindowDecorations::INTEGRATED_BUTTONS)
@@ -3735,6 +3764,52 @@ mod tests {
             requested_window_drag_action(false, false, true, true),
             RequestedDragAction::None
         );
+    }
+
+    #[test]
+    fn native_macos_fullscreen_collection_behavior_allows_tiling() {
+        let existing =
+            appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorMoveToActiveSpace
+                | appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary
+                | fullscreen_disallows_tiling_behavior();
+
+        let behavior = native_macos_fullscreen_collection_behavior(existing, true);
+
+        assert!(behavior.contains(
+            appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorMoveToActiveSpace
+        ));
+        assert!(behavior.contains(
+            appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenPrimary
+        ));
+        assert!(behavior.contains(fullscreen_allows_tiling_behavior()));
+        assert!(!behavior.contains(
+            appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary
+        ));
+        assert!(!behavior.contains(fullscreen_disallows_tiling_behavior()));
+    }
+
+    #[test]
+    fn simple_fullscreen_collection_behavior_removes_explicit_tiling_bits() {
+        let existing =
+            appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorMoveToActiveSpace
+                | appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenPrimary
+                | appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary
+                | fullscreen_allows_tiling_behavior()
+                | fullscreen_disallows_tiling_behavior();
+
+        let behavior = native_macos_fullscreen_collection_behavior(existing, false);
+
+        assert!(behavior.contains(
+            appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorMoveToActiveSpace
+        ));
+        assert!(!behavior.contains(
+            appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenPrimary
+        ));
+        assert!(!behavior.contains(
+            appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary
+        ));
+        assert!(!behavior.contains(fullscreen_allows_tiling_behavior()));
+        assert!(!behavior.contains(fullscreen_disallows_tiling_behavior()));
     }
 
     #[test]
