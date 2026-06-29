@@ -1721,6 +1721,54 @@ impl super::TermWindow {
             && !self.window_drag.edge_drag_in_progress
             && !bypass_wheel_assignment_in_alt
         {
+            // Cmd+Click should open a hovered link even inside a mouse-reporting
+            // pane (claude/codex/vim/tmux) so the same shortcut works everywhere.
+            // Normally the OpenLinkAtMouseCursor binding is gated on
+            // mouse_reporting=false, so in those panes the click is forwarded to
+            // the application and you'd otherwise need Shift+Cmd+Click. Re-run the
+            // link-open lookup as if reporting were off, but ONLY when the cursor
+            // is over a link and the user is not holding the bypass modifier (the
+            // bypass case is already handled by the normal path below). Swallow
+            // both the press and the release so the application never sees a
+            // dangling half-click.
+            if pane.is_mouse_grabbed()
+                && self.current_highlight.is_some()
+                && !event
+                    .modifiers
+                    .contains(self.config.bypass_mouse_reporting_modifiers)
+                && matches!(
+                    event.kind,
+                    WMEK::Press(MousePress::Left) | WMEK::Release(MousePress::Left)
+                )
+            {
+                let link_mods = config::MouseEventTriggerMods {
+                    mods: event.modifiers,
+                    mouse_reporting: false,
+                    alt_screen: if pane.is_alt_screen_active() {
+                        MouseEventAltScreen::True
+                    } else {
+                        MouseEventAltScreen::False
+                    },
+                };
+                if let Some(
+                    action @ (KeyAssignment::OpenLinkAtMouseCursor
+                    | KeyAssignment::CompleteSelectionOrOpenLinkAtMouseCursor(_)),
+                ) = self.keyboard.input_map.lookup_mouse(
+                    MouseEventTrigger::Up {
+                        streak: 1,
+                        button: MouseButton::Left,
+                    },
+                    link_mods,
+                ) {
+                    if matches!(event.kind, WMEK::Release(MousePress::Left)) {
+                        if let Err(err) = self.perform_key_assignment(&pane, &action) {
+                            log::debug!("cmd+click link open failed: {err:#}");
+                        }
+                    }
+                    return;
+                }
+            }
+
             if let Some(mut event_trigger_type) = event_trigger_type {
                 self.current_event = Some(event_trigger_type.to_dynamic());
                 let mut modifiers = event.modifiers;
