@@ -2081,6 +2081,24 @@ mod tests {
     }
 
     #[test]
+    fn manual_drag_ignores_window_backing_coords() {
+        // The drag must be driven only by the screen-space delta and the
+        // platform-captured origin; the in-window `coords` (window backing
+        // scale) must never enter the math (#456). Vary `coords` wildly
+        // between the two events while holding the screen delta fixed at
+        // (30, 60): the result must be identical to the same-coords case.
+        // This pins the invariant against a future change that reintroduces
+        // a `coords` term into the origin formula, which the equal-coords
+        // tests above cannot catch.
+        let start = drag_event((400, 20), (4000, 1040), (3200, 1000));
+        let moved = drag_event((999, 777), (4030, 1100), (3200, 1000));
+        assert_eq!(
+            manual_drag_window_top_left(&start, &moved),
+            euclid::point2(3230, 1060)
+        );
+    }
+
+    #[test]
     fn terminal_capture_keeps_release_routed_to_terminal() {
         assert_eq!(
             mouse_dispatch_target(
