@@ -54,3 +54,5 @@
 24	从 Kaku 启动 Yazi 在新版 Yazi 下恢复正常：旧版 Kaku 写入的配置文件会被自动修复
 25	Existing directory paths in the command line no longer carry a stray underline, and hovering one no longer stacks a second underline
 25	命令行里已存在的目录路径不再带一条多余的下划线，悬停时也不会再叠出第二条
+26	Cmd+Click now opens a hovered link even inside tools that capture the mouse such as Claude, Codex, or vim, so the same shortcut works everywhere
+26	在 Claude、Codex、vim 这类会捕获鼠标的工具里，Cmd+Click 现在也能打开悬停的链接，同一个快捷键到处都管用

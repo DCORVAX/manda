@@ -1,25 +1,23 @@
-# V0.12.3 Cleaner
+# V0.12.4 Safer
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/tw93/Kaku/main/assets/logo.png" alt="Kaku Logo" width="120" height="120" />
-  <h1 style="margin: 12px 0 6px;">Kaku V0.12.3</h1>
+  <h1 style="margin: 12px 0 6px;">Kaku V0.12.4</h1>
   <p><em>A fast, out-of-the-box terminal built for AI coding.</em></p>
 </div>
 
 ### Changelog
 
-1. **System Proxy**: AI requests to local and self-hosted models no longer fail when a system proxy is on; private and loopback addresses now connect directly.
-2. **Terminal Redraw**: Scrolling a selection list in tools like the skills picker no longer leaves garbled rows behind.
-3. **Credentials**: API keys and tokens are no longer passed on the command line, so they stay out of process listings.
-4. **Transparency**: With window transparency enabled, the top strip and rounded corners match the rest of the window instead of showing a darker band or black corners.
-5. **Path Highlight**: An existing directory in the command line no longer carries a stray underline, including the doubled one that appeared on hover.
+1. **Open Links**: Cmd+Click now opens a hovered link even inside tools that capture the mouse like Claude, Codex, or vim, so the same shortcut works everywhere and Shift+Cmd+Click is no longer needed.
+2. **Window Tiling**: Kaku windows now honor the macOS native drag-to-edge tiling on Sequoia and Tahoe, snapping into the system split layouts.
+3. **Security**: Bundled dependencies were updated to close three reported security advisories.
+4. **AI File Edits**: Patching a very large file no longer risks running the terminal out of memory.
 
 ### 更新日志
 
-1. **系统代理**：开启系统代理时，访问本地和自托管模型的 AI 请求不再失败，私有地址和 loopback 会直连。
-2. **终端重绘**：在 skills 选择器这类工具里上下滚动列表，不再残留错乱的行。
-3. **凭证**：API key 和 token 不再通过命令行参数传递，不会出现在进程列表里。
-4. **透明度**：开启窗口透明后，顶部条和圆角会与窗口其余部分一致，不再出现更深的色带或黑色角块。
-5. **路径高亮**：命令行里已存在的目录不再带一条多余的下划线，悬停时也不会再叠出第二条。
+1. **打开链接**：在 Claude、Codex、vim 这类会捕获鼠标的工具里，Cmd+Click 现在也能打开悬停的链接，同一个快捷键到处都管用，不再需要 Shift+Cmd+Click。
+2. **窗口平铺**：Kaku 窗口现在支持 Sequoia 和 Tahoe 上 macOS 原生的拖到边缘平铺，会贴进系统的分屏布局。
+3. **安全**：更新内置依赖，修复三个已报告的安全公告。
+4. **AI 文件编辑**：给超大文件打补丁时不再可能把终端撑爆内存。
 
 > https://github.com/tw93/Kaku
