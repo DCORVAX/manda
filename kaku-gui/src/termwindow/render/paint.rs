@@ -765,17 +765,35 @@ impl crate::TermWindow {
 
         let dimensions = self.dimensions;
         let border = self.get_os_border();
-        let shape_window = self.window.as_ref().unwrap().clone();
-        let shaped = font.shape(
-            &message,
-            move || shape_window.notify(TermWindowNotif::InvalidateShapeCache),
-            |_| {},
-            None,
-            wezterm_bidi::Direction::LeftToRight,
-            None,
-            None,
-        )?;
-        let text_pixel_width: f32 = shaped.iter().map(|g| g.x_advance.get() as f32).sum();
+        // The toast repaints every frame while animating its fade, but the
+        // message text is fixed for the toast's lifetime: shape it once and
+        // reuse the measured width on subsequent frames.
+        let config_generation = self.config.generation();
+        let text_pixel_width: f32 = match &self.toast_shaped_width {
+            Some((cached_message, cached_dpi, cached_generation, width))
+                if *cached_message == message
+                    && *cached_dpi == dimensions.dpi
+                    && *cached_generation == config_generation =>
+            {
+                *width
+            }
+            _ => {
+                let shape_window = self.window.as_ref().unwrap().clone();
+                let shaped = font.shape(
+                    &message,
+                    move || shape_window.notify(TermWindowNotif::InvalidateShapeCache),
+                    |_| {},
+                    None,
+                    wezterm_bidi::Direction::LeftToRight,
+                    None,
+                    None,
+                )?;
+                let width: f32 = shaped.iter().map(|g| g.x_advance.get() as f32).sum();
+                self.toast_shaped_width =
+                    Some((message.clone(), dimensions.dpi, config_generation, width));
+                width
+            }
+        };
         // 1.5 cells matches the Cells(0.75) horizontal padding; ceil + 1 px guards against rounding.
         let approx_width = (text_pixel_width + 1.5 * metrics.cell_size.width as f32).ceil() + 1.0;
         let toast_height = metrics.cell_size.height as f32 * 1.5;

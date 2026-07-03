@@ -1144,6 +1144,12 @@ pub struct TermWindow {
 
     /// Toast notification: (start_time, message, lifetime)
     toast: Option<(Instant, String, Duration)>,
+    /// Shaped pixel width of the current toast message, keyed by
+    /// (message, dpi, config generation). The toast repaints every frame
+    /// while fading, and the message never changes mid-toast, so shaping it
+    /// once is enough; the generation guards against a config reload
+    /// changing the font under a repeated message.
+    toast_shaped_width: Option<(String, usize, usize, f32)>,
     selection_copy_disabled_hint_shown: bool,
     last_window_title: String,
 
@@ -1782,6 +1788,7 @@ impl TermWindow {
             modal: RefCell::new(None),
             opengl_info: None,
             toast: None,
+            toast_shaped_width: None,
             selection_copy_disabled_hint_shown: false,
             last_window_title: String::new(),
             ai_chat_overlay_panes: std::collections::HashSet::new(),
