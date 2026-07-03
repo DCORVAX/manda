@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use std::io::{BufRead, Read};
 use std::path::PathBuf;
 
-use super::paths::{reject_if_sensitive, reject_relative_cwd_escape, resolve};
+use super::paths::resolve_checked_arg;
 
 /// Maximum size of a file `fs_patch` will load into memory. Patching needs the
 /// whole file in memory (the replacement scans the full content), so unlike
@@ -31,10 +31,7 @@ fn ensure_patchable_size(path: &std::path::Path, limit: u64) -> Result<u64> {
 }
 
 pub(super) fn exec_fs_read(args: &serde_json::Value, cwd: &str, cap: usize) -> Result<String> {
-    let raw_path = args["path"].as_str().context("missing path")?;
-    let path = resolve(raw_path, cwd)?;
-    reject_if_sensitive(&path)?;
-    reject_relative_cwd_escape(raw_path, &path, cwd)?;
+    let path = resolve_checked_arg(args, cwd)?;
     let file = std::fs::File::open(&path).with_context(|| format!("read {}", path.display()))?;
 
     let start_line = args["start_line"].as_u64().map(|n| n as usize);
@@ -87,10 +84,7 @@ pub(super) fn exec_fs_read(args: &serde_json::Value, cwd: &str, cap: usize) -> R
 }
 
 pub(super) fn exec_fs_list(args: &serde_json::Value, cwd: &str) -> Result<String> {
-    let raw_path = args["path"].as_str().context("missing path")?;
-    let path = resolve(raw_path, cwd)?;
-    reject_if_sensitive(&path)?;
-    reject_relative_cwd_escape(raw_path, &path, cwd)?;
+    let path = resolve_checked_arg(args, cwd)?;
     let mut entries: Vec<String> = std::fs::read_dir(&path)
         .with_context(|| format!("list {}", path.display()))?
         .filter_map(|e| e.ok())
@@ -108,10 +102,7 @@ pub(super) fn exec_fs_list(args: &serde_json::Value, cwd: &str) -> Result<String
 }
 
 pub(super) fn exec_fs_write(args: &serde_json::Value, cwd: &str) -> Result<String> {
-    let raw_path = args["path"].as_str().context("missing path")?;
-    let path = resolve(raw_path, cwd)?;
-    reject_if_sensitive(&path)?;
-    reject_relative_cwd_escape(raw_path, &path, cwd)?;
+    let path = resolve_checked_arg(args, cwd)?;
     let content = args["content"].as_str().context("missing content")?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -125,10 +116,7 @@ pub(super) fn exec_fs_write(args: &serde_json::Value, cwd: &str) -> Result<Strin
 }
 
 pub(super) fn exec_fs_patch(args: &serde_json::Value, cwd: &str) -> Result<String> {
-    let raw_path = args["path"].as_str().context("missing path")?;
-    let path = resolve(raw_path, cwd)?;
-    reject_if_sensitive(&path)?;
-    reject_relative_cwd_escape(raw_path, &path, cwd)?;
+    let path = resolve_checked_arg(args, cwd)?;
     let old_text = args["old_text"].as_str().context("missing old_text")?;
     let new_text = args["new_text"].as_str().context("missing new_text")?;
     ensure_patchable_size(&path, MAX_PATCH_FILE_BYTES)?;
@@ -146,19 +134,13 @@ pub(super) fn exec_fs_patch(args: &serde_json::Value, cwd: &str) -> Result<Strin
 }
 
 pub(super) fn exec_fs_mkdir(args: &serde_json::Value, cwd: &str) -> Result<String> {
-    let raw_path = args["path"].as_str().context("missing path")?;
-    let path = resolve(raw_path, cwd)?;
-    reject_if_sensitive(&path)?;
-    reject_relative_cwd_escape(raw_path, &path, cwd)?;
+    let path = resolve_checked_arg(args, cwd)?;
     std::fs::create_dir_all(&path).with_context(|| format!("mkdir {}", path.display()))?;
     Ok(format!("Created {}", path.display()))
 }
 
 pub(super) fn exec_fs_delete(args: &serde_json::Value, cwd: &str) -> Result<String> {
-    let raw_path = args["path"].as_str().context("missing path")?;
-    let path: PathBuf = resolve(raw_path, cwd)?;
-    reject_if_sensitive(&path)?;
-    reject_relative_cwd_escape(raw_path, &path, cwd)?;
+    let path: PathBuf = resolve_checked_arg(args, cwd)?;
     if path.is_dir() {
         std::fs::remove_dir_all(&path).with_context(|| format!("rmdir {}", path.display()))?;
     } else {
