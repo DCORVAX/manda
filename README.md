@@ -66,14 +66,17 @@ Kaku has a built-in assistant with two modes and a settings page for AI coding t
 - **Natural language to command**: Type `# <description>` at the prompt and press Enter. Kaku sends the query to the LLM and injects the resulting command back into the prompt, ready to review and run.
 - **AI Tools Config**: Manage settings for Claude Code, Codex, Gemini CLI, Copilot CLI, Kimi Code, and more.
 
-### Provider Presets
+### Assistant Setup
 
-Select a provider in `kaku ai` to auto-fill the base URL and models:
+Run `kaku ai` to configure the assistant fields directly:
 
-| Provider | Base URL | Models |
-| :--- | :--- | :--- |
-| OpenAI | `https://api.openai.com/v1` | (free text) |
-| Custom | (manual) | (manual) |
+| Field | Use |
+| :--- | :--- |
+| Auth Type | API key, Codex, Copilot, or other supported auth flows |
+| Simple Model | Lightweight command generation and quick chat model |
+| Deep Model | Primary `Cmd + L` / `k` chat model |
+| Base URL | OpenAI-compatible API root, such as `https://api.openai.com/v1` |
+| API Key | Provider API key when Auth Type is API key |
 
 Full AI assistant docs: [docs/features.md](docs/features.md)
 

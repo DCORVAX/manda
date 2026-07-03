@@ -48,7 +48,7 @@ config.scrollback_lines = 10000
 
 Keep terminal behavior, appearance, key bindings, launch behavior, and other WezTerm-compatible settings in `kaku.lua`.
 
-Manage Kaku Assistant settings with `kaku ai`. That command writes `~/.config/kaku/assistant.toml` for provider, model, base URL, auth, API keys, and tool settings. The Lua/TOML split is intentional: `kaku.lua` stays compatible with WezTerm-style terminal configuration, while `assistant.toml` is managed by the AI setup flow.
+Manage Kaku Assistant settings with `kaku ai`. That command writes `~/.config/kaku/assistant.toml` for model, base URL, auth, API keys, and tool settings. The Lua/TOML split is intentional: `kaku.lua` stays compatible with WezTerm-style terminal configuration, while `assistant.toml` is managed by the AI setup flow.
 
 ---
 
@@ -187,6 +187,13 @@ Hidden when only one tab is open. Change position or show only the current direc
 ```lua
 config.tab_bar_at_bottom = false        -- move to top
 config.tab_title_show_basename_only = true  -- show "dirname" instead of "parent/dirname"
+```
+
+Background tabs that emit BEL show a small dot in the tab title by default.
+Disable the indicator if you do not want tab-level bell notifications:
+
+```lua
+config.bell_tab_indicator = false
 ```
 
 **Scrollbar**

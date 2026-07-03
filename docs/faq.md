@@ -57,7 +57,7 @@ enabled = false
 
 ## How do I use a custom LLM provider?
 
-Run `kaku ai`, select "Custom" from the Provider dropdown, and enter your base URL and API key manually. The URL must be OpenAI-compatible (`/v1/chat/completions`).
+Run `kaku ai`, keep Auth Type set to API key, and enter your Base URL, API Key, Simple Model, and Deep Model manually. The URL must be OpenAI-compatible (`/v1/chat/completions`).
 
 ## How do I restore default config?
 

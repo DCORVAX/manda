@@ -6,14 +6,17 @@ Kaku Assistant has two modes: automatic error recovery and on-demand command gen
 
 **Setup**
 
-Run `kaku ai` to open the AI settings panel. Enable Kaku Assistant, pick a provider, and enter your API key.
+Run `kaku ai` to open the AI settings panel. Enable Kaku Assistant and edit the model, auth, base URL, and API key fields directly.
 
-| Provider | Base URL | Models |
-| :--- | :--- | :--- |
-| OpenAI | `https://api.openai.com/v1` | (free text) |
-| Custom | (manual) | (free text) |
+| Field | Description |
+| :--- | :--- |
+| Auth Type | API key, Codex, Copilot, or another supported auth flow |
+| Simple Model | Used for `#` command generation, command fixes, and lightweight chat |
+| Deep Model | Used for primary `Cmd + L` / `k` chat and tool use |
+| Base URL | OpenAI-compatible API root, such as `https://api.openai.com/v1` |
+| API Key | Provider API key when Auth Type is API key |
 
-Selecting a provider auto-fills the base URL and populates the model dropdown.
+For custom providers, keep Auth Type set to API key, enter the provider's OpenAI-compatible Base URL, and set the model names manually.
 
 ## AI Chat Panel
 
