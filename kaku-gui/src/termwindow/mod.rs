@@ -485,16 +485,36 @@ fn lookup_ai_toast(event_name: &str) -> Option<&'static str> {
 lazy_static::lazy_static! {
     static ref WINDOW_CLASS: Mutex<String> = Mutex::new(wezterm_gui_subcommands::DEFAULT_WINDOW_CLASS.to_owned());
     static ref POSITION: Mutex<Option<GuiPosition>> = Mutex::new(None);
-    static ref RENDER_METRICS_CACHE: Mutex<Option<RenderMetricsCacheEntry>> = Mutex::new(None);
+    static ref RENDER_METRICS_CACHE: Mutex<Option<Vec<RenderMetricsCacheEntry>>> = Mutex::new(None);
 }
+
+/// Bounds both the in-memory entries and the on-disk cache file so that
+/// zoom steps and multi-monitor DPI switches stay warm without letting the
+/// cache grow without bound.
+const RENDER_METRICS_CACHE_CAP: usize = 8;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct RenderMetricsCacheKey {
     dpi: usize,
-    persisted_font_scale_bits: u64,
+    font_scale_bits: u64,
     font_size_bits: u64,
     line_height_bits: u64,
     cell_width_bits: u64,
+    font_fingerprint: u64,
+}
+
+/// Cached metrics are only valid for the font that produced them. Hashing
+/// the configured text style (plus font_dirs, which changes how a family
+/// name resolves) into the key means a `font` change invalidates instead of
+/// serving stale cell geometry. The app version is included because shaping
+/// or metrics behavior can change between releases.
+fn font_config_fingerprint(config: &ConfigHandle) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    env!("CARGO_PKG_VERSION").hash(&mut hasher);
+    format!("{:?}", config.font).hash(&mut hasher);
+    format!("{:?}", config.font_dirs).hash(&mut hasher);
+    hasher.finish()
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -522,39 +542,10 @@ struct RenderMetricsDiskEntry {
 }
 
 fn render_metrics_cache_file() -> PathBuf {
-    config::DATA_DIR.join("render_metrics_cache_v1.json")
+    config::DATA_DIR.join("render_metrics_cache_v2.json")
 }
 
-fn load_render_metrics_from_disk(key: RenderMetricsCacheKey) -> Option<RenderMetrics> {
-    let file_name = render_metrics_cache_file();
-    let data = match std::fs::read(&file_name) {
-        Ok(data) => data,
-        Err(err) => {
-            if err.kind() != std::io::ErrorKind::NotFound {
-                log::debug!(
-                    "Failed to read render metrics cache {}: {}",
-                    file_name.display(),
-                    err
-                );
-            }
-            return None;
-        }
-    };
-    let entry: RenderMetricsDiskEntry = match serde_json::from_slice(&data) {
-        Ok(entry) => entry,
-        Err(err) => {
-            log::debug!(
-                "Failed to parse render metrics cache {}: {}",
-                file_name.display(),
-                err
-            );
-            return None;
-        }
-    };
-    if entry.key != key {
-        return None;
-    }
-
+fn disk_entry_to_metrics(entry: &RenderMetricsDiskEntry) -> Option<RenderMetrics> {
     if !entry.descender.is_finite()
         || entry.cell_width <= 0
         || entry.cell_height <= 0
@@ -580,7 +571,45 @@ fn load_render_metrics_from_disk(key: RenderMetricsCacheKey) -> Option<RenderMet
     })
 }
 
-fn persist_render_metrics_to_disk(key: RenderMetricsCacheKey, metrics: RenderMetrics) {
+fn load_render_metrics_entries_from_disk() -> Vec<RenderMetricsCacheEntry> {
+    let file_name = render_metrics_cache_file();
+    let data = match std::fs::read(&file_name) {
+        Ok(data) => data,
+        Err(err) => {
+            if err.kind() != std::io::ErrorKind::NotFound {
+                log::debug!(
+                    "Failed to read render metrics cache {}: {}",
+                    file_name.display(),
+                    err
+                );
+            }
+            return Vec::new();
+        }
+    };
+    let entries: Vec<RenderMetricsDiskEntry> = match serde_json::from_slice(&data) {
+        Ok(entries) => entries,
+        Err(err) => {
+            log::debug!(
+                "Failed to parse render metrics cache {}: {}",
+                file_name.display(),
+                err
+            );
+            return Vec::new();
+        }
+    };
+    entries
+        .iter()
+        .filter_map(|entry| {
+            disk_entry_to_metrics(entry).map(|metrics| RenderMetricsCacheEntry {
+                key: entry.key,
+                metrics,
+            })
+        })
+        .take(RENDER_METRICS_CACHE_CAP)
+        .collect()
+}
+
+fn persist_render_metrics_to_disk(entries: &[RenderMetricsCacheEntry]) {
     let file_name = render_metrics_cache_file();
     if let Some(parent) = file_name.parent() {
         if let Err(err) = config::create_user_owned_dirs(parent) {
@@ -592,21 +621,24 @@ fn persist_render_metrics_to_disk(key: RenderMetricsCacheKey, metrics: RenderMet
         }
     }
 
-    let entry = RenderMetricsDiskEntry {
-        key,
-        cap_height: metrics.cap_height.map(|value| value.get()),
-        descender: metrics.descender.get(),
-        descender_row: metrics.descender_row,
-        descender_plus_two: metrics.descender_plus_two,
-        underline_height: metrics.underline_height,
-        strike_row: metrics.strike_row,
-        cell_width: metrics.cell_size.width,
-        cell_height: metrics.cell_size.height,
-        line_height_y_adjust: metrics.line_height_y_adjust,
-        natural_cell_height: metrics.natural_cell_height,
-    };
+    let disk_entries: Vec<RenderMetricsDiskEntry> = entries
+        .iter()
+        .map(|entry| RenderMetricsDiskEntry {
+            key: entry.key,
+            cap_height: entry.metrics.cap_height.map(|value| value.get()),
+            descender: entry.metrics.descender.get(),
+            descender_row: entry.metrics.descender_row,
+            descender_plus_two: entry.metrics.descender_plus_two,
+            underline_height: entry.metrics.underline_height,
+            strike_row: entry.metrics.strike_row,
+            cell_width: entry.metrics.cell_size.width,
+            cell_height: entry.metrics.cell_size.height,
+            line_height_y_adjust: entry.metrics.line_height_y_adjust,
+            natural_cell_height: entry.metrics.natural_cell_height,
+        })
+        .collect();
 
-    match serde_json::to_vec(&entry) {
+    match serde_json::to_vec(&disk_entries) {
         Ok(data) => {
             if let Err(err) = std::fs::write(&file_name, data) {
                 log::debug!(
@@ -617,7 +649,7 @@ fn persist_render_metrics_to_disk(key: RenderMetricsCacheKey, metrics: RenderMet
             }
         }
         Err(err) => {
-            log::debug!("Failed to serialize render metrics cache entry: {}", err);
+            log::debug!("Failed to serialize render metrics cache entries: {}", err);
         }
     }
 }
@@ -626,30 +658,36 @@ fn render_metrics_from_cache_or_compute(
     fonts: &Rc<FontConfiguration>,
     config: &ConfigHandle,
     dpi: usize,
-    persisted_font_scale: Option<f64>,
+    font_scale: f64,
 ) -> anyhow::Result<(RenderMetrics, bool)> {
     let key = RenderMetricsCacheKey {
         dpi,
-        persisted_font_scale_bits: persisted_font_scale.unwrap_or(1.0).to_bits(),
+        font_scale_bits: font_scale.to_bits(),
         font_size_bits: config.font_size.to_bits(),
         line_height_bits: config.line_height.to_bits(),
         cell_width_bits: config.cell_width.to_bits(),
+        font_fingerprint: font_config_fingerprint(config),
     };
 
-    if let Some(entry) = *RENDER_METRICS_CACHE.lock().unwrap() {
-        if entry.key == key {
+    {
+        let mut cache = RENDER_METRICS_CACHE.lock().unwrap();
+        let entries = cache.get_or_insert_with(load_render_metrics_entries_from_disk);
+        if let Some(idx) = entries.iter().position(|entry| entry.key == key) {
+            // Keep most-recently-used first so cap eviction drops stale keys.
+            let entry = entries.remove(idx);
+            entries.insert(0, entry);
             return Ok((entry.metrics, true));
         }
     }
 
-    if let Some(metrics) = load_render_metrics_from_disk(key) {
-        *RENDER_METRICS_CACHE.lock().unwrap() = Some(RenderMetricsCacheEntry { key, metrics });
-        return Ok((metrics, true));
-    }
-
     let metrics = RenderMetrics::new(fonts)?;
-    *RENDER_METRICS_CACHE.lock().unwrap() = Some(RenderMetricsCacheEntry { key, metrics });
-    persist_render_metrics_to_disk(key, metrics);
+
+    let mut cache = RENDER_METRICS_CACHE.lock().unwrap();
+    let entries = cache.get_or_insert_with(Vec::new);
+    entries.retain(|entry| entry.key != key);
+    entries.insert(0, RenderMetricsCacheEntry { key, metrics });
+    entries.truncate(RENDER_METRICS_CACHE_CAP);
+    persist_render_metrics_to_disk(entries);
     Ok((metrics, false))
 }
 
@@ -1501,8 +1539,12 @@ impl TermWindow {
         let physical_cols = size.cols as usize;
 
         crate::startup_trace::mark("    render_metrics start");
-        let (render_metrics, _metrics_cache_hit) =
-            render_metrics_from_cache_or_compute(&fontconfig, &config, dpi, persisted_font_scale)?;
+        let (render_metrics, _metrics_cache_hit) = render_metrics_from_cache_or_compute(
+            &fontconfig,
+            &config,
+            dpi,
+            persisted_font_scale.unwrap_or(1.0),
+        )?;
         crate::startup_trace::mark("    render_metrics done");
         log::trace!("using render_metrics {:#?}", render_metrics);
 

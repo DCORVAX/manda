@@ -1,5 +1,4 @@
 use crate::resize_increment_calculator::ResizeIncrementCalculator;
-use crate::utilsprites::RenderMetrics;
 use ::window::{Dimensions, ResizeIncrement, Window, WindowOps, WindowState};
 use config::{Config, ConfigHandle, DimensionContext};
 use mux::Mux;
@@ -440,8 +439,13 @@ impl super::TermWindow {
         }
 
         let (prior_font, prior_dpi) = self.fonts.change_scaling(font_scale, dimensions.dpi);
-        match RenderMetrics::new(&self.fonts) {
-            Ok(metrics) => {
+        match super::render_metrics_from_cache_or_compute(
+            &self.fonts,
+            &self.config,
+            dimensions.dpi,
+            font_scale,
+        ) {
+            Ok((metrics, _cache_hit)) => {
                 self.render_metrics = metrics;
             }
             Err(err) => {
@@ -924,7 +928,14 @@ impl super::TermWindow {
             Some(config.clone()),
             self.dimensions.dpi,
         )?);
-        let render_metrics = RenderMetrics::new(&fontconfig)?;
+        // The fresh FontConfiguration above starts at font_scale 1.0, so the
+        // cached-metrics key uses 1.0 rather than the window's live scale.
+        let (render_metrics, _cache_hit) = super::render_metrics_from_cache_or_compute(
+            &fontconfig,
+            config,
+            self.dimensions.dpi,
+            1.0,
+        )?;
 
         let terminal_size = TerminalSize {
             rows: size.rows,
