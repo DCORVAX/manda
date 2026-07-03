@@ -782,15 +782,18 @@ fn run_terminal_gui(opts: StartCommand, default_domain_name: Option<String>) -> 
 
     // Prewarm font caches in a background thread so that
     // FontConfiguration::new() in new_window() hits warm caches instead of
-    // blocking the async startup path.
+    // blocking the async startup path. The font-dir scan is prewarmed first
+    // because FontConfigInner::new consumes it before the built-in database,
+    // so the piece the main thread reaches first is also produced first.
     let font_dirs = config.font_dirs.clone();
+    let config_generation = config.generation();
     startup_trace::mark("font-prewarm spawn");
     if let Err(err) = std::thread::Builder::new()
         .name("font-prewarm".into())
         .spawn(move || {
             startup_trace::mark("  font-prewarm thread start");
+            wezterm_font::db::FontDatabase::prewarm_font_dirs(&font_dirs, config_generation);
             let _ = wezterm_font::db::FontDatabase::with_built_in();
-            wezterm_font::db::FontDatabase::prewarm_font_dirs(&font_dirs);
             startup_trace::mark("  font-prewarm thread done");
         })
     {
