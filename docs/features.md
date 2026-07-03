@@ -10,7 +10,7 @@ Run `kaku ai` to open the AI settings panel. Enable Kaku Assistant and edit the 
 
 | Field | Description |
 | :--- | :--- |
-| Auth Type | API key, Codex, Copilot, or another supported auth flow |
+| Auth Type | API key or Codex CLI login |
 | Simple Model | Used for `#` command generation, command fixes, and lightweight chat |
 | Deep Model | Used for primary `Cmd + L` / `k` chat and tool use |
 | Base URL | OpenAI-compatible API root, such as `https://api.openai.com/v1` |
@@ -73,7 +73,7 @@ The config lives at `~/.config/kaku/assistant.toml`:
 | `web_search_api_key` | API key for the selected search backend |
 | `web_fetch_script` | Optional custom URL-to-Markdown fetch script |
 | `chat_tools_enabled` | Set to `false` to disable tool calling for chat providers without tool support |
-| `auth_type` | Advanced auth mode, e.g. `api_key`, `copilot`, or `codex` |
+| `auth_type` | Advanced auth mode, e.g. `api_key` or `codex` |
 | `memory_curator_model` | Optional cheaper model for background memory curation |
 
 Older configs may still contain `fast_model`; Kaku treats it as the Simple Model

@@ -128,6 +128,11 @@ config.window_decorations = "RESIZE"
 config.window_padding = { left = '24px', right = '24px', top = '40px', bottom = '20px' }
 ```
 
+Sizes accept `px`, `pt`, `cell`, and `%`. `px` is a physical pixel value and
+does not scale with display DPI, so the same value can look smaller on a
+high-density display. Use `pt` for DPI-scaled spacing or `cell` for spacing
+relative to the terminal cell size, for example `top = '15pt'`.
+
 ---
 
 ## Terminal Behavior
