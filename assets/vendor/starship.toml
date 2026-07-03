@@ -1,7 +1,11 @@
 # ~/.config/starship.toml
 
 add_newline = false
-command_timeout = 10000
+# Upper bound for module commands (git status scan, `node --version`, ...).
+# Keep this tight: the prompt blocks on it, so a hung git or node freezes
+# every new prompt for the full duration. 2s is comfortably above normal
+# git-status times in large repos while bounding the worst case.
+command_timeout = 2000
 format = "$directory$git_branch$git_status$python$conda$package$nodejs$character"
 
 [directory]
@@ -59,6 +63,9 @@ disabled = true
 [git_status]
 format = ' [$ahead_behind$conflicted$staged$modified$untracked$stashed]($style)'
 style = "bold yellow"
+# Submodule contents don't affect the markers shown here; skipping them
+# keeps the per-prompt working-tree scan cheap in repos with submodules.
+ignore_submodules = true
 ahead = " ↑${count}"
 behind = " ↓${count}"
 diverged = " ⇕"
