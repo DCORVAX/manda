@@ -1367,14 +1367,12 @@ impl Config {
     }
 
     /// Try to load bytecode from cache, validating header + source hash.
+    /// The source-content hash inside the header is the authoritative
+    /// freshness check; an mtime pre-check would false-miss whenever cache
+    /// and source land in the same filesystem timestamp granule (e.g. an
+    /// edit followed by an immediate launch).
     pub(crate) fn try_load_bytecode_cache(source: &Path, source_content: &[u8]) -> Option<Vec<u8>> {
         let cache_path = Self::bytecode_cache_path(source);
-        // Quick mtime guard: skip reading the file if source is newer
-        let source_mtime = std::fs::metadata(source).ok()?.modified().ok()?;
-        let cache_mtime = std::fs::metadata(&cache_path).ok()?.modified().ok()?;
-        if cache_mtime <= source_mtime {
-            return None;
-        }
         let data = std::fs::read(&cache_path).ok()?;
         Self::decode_cache(source_content, &data)
     }

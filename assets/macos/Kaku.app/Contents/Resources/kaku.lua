@@ -104,37 +104,48 @@ local user_has_custom_padding = false
 local user_has_custom_font = false
 local user_has_custom_font_rules = false
 local user_has_custom_window_frame = false
+-- First explicit color_scheme selection found in the user config, recorded
+-- here so the theme probe below (is_user_light_theme) does not have to
+-- re-read the same file. Values: nil = user config not scanned,
+-- 'none' = scanned with no explicit selection, or 'light' | 'dark' | 'auto'.
+local user_theme_selection = nil
 
-local function check_user_custom_config()
+-- Single scan of the user config (runs once at load time).
+do
   local user_config_path = kaku_user_config_path()
-  if not user_config_path then
-    return
-  end
-  local file = io.open(user_config_path, 'r')
-  if not file then
-    return
-  end
-  -- Check if user explicitly sets these configs (skip comment lines).
-  for line in file:lines() do
-    local trimmed = line:match('^%s*(.-)%s*$')
-    if trimmed and not trimmed:match('^%-%-') then
-      if trimmed:match('^config%.window_padding%s*=') then
-        user_has_custom_padding = true
-      end
-      if trimmed:match('^config%.font%s*=') then
-        user_has_custom_font = true
-      end
-      if trimmed:match('^config%.font_rules%s*=') then
-        user_has_custom_font_rules = true
-      end
-      if trimmed:match('^config%.window_frame%s*=') then
-        user_has_custom_window_frame = true
+  local file = user_config_path and io.open(user_config_path, 'r')
+  if file then
+    user_theme_selection = 'none'
+    -- Check if user explicitly sets these configs (skip comment lines).
+    for line in file:lines() do
+      local trimmed = line:match('^%s*(.-)%s*$')
+      if trimmed and not trimmed:match('^%-%-') then
+        if trimmed:match('^config%.window_padding%s*=') then
+          user_has_custom_padding = true
+        end
+        if trimmed:match('^config%.font%s*=') then
+          user_has_custom_font = true
+        end
+        if trimmed:match('^config%.font_rules%s*=') then
+          user_has_custom_font_rules = true
+        end
+        if trimmed:match('^config%.window_frame%s*=') then
+          user_has_custom_window_frame = true
+        end
+        if user_theme_selection == 'none' and trimmed:match('^config%.color_scheme%s*=') then
+          if trimmed:match("^config%.color_scheme%s*=%s*['\"]Kaku Light['\"]") then
+            user_theme_selection = 'light'
+          elseif trimmed:match("^config%.color_scheme%s*=%s*['\"]Kaku Dark['\"]") then
+            user_theme_selection = 'dark'
+          elseif trimmed:match('get_appearance') then
+            user_theme_selection = 'auto'
+          end
+        end
       end
     end
+    file:close()
   end
-  file:close()
 end
-check_user_custom_config()
 
 local function should_remember_last_cwd()
   return config.remember_last_cwd ~= false
@@ -143,15 +154,28 @@ end
 -- Detect macOS appearance via `defaults read` as a reliable fallback when
 -- wezterm.gui is not yet available (early Lua init, TUI processes like
 -- `kaku config` / `kaku ai`). Mirrors the Rust-side is_macos_dark_mode().
-local function is_macos_dark_appearance()
-  local handle = io.popen('defaults read -g AppleInterfaceStyle 2>/dev/null')
-  if not handle then
-    return true
+-- The subprocess result is memoized for this config evaluation: TUI loads
+-- otherwise fork `defaults` several times per load. The GUI never consults
+-- this fallback at runtime (wezterm.gui.get_appearance takes priority), and
+-- each config reload builds a fresh Lua VM, so the memo cannot go stale
+-- across appearance flips. (The memo lives as an upvalue because the main
+-- chunk is near Lua 5.4's 200-local register budget.)
+local is_macos_dark_appearance = (function()
+  local memo = nil
+  return function()
+    if memo ~= nil then
+      return memo
+    end
+    local handle = io.popen('defaults read -g AppleInterfaceStyle 2>/dev/null')
+    if not handle then
+      return true
+    end
+    local result = handle:read('*a') or ''
+    handle:close()
+    memo = result:find('Dark') ~= nil
+    return memo
   end
-  local result = handle:read('*a') or ''
-  handle:close()
-  return result:find('Dark') ~= nil
-end
+end)()
 
 local function resolve_appearance_color_scheme()
   local gui = wezterm.gui
@@ -208,20 +232,31 @@ except Exception:
   })
 end
 
--- Two-tier display detection.
--- low resolution screens use smaller spacing and 15px font.
--- high resolution screens use default spacing and 17px font.
-local function is_low_resolution_screen()
+-- Query the main screen once at load time. Both the two-tier display
+-- detection and get_font_size below derive from this single result;
+-- wezterm.gui.screens() is a real GUI enumeration and was previously
+-- issued twice per config load.
+local main_screen = (function()
   local success, screens = pcall(function()
     return wezterm.gui.screens()
   end)
-  if success and screens and screens.main then
-    local main = screens.main
-    local width = tonumber(main.width or 0) or 0
-    local height = tonumber(main.height or 0) or 0
+  if success and screens then
+    return screens.main
+  end
+  return nil
+end)()
+
+-- Two-tier display detection.
+-- low resolution screens use smaller spacing and 15px font.
+-- high resolution screens use default spacing and 17px font.
+-- Compute once; all spacing helpers below share this result.
+local low_resolution_screen = (function()
+  if main_screen then
+    local width = tonumber(main_screen.width or 0) or 0
+    local height = tonumber(main_screen.height or 0) or 0
     local short_edge = math.min(width, height)
     -- Inline builtin screen detection.
-    local name = string.lower(tostring(main.name or ''))
+    local name = string.lower(tostring(main_screen.name or ''))
     local is_builtin = name == 'color lcd'
       or string.find(name, 'built-in', 1, true)
       or string.find(name, 'built in', 1, true)
@@ -234,10 +269,7 @@ local function is_low_resolution_screen()
     end
   end
   return false
-end
-
--- Compute once; all spacing helpers below share this result.
-local low_resolution_screen = is_low_resolution_screen()
+end)()
 
 local function get_default_padding()
   if low_resolution_screen then
@@ -1012,14 +1044,47 @@ local function ensure_ai_fix_jobs_dir()
 end
 
 -- Remove stale job files left behind by a previous crash or force-quit.
--- Called once at config load time; silently ignores errors.
+-- Called at config load time; silently ignores errors. The sweep runs as a
+-- background child (a synchronous fork of sh+find here blocked every config
+-- load and reload) and at most once per 6 hours, tracked by a stamp file
+-- inside the jobs dir (its name does not match ai_fix_*, so the sweep
+-- leaves it alone).
 local function cleanup_stale_ai_fix_jobs()
   if not ai_fix_jobs_dir or ai_fix_jobs_dir == "" then
     return
   end
+  local due = false
   pcall(function()
-    os.execute(string.format("find %q -name 'ai_fix_*' -mmin +30 -delete 2>/dev/null", ai_fix_jobs_dir))
+    local stamp = ai_fix_jobs_dir .. "/.cleanup_stamp"
+    local now = os.time()
+    local file = io.open(stamp, "r")
+    if file then
+      local last = tonumber(file:read("*a") or "")
+      file:close()
+      if last and now - last < 6 * 60 * 60 then
+        return
+      end
+    end
+    local out = io.open(stamp, "w")
+    if not out then
+      -- Jobs dir doesn't exist yet, so there is nothing to clean.
+      return
+    end
+    out:write(tostring(now))
+    out:close()
+    due = true
   end)
+  if due then
+    wezterm.background_child_process({
+      "/usr/bin/find",
+      ai_fix_jobs_dir,
+      "-name",
+      "ai_fix_*",
+      "-mmin",
+      "+30",
+      "-delete",
+    })
+  end
 end
 
 cleanup_stale_ai_fix_jobs()
@@ -3829,35 +3894,22 @@ local function build_font_config(is_light)
   return font, font_rules
 end
 
--- Check user config to determine initial theme for font weight
+-- Determine the initial theme for font weight from the single user-config
+-- scan performed near the top of this file, instead of re-reading and
+-- re-scanning the same file.
 local function is_user_light_theme()
-  local user_config_path = kaku_user_config_path()
-  if not user_config_path then
+  if user_theme_selection == nil then
+    -- User config missing or unreadable.
     return false
   end
-  local file = io.open(user_config_path, 'r')
-  if not file then
+  if user_theme_selection == 'light' then
+    return true
+  end
+  if user_theme_selection == 'dark' then
     return false
   end
-  for line in file:lines() do
-    local trimmed = line:match('^%s*(.-)%s*$')
-    if trimmed and not trimmed:match('^%-%-') then
-      if trimmed:match("^config%.color_scheme%s*=%s*['\"]Kaku Light['\"]") then
-        file:close()
-        return true
-      end
-      if trimmed:match("^config%.color_scheme%s*=%s*['\"]Kaku Dark['\"]") then
-        file:close()
-        return false
-      end
-      if trimmed:match('^config%.color_scheme%s*=') and trimmed:match('get_appearance') then
-        file:close()
-        return resolve_appearance_color_scheme() == 'Kaku Light'
-      end
-    end
-  end
-  file:close()
-  -- No explicit theme selection means the bundled default should track macOS.
+  -- 'auto' or no explicit theme selection means the bundled default
+  -- should track macOS.
   return resolve_appearance_color_scheme() == 'Kaku Light'
 end
 
@@ -3998,13 +4050,9 @@ local function get_font_size()
     return 15.0
   end
 
-  local success, screens = pcall(function()
-    return wezterm.gui.screens()
-  end)
-  if success and screens and screens.main then
-    local main = screens.main
+  if main_screen then
     -- Fallback when pixel dimensions are unavailable.
-    local dpi = tonumber(main.effective_dpi or 72) or 72
+    local dpi = tonumber(main_screen.effective_dpi or 72) or 72
     if dpi < 110 then
       return 15.0
     end
