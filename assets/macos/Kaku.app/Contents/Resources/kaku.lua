@@ -3326,30 +3326,7 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
       end
     end
 
-    -- Width budget: reserve 2 cells (leading space + trailing space/bell)
-    local budget = math.max(4, max_width - 2)
     local sep = ' \u{00b7} '  -- U+00B7 middle dot with spaces
-    local sep_len = 3          -- each separator is 3 chars
-
-    -- Compute total length
-    local total = 0
-    for i, seg in ipairs(segments) do
-      total = total + #seg.text
-      if i < #segments then
-        total = total + sep_len
-      end
-    end
-
-    -- Trim non-active segments to a single char if over budget
-    if total > budget then
-      for _, seg in ipairs(segments) do
-        if not seg.active and #seg.text > 1 then
-          total = total - (#seg.text - 1)
-          seg.text = '\u{2026}'  -- U+2026 ellipsis
-        end
-        if total <= budget then break end
-      end
-    end
 
     -- Build FormatItem sequence
     local items = { { Text = ' ' } }

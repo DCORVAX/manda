@@ -987,6 +987,25 @@ mod tests {
     }
 
     #[test]
+    fn bundled_kaku_lua_multi_pane_titles_keep_full_segments() {
+        let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
+        let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
+
+        assert!(
+            content
+                .contains("-- Multi-pane path: render each pane's cwd, active segment highlighted")
+                && content.contains(r"local sep = ' \u{00b7} '"),
+            "bundled kaku.lua should keep the multi-pane tab title path"
+        );
+        assert!(
+            !content.contains(r"seg.text = '\u{2026}'")
+                && !content.contains("Trim non-active segments"),
+            "multi-pane tab titles should show real pane names instead of collapsing inactive panes to ellipsis"
+        );
+    }
+
+    #[test]
     fn bundled_kaku_lua_sets_colorfgbg_from_user_theme_scan() {
         let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
