@@ -1920,7 +1920,8 @@ impl TermWindow {
             crate::startup_trace::mark("  emit_status_event done");
         }
 
-        crate::update::start_update_checker();
+        // The update checker (notification-center init + marker-file IO) is
+        // deferred to just after the first paint; see paint_impl.
         front_end().record_known_window(window, mux_window_id);
         crate::startup_trace::mark("TermWindow::new_window EXIT");
 

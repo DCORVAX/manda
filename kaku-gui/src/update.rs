@@ -741,8 +741,10 @@ pub fn start_update_checker() {
     if let Ok(false) =
         CHECKER_STARTED.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
     {
-        // Initialize the notification system early so macOS shows the permission
-        // dialog on first launch, rather than lazily when a notification fires.
+        // Initialize the notification system up front so macOS shows the
+        // permission dialog on first launch, rather than lazily when a
+        // notification fires. This runs just after the first paint (see
+        // paint_impl) so the init cost stays off the first-frame path.
         wezterm_toast_notification::macos_initialize();
 
         // Register callback so a notification click asks for confirmation
