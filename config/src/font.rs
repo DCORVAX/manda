@@ -210,10 +210,6 @@ impl FontWeight {
         self.0
     }
 
-    pub fn lighter(self) -> Self {
-        Self::from_opentype_weight(self.to_opentype_weight().saturating_sub(200))
-    }
-
     pub fn bolder(self) -> Self {
         Self::from_opentype_weight(self.to_opentype_weight() + 200)
     }
@@ -547,22 +543,6 @@ impl TextStyle {
                 .map(|attr| {
                     let mut attr = attr.clone();
                     attr.weight = attr.weight.bolder();
-                    attr.is_synthetic = true;
-                    attr
-                })
-                .collect(),
-        }
-    }
-
-    pub fn make_half_bright(&self) -> Self {
-        Self {
-            foreground: self.foreground,
-            font: self
-                .font
-                .iter()
-                .map(|attr| {
-                    let mut attr = attr.clone();
-                    attr.weight = attr.weight.lighter();
                     attr.is_synthetic = true;
                     attr
                 })

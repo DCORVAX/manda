@@ -1722,20 +1722,22 @@ impl Config {
         let bold = reduced.make_bold();
         let bold_italic = bold.make_italic();
 
-        let half_bright = reduced.make_half_bright();
-        let half_bright_italic = half_bright.make_italic();
-
+        // Half intensity keeps the base weight: the renderer already dims
+        // the foreground color, and synthesizing a lighter weight resolves
+        // a real Thin/Light face on families that ship one, which reads as
+        // broken rendering rather than as dim text (#481). The bundled font
+        // stack encodes the same choice in its explicit font_rules.
         cfg.font_rules.push(StyleRule {
             italic: Some(true),
             intensity: Some(wezterm_term::Intensity::Half),
-            font: half_bright_italic,
+            font: italic.clone(),
             ..Default::default()
         });
 
         cfg.font_rules.push(StyleRule {
             italic: Some(false),
             intensity: Some(wezterm_term::Intensity::Half),
-            font: half_bright,
+            font: reduced,
             ..Default::default()
         });
 
@@ -2229,6 +2231,30 @@ mod tests {
     use super::default_hyperlink_rules;
     use std::sync::Arc;
     use termwiz::hyperlink::{Hyperlink, Rule, RuleMatch};
+
+    #[test]
+    fn half_intensity_font_rules_keep_base_weight() {
+        let config = super::Config::default();
+        let computed = config.compute_extra_defaults(None);
+        let base_weights: Vec<_> = config.font.font.iter().map(|attr| attr.weight).collect();
+        let half_rules: Vec<_> = computed
+            .font_rules
+            .iter()
+            .filter(|rule| rule.intensity == Some(wezterm_term::Intensity::Half))
+            .collect();
+        assert!(
+            !half_rules.is_empty(),
+            "expected synthesized half-intensity rules"
+        );
+        for rule in half_rules {
+            for (attr, base) in rule.font.font.iter().zip(&base_weights) {
+                assert_eq!(
+                    attr.weight, *base,
+                    "half-intensity text must keep the base weight; dimming is color-only"
+                );
+            }
+        }
+    }
 
     #[test]
     fn file_hyperlink_rule_matches_bare_relative_paths() {
