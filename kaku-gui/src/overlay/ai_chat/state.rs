@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -408,6 +408,18 @@ fn emit_user_lines(out: &mut Vec<DisplayLine>, content: &str, width: usize) {
     }
 }
 
+/// Memo key for a completed assistant message's rendered display lines.
+/// The content is hashed rather than stored to keep keys small; width and
+/// theme are folded in because both change the wrapped/styled output.
+fn assistant_render_memo_key(content: &str, width: usize, is_light: bool) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    content.hash(&mut hasher);
+    width.hash(&mut hasher);
+    is_light.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// Emit AI markdown content. Each parsed block becomes one or more
 /// `DisplayLine::Text` entries (wrapping applied per block; list items carry
 /// their bullet/number on the first wrapped line only).
@@ -617,6 +629,13 @@ pub(crate) struct App {
     pub(crate) cached_display_lines: Vec<DisplayLine>,
     /// True when messages or layout changed and cache must be rebuilt.
     pub(crate) display_lines_dirty: bool,
+    /// Rendered-lines memo for completed assistant messages, keyed by a hash
+    /// of (content, width, is_light). While a reply streams, the display
+    /// cache is rebuilt every drain tick; without this memo, every rebuild
+    /// re-parses the markdown and re-runs syntax highlighting for the whole
+    /// conversation history, so streaming cost grows with conversation size.
+    /// Entries not referenced by a rebuild are dropped by that rebuild.
+    pub(crate) assistant_render_memo: HashMap<u64, Vec<DisplayLine>>,
     /// Text selection state: (start_row, start_col, end_row, end_col) in message area coords.
     /// Rows are relative to the top of the message area (row 0 = first visible line).
     pub(crate) selection: Option<(usize, usize, usize, usize)>,
@@ -810,6 +829,7 @@ impl App {
             context,
             cached_display_lines: Vec::new(),
             display_lines_dirty: true,
+            assistant_render_memo: HashMap::new(),
             selection: None,
             selecting: false,
             drag_origin: None,
@@ -1092,7 +1112,14 @@ impl App {
             return;
         }
         let w = self.content_width().max(4);
+        let is_light = self.context.colors.is_light();
         let mut lines: Vec<DisplayLine> = Vec::new();
+
+        // Reuse rendered segments for completed assistant messages: only
+        // entries referenced by this rebuild are carried over, so the memo
+        // never outgrows the current conversation.
+        let mut prior_memo = std::mem::take(&mut self.assistant_render_memo);
+        let mut next_memo: HashMap<u64, Vec<DisplayLine>> = HashMap::new();
 
         // pending_tools accumulates tool-call messages until the owning AI text arrives.
         // They are embedded in the Header row rather than rendered as separate lines.
@@ -1152,12 +1179,22 @@ impl App {
             } else {
                 match msg.role {
                     Role::User => emit_user_lines(&mut lines, &msg.content, w),
-                    Role::Assistant => emit_assistant_markdown(
-                        &mut lines,
-                        &msg.content,
-                        w,
-                        self.context.colors.is_light(),
-                    ),
+                    Role::Assistant => {
+                        if msg.complete && !msg.content.is_empty() {
+                            let key = assistant_render_memo_key(&msg.content, w, is_light);
+                            let segment = prior_memo.remove(&key).unwrap_or_else(|| {
+                                let mut segment = Vec::new();
+                                emit_assistant_markdown(&mut segment, &msg.content, w, is_light);
+                                segment
+                            });
+                            lines.extend(segment.iter().cloned());
+                            next_memo.insert(key, segment);
+                        } else {
+                            // Still streaming: render directly, no point
+                            // memoizing content that changes every tick.
+                            emit_assistant_markdown(&mut lines, &msg.content, w, is_light);
+                        }
+                    }
                 }
                 lines.push(DisplayLine::Blank);
             }
@@ -1173,6 +1210,7 @@ impl App {
         }
 
         self.cached_display_lines = lines;
+        self.assistant_render_memo = next_memo;
         self.display_lines_dirty = false;
     }
 
