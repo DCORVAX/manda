@@ -183,6 +183,24 @@ fn should_defer_screen_change_scale_update(
         && (screen_changed || has_pending_screen_change_resize)
 }
 
+fn should_stabilize_transition_dpi(
+    fullscreen_transition: bool,
+    maximize_transition: bool,
+    screen_changed: bool,
+    current_dpi: usize,
+    incoming_dpi: usize,
+) -> bool {
+    // A dpi change arriving with screen_changed comes from a display
+    // reconfiguration (lock-screen return, monitor connect/disconnect) and is
+    // authoritative. It can ride along with a phantom maximize transition:
+    // scaling_changed strips MAXIMIZED from the GUI state on a simple dpi
+    // change while the window layer keeps carrying it forward, so the
+    // corrective resize after an unlock reads as a transition. Stabilizing
+    // the dpi then pins the transient scale forever because the
+    // reconfiguration storm ends without another resize event (#477).
+    !screen_changed && (fullscreen_transition || maximize_transition) && incoming_dpi != current_dpi
+}
+
 impl super::TermWindow {
     pub fn resize(
         &mut self,
@@ -309,9 +327,13 @@ impl super::TermWindow {
 
         // Align fullscreen transition handling with maximize/restore behavior:
         // keep current dpi for this transition frame so text doesn't pop larger/smaller.
-        } else if (fullscreen_transition || maximize_transition)
-            && self.dimensions.dpi != dimensions.dpi
-        {
+        } else if should_stabilize_transition_dpi(
+            fullscreen_transition,
+            maximize_transition,
+            screen_changed,
+            self.dimensions.dpi,
+            dimensions.dpi,
+        ) {
             let mut stabilized = dimensions;
             stabilized.dpi = self.dimensions.dpi;
             self.apply_dimensions(&stabilized, None, window, true);
@@ -1772,6 +1794,26 @@ mod tests {
         ));
         assert!(!should_defer_screen_change_scale_update(
             true, true, false, 96, 96
+        ));
+    }
+
+    #[test]
+    fn screen_change_dpi_update_is_not_stabilized_as_transition() {
+        use super::should_stabilize_transition_dpi;
+        // Genuine same-screen transitions keep the current dpi for the frame.
+        assert!(should_stabilize_transition_dpi(true, false, false, 72, 144));
+        assert!(should_stabilize_transition_dpi(false, true, false, 72, 144));
+        // Display reconfiguration (lock-screen return with an external
+        // monitor): the incoming dpi is authoritative even when a phantom
+        // maximize/fullscreen transition rides along (#477).
+        assert!(!should_stabilize_transition_dpi(false, true, true, 72, 144));
+        assert!(!should_stabilize_transition_dpi(true, false, true, 72, 144));
+        // No dpi delta or no transition: nothing to stabilize.
+        assert!(!should_stabilize_transition_dpi(
+            false, true, false, 144, 144
+        ));
+        assert!(!should_stabilize_transition_dpi(
+            false, false, false, 72, 144
         ));
     }
 
