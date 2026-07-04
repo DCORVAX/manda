@@ -187,7 +187,9 @@ config.split_pane_inherit_working_directory = true -- new splits
 
 **Tab bar**
 
-Hidden when only one tab is open. Change position or show only the current directory name:
+Hidden when only one tab is open. While a command is running, the tab shows it
+(`claude`, `vim`, `npm run dev`); idle shell tabs show the current directory.
+Change position or show only the current directory name:
 
 ```lua
 config.tab_bar_at_bottom = false        -- move to top

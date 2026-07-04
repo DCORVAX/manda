@@ -2661,6 +2661,83 @@ local function pane_foreground_process_info(pane)
   return info
 end
 
+-- Intentionally global: the top-level chunk already carries 200 locals, which
+-- is LuaJIT's hard per-function limit, so this must not become `local function`.
+-- Tab-title events hand us PaneInformation objects that expose plain fields
+-- only; method-style access (pane:get_xxx()) raises on them, so read fields
+-- directly instead of reusing the pane_* helpers above.
+function kaku_foreground_process_title(pane)
+  if not pane then
+    return nil
+  end
+
+  local shells = { zsh = true, bash = true, fish = true, sh = true, dash = true, ksh = true, tcsh = true, csh = true }
+
+  local function normalize_command_name(command)
+    if type(command) ~= 'string' or command == '' then
+      return ''
+    end
+    local lowered = command:lower()
+    return (basename(lowered) or lowered):gsub('^%-', '')
+  end
+
+  local function title_from_command_line(command)
+    local tokens = {}
+    for token in command:gmatch('%S+') do
+      tokens[#tokens + 1] = token
+      if #tokens >= 3 then
+        break
+      end
+    end
+    local name = normalize_command_name(tokens[1])
+    if name == '' or name == 'ssh' or shells[name] then
+      return nil
+    end
+    if (name == 'npm' or name == 'pnpm' or name == 'yarn' or name == 'bun') and tokens[2] then
+      local parts = { name }
+      for i = 2, #tokens do
+        local token = tokens[i]
+        local first = token:sub(1, 1)
+        if token:find('=', 1, true) or first == '-' or first == '"' or first == "'" then
+          break
+        end
+        parts[#parts + 1] = token
+      end
+      if #parts > 1 then
+        return table.concat(parts, ' ')
+      end
+    end
+    return name
+  end
+
+  -- Shell integration keeps WEZTERM_PROG current: the typed command line
+  -- while one runs, an empty string at an idle prompt. Prefer it over
+  -- process inspection; it costs nothing and names wrapper scripts
+  -- ("npm run dev") rather than their interpreter ("node").
+  local ok, vars = pcall(function()
+    return pane.user_vars
+  end)
+  if ok and type(vars) == 'table' and type(vars.WEZTERM_PROG) == 'string' then
+    if vars.WEZTERM_PROG == '' then
+      return nil
+    end
+    return title_from_command_line(vars.WEZTERM_PROG)
+  end
+
+  -- No shell integration data: fall back to the executable basename.
+  local ok_proc, proc = pcall(function()
+    return pane.foreground_process_name
+  end)
+  if not ok_proc or type(proc) ~= 'string' then
+    return nil
+  end
+  local name = normalize_command_name(trim_surrounding_whitespace(proc))
+  if name == '' or name == 'ssh' or shells[name] then
+    return nil
+  end
+  return name
+end
+
 local function pane_cwd_value(pane)
   if not pane then
     return nil
@@ -3227,6 +3304,9 @@ local function tab_display_title(tab, effective_config)
   local active_pane = tab and tab.active_pane or nil
   local text = tab and tab.tab_title or ''
 
+  if text == '' and active_pane then
+    text = kaku_foreground_process_title(active_pane) or ''
+  end
   if text == '' and tab then
     local parent, current = tab_path_parts(tab)
     local basename_only = effective_config and effective_config.tab_title_show_basename_only
@@ -3311,6 +3391,10 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
       local seg_text = current
       if not basename_only and parent ~= '' and current ~= '' then
         seg_text = parent .. '/' .. current
+      end
+      local process_title = kaku_foreground_process_title(p)
+      if process_title then
+        seg_text = process_title
       end
       if seg_text == '' then
         seg_text = resolve_remote_target_from_pane(p) or p.title or '?'

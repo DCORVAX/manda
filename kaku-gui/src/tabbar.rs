@@ -272,6 +272,12 @@ fn tab_multi_pane_title(tab_id: TabId) -> Option<String> {
         let Some(real_pane) = mux.get_pane(pos.pane.pane_id()) else {
             continue;
         };
+        if let Some(process_title) = foreground_process_title(&*real_pane) {
+            if !parts.iter().any(|p| p == &process_title) {
+                parts.push(process_title);
+            }
+            continue;
+        }
         let Some(cwd) = real_pane.get_current_working_dir(CachePolicy::AllowStale) else {
             continue;
         };
@@ -327,6 +333,8 @@ fn compute_tab_title_from_precomputed(
                     tab.tab_title.clone()
                 } else if let Some(multi) = tab_multi_pane_title(tab.tab_id) {
                     multi
+                } else if let Some(process_title) = foreground_process_title_for_pane_info(pane) {
+                    process_title
                 } else if let Some(path_title) = pane_cwd_title(pane) {
                     path_title
                 } else if let Some(ssh_host) = ssh_destination_for_pane(pane) {
@@ -378,17 +386,17 @@ pub fn compute_tab_plain_title(tab: &TabInformation) -> String {
     }
 
     if let Some(pane) = &tab.active_pane {
-        if ssh_destination_for_pane(pane).is_none() {
-            if let Some(multi) = tab_multi_pane_title(tab.tab_id) {
-                return multi;
-            }
-        }
-
-        if let Some(title) = pane_cwd_title(pane) {
-            return title;
-        }
         if let Some(ssh_host) = ssh_destination_for_pane(pane) {
             return ssh_host;
+        }
+        if let Some(multi) = tab_multi_pane_title(tab.tab_id) {
+            return multi;
+        }
+        if let Some(process_title) = foreground_process_title_for_pane_info(pane) {
+            return process_title;
+        }
+        if let Some(title) = pane_cwd_title(pane) {
+            return title;
         }
         return pane.title.clone();
     }
@@ -572,6 +580,98 @@ fn command_basename(command: &str) -> &str {
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or(command)
+}
+
+fn normalized_process_basename(command: &str) -> String {
+    command_basename(command)
+        .trim_start_matches('-')
+        .to_ascii_lowercase()
+}
+
+fn is_shell_name(name: &str) -> bool {
+    matches!(
+        name,
+        "zsh" | "bash" | "fish" | "sh" | "dash" | "ksh" | "tcsh" | "csh"
+    )
+}
+
+fn process_title_from_argv(argv: &[String]) -> Option<String> {
+    let command = argv.first().map(|arg| normalized_process_basename(arg))?;
+    if command.is_empty() || command == "ssh" || is_shell_name(&command) {
+        return None;
+    }
+
+    if matches!(command.as_str(), "npm" | "pnpm" | "yarn" | "bun") {
+        // A foreground process that rewrites its title leaves KERN_PROCARGS2
+        // with environment strings where argv entries should be; never join
+        // tokens that look like env vars or flags into the title.
+        let task: Vec<&str> = argv
+            .iter()
+            .skip(1)
+            .map(|arg| arg.as_str())
+            .take_while(|arg| !arg.contains('=') && !arg.starts_with('-'))
+            .take(2)
+            .collect();
+        if !task.is_empty() {
+            return Some(format!("{} {}", command, task.join(" ")));
+        }
+    }
+
+    Some(command)
+}
+
+fn process_title_from_user_var(command: &str) -> Option<String> {
+    let tokens = shlex::split(command).unwrap_or_else(|| {
+        command
+            .split_whitespace()
+            .map(ToString::to_string)
+            .collect()
+    });
+    process_title_from_argv(&tokens)
+}
+
+/// Title for a stateful foreground process ("claude", "vim", "npm run dev").
+/// Returns None for idle shells and ssh so path/remote titles keep priority.
+///
+/// Shell integration keeps WEZTERM_PROG current: the typed command line while
+/// one runs, an empty string at an idle prompt. Prefer it over process
+/// inspection; it costs no syscalls and names wrapper scripts ("npm run dev")
+/// rather than their interpreter ("node").
+fn foreground_process_title(pane: &dyn mux::pane::Pane) -> Option<String> {
+    if let Some(prog) = pane.copy_user_vars().get("WEZTERM_PROG") {
+        return if prog.is_empty() {
+            None
+        } else {
+            process_title_from_user_var(prog)
+        };
+    }
+
+    if let Some(info) = pane.get_foreground_process_info(CachePolicy::AllowStale) {
+        if let Some(title) = process_title_from_argv(&info.argv) {
+            return Some(title);
+        }
+    }
+
+    let proc_name = pane.get_foreground_process_name(CachePolicy::AllowStale)?;
+    let command = normalized_process_basename(&proc_name);
+    if command.is_empty() || command == "ssh" || is_shell_name(&command) {
+        None
+    } else {
+        Some(command)
+    }
+}
+
+fn foreground_process_title_for_pane_info(pane: &PaneInformation) -> Option<String> {
+    if let Some(prog) = pane.user_vars.get("WEZTERM_PROG") {
+        return if prog.is_empty() {
+            None
+        } else {
+            process_title_from_user_var(prog)
+        };
+    }
+    let mux = Mux::try_get()?;
+    let real_pane = mux.get_pane(pane.pane_id)?;
+    foreground_process_title(&*real_pane)
 }
 
 fn normalize_ssh_target(target: &str) -> Option<String> {
@@ -1306,6 +1406,81 @@ mod test {
     #[test]
     fn ignore_non_ssh_command() {
         assert!(ssh_target_from_command("ls -la").is_none());
+    }
+
+    #[test]
+    fn process_title_ignores_shells_and_ssh() {
+        assert_eq!(process_title_from_argv(&["/bin/zsh".to_string()]), None);
+        assert_eq!(process_title_from_argv(&["-bash".to_string()]), None);
+        assert_eq!(
+            process_title_from_argv(&["ssh".to_string(), "host".to_string()]),
+            None
+        );
+    }
+
+    #[test]
+    fn process_title_uses_command_basename() {
+        assert_eq!(
+            process_title_from_argv(&["/usr/local/bin/claude".to_string()]).as_deref(),
+            Some("claude")
+        );
+    }
+
+    #[test]
+    fn process_title_keeps_package_manager_task() {
+        assert_eq!(
+            process_title_from_argv(&[
+                "/opt/homebrew/bin/npm".to_string(),
+                "run".to_string(),
+                "dev".to_string(),
+                "--".to_string(),
+            ])
+            .as_deref(),
+            Some("npm run dev")
+        );
+    }
+
+    #[test]
+    fn process_title_never_joins_env_tokens() {
+        // A process that rewrites its title (node does) squashes argv into one
+        // string and KERN_PROCARGS2 parsing then leaks environment strings
+        // into the remaining argv slots.
+        assert_eq!(
+            process_title_from_argv(&[
+                "yarn".to_string(),
+                "COLORFGBG=15;0".to_string(),
+                "COLORTERM=truecolor".to_string(),
+            ])
+            .as_deref(),
+            Some("yarn")
+        );
+        assert_eq!(
+            process_title_from_argv(&["npm run dev".to_string(), "COLORFGBG=15;0".to_string()])
+                .as_deref(),
+            Some("npm run dev")
+        );
+    }
+
+    #[test]
+    fn process_title_from_user_var_command_line() {
+        assert_eq!(
+            process_title_from_user_var("npm run dev -- --port 3000").as_deref(),
+            Some("npm run dev")
+        );
+        assert_eq!(
+            process_title_from_user_var("claude --resume").as_deref(),
+            Some("claude")
+        );
+        assert_eq!(
+            process_title_from_user_var("vim notes.md").as_deref(),
+            Some("vim")
+        );
+        assert_eq!(process_title_from_user_var("ssh example.com"), None);
+        assert_eq!(process_title_from_user_var("zsh"), None);
+        assert_eq!(
+            process_title_from_user_var("pnpm install typescript").as_deref(),
+            Some("pnpm install typescript")
+        );
     }
 
     #[test]
