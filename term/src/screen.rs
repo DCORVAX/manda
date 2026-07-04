@@ -221,19 +221,21 @@ impl Screen {
         );
         self.dpi = size.dpi;
 
-        // pre-prune blank lines that range from the cursor position to the end of the display;
-        // this avoids growing the scrollback size when rapidly switching between normal and
-        // maximized states.
+        // When shrinking the number of rows, prune trailing blank lines below
+        // the cursor: they are viewport padding, not content. Letting them
+        // spill into scrollback pushes the cursor row negative (clamped), the
+        // shell then redraws its prompt lower on SIGWINCH, and the next grow
+        // reveals the stale prompt copy above the live one (#482). Never prune
+        // the cursor row or above, and stop at the first non-blank line so
+        // real history is untouched. Growing does not prune, so a cleared
+        // screen does not pull pre-clear history back into view.
         let cursor_phys = self.phys_row(cursor.y);
-        let max_prune = self.lines.len().saturating_sub(self.physical_rows);
-        let mut pruned = 0;
-        for _ in cursor_phys + 1..self.lines.len() {
-            if pruned >= max_prune {
-                break;
-            }
-            if self.lines.back().map(Line::is_whitespace).unwrap_or(false) {
+        if physical_rows < self.physical_rows {
+            let keep = (cursor_phys + 1).max(physical_rows);
+            while self.lines.len() > keep
+                && self.lines.back().map(Line::is_whitespace).unwrap_or(false)
+            {
                 self.lines.pop_back();
-                pruned += 1;
             }
         }
 

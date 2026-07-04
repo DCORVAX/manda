@@ -963,6 +963,109 @@ fn test_resize_2162() {
     term.assert_cursor_pos(19, 0, None, Some(7));
 }
 
+/// Issue 482: shrinking the window must not push the blank rows that pad
+/// out the viewport into scrollback. Before the fix, shrinking pushed the
+/// prompt into scrollback, the cursor row went negative and was clamped,
+/// the shell redrew the prompt lower on SIGWINCH, and growing the window
+/// again revealed the stale copy above the live prompt.
+#[test]
+fn test_resize_482_shrink_keeps_blanks_out_of_scrollback() {
+    let mut term = TestTerm::new(8, 20, 100);
+    term.print("prompt line\r\n> ");
+    term.assert_cursor_pos(2, 1, None, None);
+
+    term.resize(TerminalSize {
+        rows: 4,
+        cols: 20,
+        pixel_width: 0,
+        pixel_height: 0,
+        dpi: 0,
+    });
+
+    assert_all_contents(&term, file!(), line!(), &["prompt line", "> ", "", ""]);
+    term.assert_cursor_pos(2, 1, None, None);
+
+    term.resize(TerminalSize {
+        rows: 8,
+        cols: 20,
+        pixel_width: 0,
+        pixel_height: 0,
+        dpi: 0,
+    });
+
+    assert_all_contents(
+        &term,
+        file!(),
+        line!(),
+        &["prompt line", "> ", "", "", "", "", "", ""],
+    );
+    term.assert_cursor_pos(2, 1, None, None);
+}
+
+/// Issue 482: repeated maximize/restore cycles must not accumulate
+/// scrollback rows or move the cursor away from the prompt.
+#[test]
+fn test_resize_482_zoom_cycles_do_not_accumulate_scrollback() {
+    let mut term = TestTerm::new(8, 20, 100);
+    term.print("one\r\ntwo\r\nthree\r\n> ");
+    term.assert_cursor_pos(2, 3, None, None);
+
+    for _ in 0..3 {
+        term.resize(TerminalSize {
+            rows: 4,
+            cols: 20,
+            pixel_width: 0,
+            pixel_height: 0,
+            dpi: 0,
+        });
+        term.resize(TerminalSize {
+            rows: 8,
+            cols: 20,
+            pixel_width: 0,
+            pixel_height: 0,
+            dpi: 0,
+        });
+    }
+
+    assert_all_contents(
+        &term,
+        file!(),
+        line!(),
+        &["one", "two", "three", "> ", "", "", "", ""],
+    );
+    term.assert_cursor_pos(2, 3, None, None);
+}
+
+/// Issue 482 guard: the shrink-time pruning of trailing blank rows must
+/// never eat real scrollback history; growing back reveals it unchanged.
+#[test]
+fn test_resize_482_shrink_with_history_preserves_content() {
+    let mut term = TestTerm::new(4, 20, 100);
+    term.print("a\r\nb\r\nc\r\nd\r\ne\r\nf");
+    assert_all_contents(&term, file!(), line!(), &["a", "b", "c", "d", "e", "f"]);
+    term.assert_cursor_pos(1, 3, None, None);
+
+    term.resize(TerminalSize {
+        rows: 2,
+        cols: 20,
+        pixel_width: 0,
+        pixel_height: 0,
+        dpi: 0,
+    });
+    assert_visible_contents(&term, file!(), line!(), &["e", "f"]);
+    term.assert_cursor_pos(1, 1, None, None);
+
+    term.resize(TerminalSize {
+        rows: 4,
+        cols: 20,
+        pixel_width: 0,
+        pixel_height: 0,
+        dpi: 0,
+    });
+    assert_all_contents(&term, file!(), line!(), &["a", "b", "c", "d", "e", "f"]);
+    term.assert_cursor_pos(1, 3, None, None);
+}
+
 /// Test the behavior of wrapped lines when we resize the terminal
 /// wider and then narrower.
 #[test]
