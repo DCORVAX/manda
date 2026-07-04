@@ -197,18 +197,24 @@ pub(crate) fn reject_relative_cwd_escape(raw_path: &str, resolved: &Path, cwd: &
     Ok(())
 }
 
-/// Resolve `args["path"]` against `cwd` and run both sandbox guards in order.
+/// Resolve a raw tool path against `cwd` and run both sandbox guards in order.
 ///
 /// Single source of truth for the path-validation preamble shared by every
-/// `fs_*` tool: resolve `~`/relative paths, then `reject_if_sensitive` before
-/// `reject_relative_cwd_escape`. Collapsing the six identical copies here keeps
+/// fs / search / tree tool: resolve `~`/relative paths, then
+/// `reject_if_sensitive` before `reject_relative_cwd_escape`. Collapsing
+/// identical copies here keeps
 /// the guard sequence from drifting between call sites.
-pub(crate) fn resolve_checked_arg(args: &serde_json::Value, cwd: &str) -> Result<PathBuf> {
-    let raw_path = args["path"].as_str().context("missing path")?;
+pub(crate) fn resolve_checked_path(raw_path: &str, cwd: &str) -> Result<PathBuf> {
     let path = resolve(raw_path, cwd)?;
     reject_if_sensitive(&path)?;
     reject_relative_cwd_escape(raw_path, &path, cwd)?;
     Ok(path)
+}
+
+/// Resolve `args["path"]` against `cwd` and run both sandbox guards in order.
+pub(crate) fn resolve_checked_arg(args: &serde_json::Value, cwd: &str) -> Result<PathBuf> {
+    let raw_path = args["path"].as_str().context("missing path")?;
+    resolve_checked_path(raw_path, cwd)
 }
 
 #[cfg(test)]
@@ -238,6 +244,14 @@ mod tests {
         let args = serde_json::json!({ "path": "/tmp" });
         assert_eq!(
             resolve_checked_arg(&args, "/tmp").unwrap(),
+            PathBuf::from("/tmp")
+        );
+    }
+
+    #[test]
+    fn resolve_checked_path_resolves_normal_path() {
+        assert_eq!(
+            resolve_checked_path("/tmp", "/tmp").unwrap(),
             PathBuf::from("/tmp")
         );
     }
