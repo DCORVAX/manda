@@ -112,19 +112,17 @@ pub fn execute(
             web::maybe_summarize_fetched(url, raw, config, raw_passthrough)
         }
         "project_summary" => {
-            let raw_path = args["path"].as_str().unwrap_or(cwd);
-            let scan_path = paths::resolve_checked_path(raw_path, cwd)?;
+            let scan_path = paths::resolve_checked_optional_arg(args, cwd)?;
             project::exec_project_summary(&scan_path)?
         }
         "file_tree" => {
-            let raw_path = args["path"].as_str().unwrap_or(cwd);
-            let tree_path = paths::resolve_checked_path(raw_path, cwd)?;
+            let tree_path = paths::resolve_checked_optional_arg(args, cwd)?;
             let depth = args["depth"].as_u64().unwrap_or(3).min(6) as usize;
             project::exec_file_tree(&tree_path, depth)?
         }
         "symbol_search" => {
             let query = args["query"].as_str().context("missing query")?;
-            let search_path = args["path"].as_str().unwrap_or(cwd);
+            let search_path = paths::optional_path_arg(args, cwd);
             paths::resolve_checked_path(search_path, cwd)?;
             let kind = args["kind"].as_str().unwrap_or("all");
             let glob_filter = args["glob"].as_str();
@@ -132,7 +130,7 @@ pub fn execute(
         }
         "grep_search" => {
             let pattern = args["pattern"].as_str().context("missing pattern")?;
-            let search_path = args["path"].as_str().unwrap_or(cwd);
+            let search_path = paths::optional_path_arg(args, cwd);
             paths::resolve_checked_path(search_path, cwd)?;
             let context_lines = args["context_lines"].as_u64().unwrap_or(2) as usize;
             let case_insensitive = args["case_insensitive"].as_bool().unwrap_or(false);

@@ -197,13 +197,13 @@ pub(crate) fn reject_relative_cwd_escape(raw_path: &str, resolved: &Path, cwd: &
     Ok(())
 }
 
-/// Resolve a raw tool path against `cwd` and run both sandbox guards in order.
+/// Resolve an explicit raw tool path against `cwd` and run both sandbox guards.
 ///
 /// Single source of truth for the path-validation preamble shared by every
 /// fs / search / tree tool: resolve `~`/relative paths, then
 /// `reject_if_sensitive` before `reject_relative_cwd_escape`. Collapsing
-/// identical copies here keeps
-/// the guard sequence from drifting between call sites.
+/// identical copies here keeps the guard sequence from drifting between call
+/// sites.
 pub(crate) fn resolve_checked_path(raw_path: &str, cwd: &str) -> Result<PathBuf> {
     let path = resolve(raw_path, cwd)?;
     reject_if_sensitive(&path)?;
@@ -211,7 +211,18 @@ pub(crate) fn resolve_checked_path(raw_path: &str, cwd: &str) -> Result<PathBuf>
     Ok(path)
 }
 
-/// Resolve `args["path"]` against `cwd` and run both sandbox guards in order.
+/// Resolve optional `args["path"]`, defaulting to `cwd`, and run both guards.
+pub(crate) fn resolve_checked_optional_arg(args: &serde_json::Value, cwd: &str) -> Result<PathBuf> {
+    let raw_path = optional_path_arg(args, cwd);
+    resolve_checked_path(raw_path, cwd)
+}
+
+/// Return optional `args["path"]`, defaulting to `cwd`, without resolving it.
+pub(crate) fn optional_path_arg<'a>(args: &'a serde_json::Value, cwd: &'a str) -> &'a str {
+    args["path"].as_str().unwrap_or(cwd)
+}
+
+/// Resolve required `args["path"]` against `cwd` and run both guards.
 pub(crate) fn resolve_checked_arg(args: &serde_json::Value, cwd: &str) -> Result<PathBuf> {
     let raw_path = args["path"].as_str().context("missing path")?;
     resolve_checked_path(raw_path, cwd)
@@ -254,6 +265,21 @@ mod tests {
             resolve_checked_path("/tmp", "/tmp").unwrap(),
             PathBuf::from("/tmp")
         );
+    }
+
+    #[test]
+    fn resolve_checked_optional_arg_defaults_to_cwd() {
+        let args = serde_json::json!({});
+        assert_eq!(
+            resolve_checked_optional_arg(&args, "/tmp").unwrap(),
+            PathBuf::from("/tmp")
+        );
+    }
+
+    #[test]
+    fn optional_path_arg_preserves_raw_relative_path() {
+        let args = serde_json::json!({ "path": "src" });
+        assert_eq!(optional_path_arg(&args, "/tmp/project"), "src");
     }
 
     #[test]
