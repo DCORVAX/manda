@@ -19,7 +19,6 @@
 //! | `registry`    | ToolDef, all_tools, to_api_schema, budget_for       |
 
 use anyhow::{Context, Result};
-use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -113,36 +112,20 @@ pub fn execute(
             web::maybe_summarize_fetched(url, raw, config, raw_passthrough)
         }
         "project_summary" => {
-            let raw_path = args["path"].as_str();
-            let scan_path = raw_path
-                .map(|p| paths::resolve(p, cwd))
-                .transpose()?
-                .unwrap_or_else(|| PathBuf::from(cwd.as_str()));
-            if let Some(raw_path) = raw_path {
-                paths::reject_relative_cwd_escape(raw_path, &scan_path, cwd)?;
-            }
-            paths::reject_if_sensitive(&scan_path)?;
+            let raw_path = args["path"].as_str().unwrap_or(cwd);
+            let scan_path = paths::resolve_checked_path(raw_path, cwd)?;
             project::exec_project_summary(&scan_path)?
         }
         "file_tree" => {
-            let raw_path = args["path"].as_str();
-            let tree_path = raw_path
-                .map(|p| paths::resolve(p, cwd))
-                .transpose()?
-                .unwrap_or_else(|| PathBuf::from(cwd.as_str()));
-            if let Some(raw_path) = raw_path {
-                paths::reject_relative_cwd_escape(raw_path, &tree_path, cwd)?;
-            }
-            paths::reject_if_sensitive(&tree_path)?;
+            let raw_path = args["path"].as_str().unwrap_or(cwd);
+            let tree_path = paths::resolve_checked_path(raw_path, cwd)?;
             let depth = args["depth"].as_u64().unwrap_or(3).min(6) as usize;
             project::exec_file_tree(&tree_path, depth)?
         }
         "symbol_search" => {
             let query = args["query"].as_str().context("missing query")?;
             let search_path = args["path"].as_str().unwrap_or(cwd);
-            let resolved = paths::resolve(search_path, cwd)?;
-            paths::reject_relative_cwd_escape(search_path, &resolved, cwd)?;
-            paths::reject_if_sensitive(&resolved)?;
+            paths::resolve_checked_path(search_path, cwd)?;
             let kind = args["kind"].as_str().unwrap_or("all");
             let glob_filter = args["glob"].as_str();
             search::exec_symbol_search(query, kind, search_path, glob_filter, cwd, cancel)?
@@ -150,9 +133,7 @@ pub fn execute(
         "grep_search" => {
             let pattern = args["pattern"].as_str().context("missing pattern")?;
             let search_path = args["path"].as_str().unwrap_or(cwd);
-            let resolved = paths::resolve(search_path, cwd)?;
-            paths::reject_relative_cwd_escape(search_path, &resolved, cwd)?;
-            paths::reject_if_sensitive(&resolved)?;
+            paths::resolve_checked_path(search_path, cwd)?;
             let context_lines = args["context_lines"].as_u64().unwrap_or(2) as usize;
             let case_insensitive = args["case_insensitive"].as_bool().unwrap_or(false);
             let max_results = args["max_results"].as_u64().unwrap_or(100) as usize;
