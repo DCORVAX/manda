@@ -160,6 +160,18 @@ table.insert(config.keys, {
 })
 ```
 
+## QR codes and terminal graphics look vertically stretched.
+
+Kaku's default `line_height = 1.28` favors comfortable text spacing. Terminal graphics built from characters, such as QR codes, `neofetch` logos, and TUI bar charts, scale with the row height, so they render about 28% taller than in terminals with no extra line spacing. This is a typography trade-off, not a rendering bug: block characters must fill the whole cell so TUI borders and progress bars stay seamless.
+
+If you want near-square graphics, lower the line height in `~/.config/kaku/kaku.lua`:
+
+```lua
+config.line_height = 1.1  -- or 1.0 to match terminals without extra spacing
+```
+
+Note that no terminal renders half-block QR codes perfectly square: with common monospace fonts the cell is naturally a bit taller than 2:1 even at `line_height = 1.0`.
+
 ## Can I use Kaku with tiling window managers (yabai, AeroSpace)?
 
 Kaku is compatible with yabai and AeroSpace. If you see continuous flickering, it is usually caused by the tiling WM fighting with Kaku's fullscreen/resize logic. Disabling Kaku's native fullscreen (`config.native_macos_fullscreen_mode = false`) or excluding Kaku from the tiling WM's managed window list typically resolves it.

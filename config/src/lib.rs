@@ -759,16 +759,20 @@ end
 -- Kaku intentionally keeps WezTerm-compatible Lua API names
 -- for maximum compatibility, so `wezterm.*` here is expected.
 -- Full API docs: https://wezfurlong.org/wezterm/config/lua/
+-- Kaku options:  https://github.com/tw93/Kaku/blob/main/docs/configuration.md
 --
--- 1) Font family and size
--- config.font = wezterm.font('JetBrains Mono')
+-- Changes apply automatically when you save this file.
+-- Every example below differs from the default, so uncommenting it takes effect.
+--
+-- 1) Font family and size (default: JetBrains Mono, size auto 15/17)
+-- config.font = wezterm.font('Menlo')
 -- config.font_size = 16.0
--- config.line_height = 1.2
+-- config.line_height = 1.1  -- default 1.28; use 1.0-1.1 if QR codes or TUI charts look stretched
 --
--- 2) Color scheme
+-- 2) Color scheme (a fixed scheme disables light/dark auto switching)
 -- config.color_scheme = 'Catppuccin Mocha'
 --
--- 3) Window size and padding
+-- 3) Window size and padding (default: 110x22, 40px sides, 0 bottom)
 -- config.initial_cols = 120
 -- config.initial_rows = 30
 -- config.window_padding = { left = '24px', right = '24px', top = '40px', bottom = '20px' }
@@ -777,37 +781,47 @@ end
 -- config.window_background_opacity = 0.95            -- opacity, 0.0 to 1.0
 -- config.macos_window_background_blur = 20           -- blur radius, integer 0 to 100
 --
--- 5) Copy on select
--- config.copy_on_select = false
+-- 5) Selection and quit behavior
+-- config.copy_on_select = false                      -- default true
+-- config.window_close_confirmation = 'NeverPrompt'   -- default 'SmartPrompt'
 --
--- 6) Default shell/program
--- config.default_prog = { '/bin/zsh', '-l' }
+-- 6) Default shell/program (default: your login shell)
+-- config.default_prog = { '/opt/homebrew/bin/fish', '-l' }
 --
 -- 7) Cursor and scrollback
--- config.default_cursor_style = 'BlinkingBar'
--- config.cursor_blink_rate = 500
--- config.scrollback_lines = 20000
+-- config.default_cursor_style = 'SteadyBlock'        -- default 'BlinkingBar'
+-- config.cursor_blink_rate = 0                       -- 0 disables blinking; default 500
+-- config.scrollback_lines = 20000                    -- default 10000
 --
 -- 8) Tab bar
--- config.hide_tab_bar_if_only_one_tab = true
--- config.tab_bar_at_bottom = true
+-- config.tab_bar_at_bottom = false                   -- default true
+-- config.hide_tab_bar_if_only_one_tab = false        -- default true
 -- config.tab_title_show_basename_only = true
 --
--- 9) Working directory inheritance
--- config.window_inherit_working_directory = true
--- config.tab_inherit_working_directory = true
--- config.split_pane_inherit_working_directory = true
+-- 9) Tab key completion (default 'suggestion_first': Tab accepts the inline suggestion)
+-- config.smart_tab_mode = 'completion_first'
 --
--- 10) Split pane
--- config.split_pane_gap = 2
+-- 10) Working directory inheritance (default: all true)
+-- config.window_inherit_working_directory = false
+-- config.tab_inherit_working_directory = false
+-- config.split_pane_inherit_working_directory = false
+--
+-- 11) Split pane
+-- config.split_pane_gap = 6                          -- default 2
 -- config.inactive_pane_hsb = { saturation = 1.0, brightness = 0.9 }
 --
--- 11) Add or override a key binding
+-- 12) Fullscreen (set false if you use yabai/AeroSpace tiling)
+-- config.native_macos_fullscreen_mode = false
+--
+-- 13) Add a key binding (defaults: docs/keybindings.md)
 -- table.insert(config.keys, {
---   key = 'Enter',
+--   key = 'k',
 --   mods = 'CMD|SHIFT',
---   action = wezterm.action.TogglePaneZoomState,
+--   action = wezterm.action.ClearScrollback('ScrollbackAndViewport'),
 -- })
+--
+-- AI assistant settings (provider, model, API key) live in
+-- ~/.config/kaku/assistant.toml, not in this file.
 
 return config
 "#

@@ -105,6 +105,8 @@ config.font_size = 16
 config.line_height = 1.28  -- default
 ```
 
+The default favors readable text spacing. Character-cell graphics (QR codes, `neofetch` logos, TUI charts) stretch with the row height; set `1.0`–`1.1` if you want them near-square. See the [FAQ](faq.md#qr-codes-and-terminal-graphics-look-vertically-stretched) for details.
+
 **Window transparency**
 
 ```lua
