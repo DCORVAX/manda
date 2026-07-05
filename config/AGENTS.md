@@ -46,9 +46,29 @@ The AI config TUI lives in the `kaku` CLI crate and shares terminal UI primitive
 - Do not reintroduce `KAKU_CONFIG_FILE`; config path override was intentionally removed.
 - Keep bundled fallback config authoritative at `assets/macos/Kaku.app/Contents/Resources/kaku.lua`.
 - Preserve compatibility with runtime reload callers that trigger `config::reload()` from GUI-side signals.
-- Treat `config_version` 24 as the current release baseline. v24 migrates yazi `$schema` keys to `#:schema` comments in setup scripts, the yazi wrapper, and `kaku.lua`. Any version bump must update bundled config, release checks, docs, and migration expectations together.
+- The current `config_version` is whatever `assets/shell-integration/config_version.txt` says; never trust a number written in a doc (this line once said 24 while the release was at 26). Any version bump must update bundled config, release checks, docs, and migration expectations together, and add a row to `docs/config-versions.md`.
 - New config fields are user-facing behavior. Keep them out of pure cleanup/refactor patches unless the maintainer explicitly approved the product change, and update bundled defaults plus documentation in the same change when they do land.
 - Keep alternate-screen wheel scroll behavior configurable; terminal and GUI defaults must not diverge.
+
+## Bundled kaku.lua Pitfalls
+
+- **200-locals hard limit.** LuaJIT caps a chunk at 200 local variables, and the top-level
+  chunk of `assets/macos/Kaku.app/Contents/Resources/kaku.lua` is already at capacity.
+  Adding one more top-level `local` makes the whole config fail to load at startup. New
+  helper functions and values must be nested inside existing functions or tables. After any
+  edit, verify the file still loads:
+
+  ```bash
+  luajit -e "assert(loadfile('assets/macos/Kaku.app/Contents/Resources/kaku.lua'))"
+  ```
+
+- **PaneInformation is fields-only.** In title-formatting paths (`format-tab-title`,
+  `format-window-title`), the `pane` object is a `PaneInformation` userdata that exposes
+  fields only, no methods. Method-style access such as `pane:get_foreground_process_name()`
+  or capability probes like `if pane.get_xxx then` do not error; they silently evaluate to
+  nil, so the guarded branch never runs (#485 shipped dead code this way). Use the
+  documented fields, prefer the `WEZTERM_PROG` user var for the running command, and treat
+  argv-derived titles as untrusted (argv can leak environment values).
 
 ## Cross-References
 
