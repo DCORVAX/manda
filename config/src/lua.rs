@@ -442,15 +442,19 @@ end
                 lua.create_function({
                     let deferred = deferred.clone();
                     move |lua, (table, key): (mlua::Table, mlua::String)| {
+                        // Remove the __index metamethod BEFORE running the
+                        // setup functions: they call get_or_create_sub_module,
+                        // whose non-raw table.get on a not-yet-registered key
+                        // would otherwise re-enter this handler and recurse
+                        // until the C stack overflows.
+                        if let Some(mt) = table.get_metatable() {
+                            let _: mlua::Result<()> = mt.raw_set("__index", mlua::Value::Nil);
+                        }
                         // Run all deferred setup functions once
                         for func in &deferred {
                             if let Err(err) = func(lua) {
                                 log::error!("deferred setup func error: {:#}", err);
                             }
-                        }
-                        // Remove the __index metamethod so we don't re-trigger
-                        if let Some(mt) = table.get_metatable() {
-                            let _: mlua::Result<()> = mt.raw_set("__index", mlua::Value::Nil);
                         }
                         // Now look up the key again
                         let val: mlua::Value = table.raw_get(key)?;
@@ -956,6 +960,47 @@ pub fn add_to_config_reload_watch_list<'lua>(
 mod test {
     use super::*;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn deferred_setup_func_does_not_recurse() -> anyhow::Result<()> {
+        // Deferred setup funcs typically call get_or_create_sub_module,
+        // whose non-raw wezterm_mod.get() must not re-enter the lazy
+        // __index handler; that recursion used to blow the C stack and
+        // run every deferred func hundreds of times before recovering.
+        add_deferred_setup_func(|lua| {
+            // Count runs inside this Lua context so parallel tests that
+            // build their own contexts cannot interfere.
+            let runs: usize = lua.globals().get("test_deferred_runs").unwrap_or(0);
+            lua.globals().set("test_deferred_runs", runs + 1)?;
+            get_or_create_sub_module(lua, "test_deferred_mod")?;
+            Ok(())
+        });
+        let lua = make_lua_context(Path::new("testing"))?;
+
+        // Touching an unknown key triggers the deferred setup path.
+        let unknown: mlua::Value = lua
+            .load("local wezterm = require 'wezterm' return wezterm.no_such_key")
+            .eval()?;
+        assert!(matches!(unknown, mlua::Value::Nil));
+
+        let runs: usize = lua.globals().get("test_deferred_runs")?;
+        assert_eq!(
+            runs, 1,
+            "deferred setup func must run exactly once (re-entry means the \
+             __index handler recursed)"
+        );
+
+        // The deferred module must have registered successfully.
+        let module: mlua::Value = lua
+            .load("local wezterm = require 'wezterm' return wezterm.test_deferred_mod")
+            .eval()?;
+        assert!(
+            matches!(module, mlua::Value::Table(_)),
+            "deferred module should be registered, got {:?}",
+            module
+        );
+        Ok(())
+    }
 
     #[test]
     fn can_register_and_emit_multiple_events() -> anyhow::Result<()> {
