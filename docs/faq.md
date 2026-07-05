@@ -65,7 +65,10 @@ Run `kaku ai`, keep Auth Type set to API key, and enter your Base URL, API Key, 
 kaku reset
 ```
 
-This overwrites `~/.config/kaku/kaku.lua` with defaults.
+This removes Kaku-managed shell and tmux integration, Kaku-managed git delta
+defaults, selected Kaku state, and managed theme blocks in
+`~/.config/kaku/kaku.lua`. User-authored Lua outside managed blocks is
+preserved. Run `kaku init` again if you want shell integration back.
 
 ## The `kaku` command is missing. How do I recover it?
 

@@ -524,6 +524,11 @@ pub struct Config {
     #[dynamic(default)]
     pub tab_title_show_basename_only: bool,
 
+    /// If true, auto-generated tab titles include the foreground process
+    /// alongside the path, for example `project·codex`.
+    #[dynamic(default)]
+    pub tab_title_show_foreground_process: bool,
+
     #[dynamic(default = "default_true")]
     pub mouse_wheel_scrolls_tabs: bool,
 
@@ -2551,6 +2556,13 @@ mod tests {
         let config = super::Config::default();
 
         assert_eq!(config.smart_tab_mode, super::SmartTabMode::SuggestionFirst);
+    }
+
+    #[test]
+    fn foreground_process_tab_titles_default_to_off() {
+        let config = super::Config::default();
+
+        assert!(!config.tab_title_show_foreground_process);
     }
 
     #[test]

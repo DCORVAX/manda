@@ -2673,12 +2673,28 @@ function kaku_foreground_process_title(pane)
 
   local shells = { zsh = true, bash = true, fish = true, sh = true, dash = true, ksh = true, tcsh = true, csh = true }
 
+  local function is_version_like_process_name(name)
+    return type(name) == 'string' and name:match('^%d+%.%d+%.%d+[%w_%-]*$') ~= nil
+  end
+
   local function normalize_command_name(command)
     if type(command) ~= 'string' or command == '' then
       return ''
     end
     local lowered = command:lower()
-    return (basename(lowered) or lowered):gsub('^%-', '')
+    local name = (basename(lowered) or lowered):gsub('^%-', '')
+    if is_version_like_process_name(name) then
+      if lowered:find('/claude/versions/', 1, true) then
+        return 'claude'
+      end
+      return ''
+    end
+    for _, suffix in ipairs({ '-aarch64-apple-darwin', '-arm64-apple-darwin', '-x86_64-apple-darwin' }) do
+      if name:sub(-#suffix) == suffix then
+        return name:sub(1, #name - #suffix)
+      end
+    end
+    return name
   end
 
   local function title_from_command_line(command)
@@ -2736,6 +2752,29 @@ function kaku_foreground_process_title(pane)
     return nil
   end
   return name
+end
+
+function kaku_context_process_title(context, process)
+  if type(context) ~= 'string' then
+    context = ''
+  end
+  if type(process) ~= 'string' then
+    process = ''
+  end
+
+  if context ~= '' and process ~= '' then
+    if context == process then
+      return context
+    end
+    return context .. '\u{00b7}' .. process
+  end
+  if context ~= '' then
+    return context
+  end
+  if process ~= '' then
+    return process
+  end
+  return nil
 end
 
 local function pane_cwd_value(pane)
@@ -3304,16 +3343,19 @@ local function tab_display_title(tab, effective_config)
   local active_pane = tab and tab.active_pane or nil
   local text = tab and tab.tab_title or ''
 
-  if text == '' and active_pane then
-    text = kaku_foreground_process_title(active_pane) or ''
-  end
-  if text == '' and tab then
-    local parent, current = tab_path_parts(tab)
-    local basename_only = effective_config and effective_config.tab_title_show_basename_only
-    text = current
-    if not basename_only and parent ~= '' and current ~= '' then
-      text = parent .. '/' .. current
+  if text == '' then
+    local show_process = effective_config and effective_config.tab_title_show_foreground_process == true
+    local process_title = show_process and active_pane and kaku_foreground_process_title(active_pane) or nil
+    local path_title = ''
+    if tab then
+      local parent, current = tab_path_parts(tab)
+      local basename_only = effective_config and effective_config.tab_title_show_basename_only
+      path_title = current
+      if not basename_only and parent ~= '' and current ~= '' then
+        path_title = parent .. '/' .. current
+      end
     end
+    text = kaku_context_process_title(path_title, process_title) or ''
   end
 
   if text == '' and active_pane then
@@ -3386,15 +3428,16 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
     local segments = {}
     local seg_index = {}
     local basename_only = effective_config and effective_config.tab_title_show_basename_only
+    local show_process = effective_config and effective_config.tab_title_show_foreground_process == true
     for _, p in ipairs(own_panes) do
       local parent, current = pane_path_parts(p)
       local seg_text = current
       if not basename_only and parent ~= '' and current ~= '' then
         seg_text = parent .. '/' .. current
       end
-      local process_title = kaku_foreground_process_title(p)
+      local process_title = show_process and kaku_foreground_process_title(p) or nil
       if process_title then
-        seg_text = process_title
+        seg_text = kaku_context_process_title(seg_text, process_title) or ''
       end
       if seg_text == '' then
         seg_text = resolve_remote_target_from_pane(p) or p.title or '?'
@@ -3410,7 +3453,7 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
       end
     end
 
-    local sep = ' \u{00b7} '  -- U+00B7 middle dot with spaces
+    local sep = ' \u{2219} '  -- U+2219 bullet operator, separates panes
 
     -- Build FormatItem sequence
     local items = { { Text = ' ' } }
@@ -4194,6 +4237,7 @@ config.enable_tab_bar = true
 config.tab_bar_at_bottom = true
 config.use_fancy_tab_bar = false
 config.tab_max_width = 32
+config.tab_title_show_foreground_process = false
 config.hide_tab_bar_if_only_one_tab = true
 config.show_tab_index_in_tab_bar = false
 config.show_new_tab_button_in_tab_bar = false

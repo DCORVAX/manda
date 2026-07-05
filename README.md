@@ -51,6 +51,7 @@ Part of a trilogy: [Kaku](https://github.com/tw93/Kaku) (書く) writes code, [W
 | Split Pane Horizontal | `Cmd + Shift + D` |
 | Open Settings Panel | `Cmd + ,` |
 | AI Panel | `Cmd + Shift + A` |
+| AI Chat | `Cmd + L` |
 | Apply AI Suggestion | `Cmd + Shift + E` |
 | Open Lazygit | `Cmd + Shift + G` |
 | Yazi File Manager | `Cmd + Shift + Y` or `y` |

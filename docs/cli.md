@@ -26,7 +26,9 @@ memory files as the `Cmd + L` overlay, and supports `/new`, `/resume`, `/clear`,
 
 ## kaku config
 
-Open the Kaku configuration file (`~/.config/kaku/kaku.lua`) in your default editor. Also accessible from the settings panel with `Cmd + ,`.
+Open the Kaku configuration TUI for common settings and Lua overrides. It
+ensures `~/.config/kaku/kaku.lua` exists and is also accessible from the
+settings panel with `Cmd + ,`.
 
 ```bash
 kaku config
@@ -50,7 +52,10 @@ kaku update
 
 ## kaku reset
 
-Reset Kaku's config and state files to defaults. Use with caution, this overwrites `~/.config/kaku/kaku.lua`.
+Remove Kaku-managed shell and tmux integration, Kaku-managed git delta defaults,
+selected Kaku state, and managed theme blocks in `~/.config/kaku/kaku.lua`.
+User-authored Lua outside managed blocks is preserved. Use with caution and run
+`kaku init` again if you want shell integration back.
 
 ```bash
 kaku reset

@@ -189,13 +189,14 @@ config.split_pane_inherit_working_directory = true -- new splits
 
 **Tab bar**
 
-Hidden when only one tab is open. While a command is running, the tab shows it
-(`claude`, `vim`, `npm run dev`); idle shell tabs show the current directory.
-Change position or show only the current directory name:
+Hidden when only one tab is open. Auto-generated tab titles show the current
+directory by default. You can change the position, shorten path titles, or opt
+into showing the foreground command alongside the path:
 
 ```lua
-config.tab_bar_at_bottom = false        -- move to top
-config.tab_title_show_basename_only = true  -- show "dirname" instead of "parent/dirname"
+config.tab_bar_at_bottom = false                   -- move to top
+config.tab_title_show_basename_only = true         -- show "dirname" instead of "parent/dirname"
+config.tab_title_show_foreground_process = true    -- show "dirname·codex" while commands run
 ```
 
 Background tabs that emit BEL show a small dot in the tab title by default.

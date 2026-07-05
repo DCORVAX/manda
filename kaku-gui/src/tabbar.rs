@@ -260,7 +260,49 @@ fn pct_to_glyph(pct: u8) -> char {
     }
 }
 
-fn tab_multi_pane_title(tab_id: TabId) -> Option<String> {
+const CONTEXT_PROCESS_SEPARATOR: &str = "\u{00b7}";
+const MULTI_PANE_TITLE_SEPARATOR: &str = " \u{2219} ";
+
+fn path_title_from_str(path: &str) -> Option<String> {
+    let path_str = path.trim_end_matches('/');
+    if path_str.is_empty() {
+        return None;
+    }
+
+    let path = Path::new(path_str);
+    let current = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .or_else(|| path.to_str())?;
+    let parent = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+
+    if parent.is_empty() {
+        Some(current.to_string())
+    } else {
+        Some(format!("{parent}/{current}"))
+    }
+}
+
+fn context_process_title(context: Option<&str>, process: Option<&str>) -> Option<String> {
+    let context = context.filter(|s| !s.is_empty());
+    let process = process.filter(|s| !s.is_empty());
+
+    match (context, process) {
+        (Some(context), Some(process)) if context == process => Some(context.to_string()),
+        (Some(context), Some(process)) => {
+            Some(format!("{context}{CONTEXT_PROCESS_SEPARATOR}{process}"))
+        }
+        (Some(context), None) => Some(context.to_string()),
+        (None, Some(process)) => Some(process.to_string()),
+        (None, None) => None,
+    }
+}
+
+fn tab_multi_pane_title(tab_id: TabId, include_foreground_process: bool) -> Option<String> {
     let mux = Mux::try_get()?;
     let tab = mux.get_tab(tab_id)?;
     let panes = tab.iter_panes();
@@ -272,36 +314,17 @@ fn tab_multi_pane_title(tab_id: TabId) -> Option<String> {
         let Some(real_pane) = mux.get_pane(pos.pane.pane_id()) else {
             continue;
         };
-        if let Some(process_title) = foreground_process_title(&*real_pane) {
-            if !parts.iter().any(|p| p == &process_title) {
-                parts.push(process_title);
-            }
-            continue;
-        }
-        let Some(cwd) = real_pane.get_current_working_dir(CachePolicy::AllowStale) else {
-            continue;
+        let process_title = if include_foreground_process {
+            foreground_process_title(&*real_pane)
+        } else {
+            None
         };
-        let path_str = cwd.path().trim_end_matches('/');
-        if path_str.is_empty() {
-            continue;
-        }
-        let path = Path::new(path_str);
-        let Some(current) = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .or_else(|| path.to_str())
+        let path_title = real_pane
+            .get_current_working_dir(CachePolicy::AllowStale)
+            .and_then(|cwd| path_title_from_str(cwd.path()));
+        let Some(segment) = context_process_title(path_title.as_deref(), process_title.as_deref())
         else {
             continue;
-        };
-        let parent = path
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
-        let segment = if parent.is_empty() {
-            current.to_string()
-        } else {
-            format!("{parent}/{current}")
         };
         if !parts.iter().any(|p| p == &segment) {
             parts.push(segment);
@@ -310,7 +333,7 @@ fn tab_multi_pane_title(tab_id: TabId) -> Option<String> {
     if parts.is_empty() {
         return None;
     }
-    Some(parts.join(" \u{00b7} "))
+    Some(parts.join(MULTI_PANE_TITLE_SEPARATOR))
 }
 
 fn compute_tab_title_from_precomputed(
@@ -331,12 +354,14 @@ fn compute_tab_title_from_precomputed(
             if let Some(pane) = &tab.active_pane {
                 let title = if !tab.tab_title.is_empty() {
                     tab.tab_title.clone()
-                } else if let Some(multi) = tab_multi_pane_title(tab.tab_id) {
+                } else if let Some(multi) =
+                    tab_multi_pane_title(tab.tab_id, config.tab_title_show_foreground_process)
+                {
                     multi
-                } else if let Some(process_title) = foreground_process_title_for_pane_info(pane) {
-                    process_title
-                } else if let Some(path_title) = pane_cwd_title(pane) {
-                    path_title
+                } else if let Some(context_title) =
+                    pane_context_title(pane, config.tab_title_show_foreground_process)
+                {
+                    context_title
                 } else if let Some(ssh_host) = ssh_destination_for_pane(pane) {
                     ssh_host
                 } else {
@@ -352,32 +377,21 @@ fn compute_tab_title_from_precomputed(
     }
 }
 
+fn pane_context_title(pane: &PaneInformation, include_foreground_process: bool) -> Option<String> {
+    let path_title = pane_cwd_title(pane);
+    let process_title = if include_foreground_process {
+        foreground_process_title_for_pane_info(pane)
+    } else {
+        None
+    };
+    context_process_title(path_title.as_deref(), process_title.as_deref())
+}
+
 fn pane_cwd_title(pane: &PaneInformation) -> Option<String> {
     let mux = Mux::try_get()?;
     let real_pane = mux.get_pane(pane.pane_id)?;
     let cwd = real_pane.get_current_working_dir(CachePolicy::AllowStale)?;
-    let path = cwd.path().trim_end_matches('/');
-    if path.is_empty() {
-        return None;
-    }
-
-    let path = Path::new(path);
-    let current = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .or_else(|| path.to_str())?;
-
-    let parent = path
-        .parent()
-        .and_then(|parent| parent.file_name())
-        .and_then(|name| name.to_str())
-        .unwrap_or("");
-
-    if parent.is_empty() {
-        Some(current.to_string())
-    } else {
-        Some(format!("{parent}/{current}"))
-    }
+    path_title_from_str(cwd.path())
 }
 
 pub fn compute_tab_plain_title(tab: &TabInformation) -> String {
@@ -389,13 +403,11 @@ pub fn compute_tab_plain_title(tab: &TabInformation) -> String {
         if let Some(ssh_host) = ssh_destination_for_pane(pane) {
             return ssh_host;
         }
-        if let Some(multi) = tab_multi_pane_title(tab.tab_id) {
+        let include_foreground_process = config::configuration().tab_title_show_foreground_process;
+        if let Some(multi) = tab_multi_pane_title(tab.tab_id, include_foreground_process) {
             return multi;
         }
-        if let Some(process_title) = foreground_process_title_for_pane_info(pane) {
-            return process_title;
-        }
-        if let Some(title) = pane_cwd_title(pane) {
+        if let Some(title) = pane_context_title(pane, include_foreground_process) {
             return title;
         }
         return pane.title.clone();
@@ -583,9 +595,60 @@ fn command_basename(command: &str) -> &str {
 }
 
 fn normalized_process_basename(command: &str) -> String {
-    command_basename(command)
+    let mut name = command_basename(command)
         .trim_start_matches('-')
-        .to_ascii_lowercase()
+        .to_ascii_lowercase();
+    for suffix in [
+        "-aarch64-apple-darwin",
+        "-arm64-apple-darwin",
+        "-x86_64-apple-darwin",
+    ] {
+        if name.ends_with(suffix) {
+            name.truncate(name.len() - suffix.len());
+            break;
+        }
+    }
+    name
+}
+
+fn is_version_like_process_name(name: &str) -> bool {
+    let mut numeric_parts = 0;
+    for part in name.split('.') {
+        let digit_count = part.bytes().take_while(|b| b.is_ascii_digit()).count();
+        if digit_count == 0 {
+            return false;
+        }
+        numeric_parts += 1;
+        if numeric_parts < 3 {
+            if digit_count != part.len() {
+                return false;
+            }
+            continue;
+        }
+
+        let suffix = &part[digit_count..];
+        return suffix.is_empty()
+            || suffix
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    }
+    false
+}
+
+fn process_title_from_program(command: &str) -> Option<String> {
+    let lowered = command.to_ascii_lowercase();
+    let command = normalized_process_basename(command);
+    if command.is_empty() || command == "ssh" || is_shell_name(&command) {
+        return None;
+    }
+    if is_version_like_process_name(&command) {
+        return if lowered.contains("/claude/versions/") {
+            Some("claude".to_string())
+        } else {
+            None
+        };
+    }
+    Some(command)
 }
 
 fn is_shell_name(name: &str) -> bool {
@@ -596,10 +659,9 @@ fn is_shell_name(name: &str) -> bool {
 }
 
 fn process_title_from_argv(argv: &[String]) -> Option<String> {
-    let command = argv.first().map(|arg| normalized_process_basename(arg))?;
-    if command.is_empty() || command == "ssh" || is_shell_name(&command) {
-        return None;
-    }
+    let command = argv
+        .first()
+        .and_then(|arg| process_title_from_program(arg))?;
 
     if matches!(command.as_str(), "npm" | "pnpm" | "yarn" | "bun") {
         // A foreground process that rewrites its title leaves KERN_PROCARGS2
@@ -653,12 +715,7 @@ fn foreground_process_title(pane: &dyn mux::pane::Pane) -> Option<String> {
     }
 
     let proc_name = pane.get_foreground_process_name(CachePolicy::AllowStale)?;
-    let command = normalized_process_basename(&proc_name);
-    if command.is_empty() || command == "ssh" || is_shell_name(&command) {
-        None
-    } else {
-        Some(command)
-    }
+    process_title_from_program(&proc_name)
 }
 
 fn foreground_process_title_for_pane_info(pane: &PaneInformation) -> Option<String> {
@@ -1424,6 +1481,73 @@ mod test {
             process_title_from_argv(&["/usr/local/bin/claude".to_string()]).as_deref(),
             Some("claude")
         );
+    }
+
+    #[test]
+    fn process_title_hides_macos_target_triple_suffixes() {
+        assert_eq!(
+            process_title_from_argv(&["/usr/local/bin/codex-aarch64-apple-darwin".to_string()])
+                .as_deref(),
+            Some("codex")
+        );
+        assert_eq!(
+            process_title_from_user_var("codex-x86_64-apple-darwin --resume").as_deref(),
+            Some("codex")
+        );
+    }
+
+    #[test]
+    fn process_title_maps_claude_versioned_executable_to_claude() {
+        assert_eq!(
+            process_title_from_argv(&[
+                "/Users/test/.local/share/claude/versions/2.1.201".to_string(),
+                "--session-id".to_string(),
+                "abc".to_string(),
+            ])
+            .as_deref(),
+            Some("claude")
+        );
+    }
+
+    #[test]
+    fn process_title_ignores_bare_version_like_executable_names() {
+        assert_eq!(
+            process_title_from_argv(&["2.1.201".to_string(), "--session-id".to_string()]),
+            None
+        );
+        assert_eq!(
+            process_title_from_argv(&["/tmp/versions/2.1.201".to_string()]),
+            None
+        );
+    }
+
+    #[test]
+    fn context_process_title_keeps_cwd_primary_without_spaces() {
+        assert_eq!(
+            context_process_title(Some("kaku"), Some("codex")).as_deref(),
+            Some("kaku\u{00b7}codex")
+        );
+        assert_eq!(
+            context_process_title(Some("kaku"), None).as_deref(),
+            Some("kaku")
+        );
+        assert_eq!(
+            context_process_title(None, Some("codex")).as_deref(),
+            Some("codex")
+        );
+        assert_eq!(
+            context_process_title(Some("codex"), Some("codex")).as_deref(),
+            Some("codex")
+        );
+    }
+
+    #[test]
+    fn multi_pane_separator_is_distinct_from_context_process_separator() {
+        assert_eq!(
+            ["www/kaku\u{00b7}codex", "www/kaku"].join(MULTI_PANE_TITLE_SEPARATOR),
+            "www/kaku\u{00b7}codex \u{2219} www/kaku"
+        );
+        assert_ne!(CONTEXT_PROCESS_SEPARATOR, MULTI_PANE_TITLE_SEPARATOR.trim());
     }
 
     #[test]

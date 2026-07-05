@@ -797,6 +797,7 @@ end
 -- config.tab_bar_at_bottom = false                   -- default true
 -- config.hide_tab_bar_if_only_one_tab = false        -- default true
 -- config.tab_title_show_basename_only = true
+-- config.tab_title_show_foreground_process = true    -- show "dirname·codex" while commands run
 --
 -- 9) Tab key completion (default 'suggestion_first': Tab accepts the inline suggestion)
 -- config.smart_tab_mode = 'completion_first'
@@ -1009,13 +1010,40 @@ mod tests {
         assert!(
             content
                 .contains("-- Multi-pane path: render each pane's cwd, active segment highlighted")
-                && content.contains(r"local sep = ' \u{00b7} '"),
+                && content.contains(r"local sep = ' \u{2219} '"),
             "bundled kaku.lua should keep the multi-pane tab title path"
         );
         assert!(
             !content.contains(r"seg.text = '\u{2026}'")
                 && !content.contains("Trim non-active segments"),
             "multi-pane tab titles should show real pane names instead of collapsing inactive panes to ellipsis"
+        );
+    }
+
+    #[test]
+    fn bundled_kaku_lua_foreground_process_tab_titles_default_to_off() {
+        let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
+        let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
+
+        assert!(
+            content.contains("config.tab_title_show_foreground_process = false")
+                && content.contains("tab_title_show_foreground_process == true"),
+            "foreground process tab titles should stay opt-in in bundled kaku.lua"
+        );
+    }
+
+    #[test]
+    fn bundled_kaku_lua_maps_claude_versioned_executables() {
+        let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
+        let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
+
+        assert!(
+            content.contains("is_version_like_process_name(name)")
+                && content.contains("lowered:find('/claude/versions/', 1, true)")
+                && content.contains("return 'claude'"),
+            "bundled kaku.lua should title Claude Code versioned executables as claude"
         );
     }
 

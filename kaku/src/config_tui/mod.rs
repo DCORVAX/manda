@@ -346,6 +346,15 @@ impl App {
             },
             ConfigField {
                 section: "Window",
+                key: "Command Tab Titles",
+                lua_key: "tab_title_show_foreground_process",
+                value: String::new(),
+                default: "Off".into(),
+                options: vec!["On", "Off"],
+                skip_write: false,
+            },
+            ConfigField {
+                section: "Window",
                 key: "Scrollbar",
                 lua_key: "enable_scroll_bar",
                 value: String::new(),
@@ -825,6 +834,7 @@ impl App {
             | "bell_dock_badge"
             | "remember_last_cwd"
             | "tab_title_show_basename_only"
+            | "tab_title_show_foreground_process"
             | "restore_previous_session" => {
                 if raw == "true" {
                     Some("On".into())
@@ -1321,6 +1331,7 @@ impl App {
             | "bell_dock_badge"
             | "remember_last_cwd"
             | "tab_title_show_basename_only"
+            | "tab_title_show_foreground_process"
             | "restore_previous_session" => {
                 if field.value == "On" {
                     "true".into()
@@ -1655,6 +1666,19 @@ return config
     }
 
     #[test]
+    fn foreground_process_tab_titles_default_to_off() {
+        let app = test_app();
+        let field = app
+            .fields
+            .iter()
+            .find(|f| f.lua_key == "tab_title_show_foreground_process")
+            .expect("tab_title_show_foreground_process field to exist");
+
+        assert_eq!(field.default, "Off");
+        assert_eq!(app.to_lua_value(field), "false");
+    }
+
+    #[test]
     fn normalize_basename_only_tab_titles_bool_values() {
         assert_eq!(
             App::normalize_value("tab_title_show_basename_only", "true"),
@@ -1662,6 +1686,14 @@ return config
         );
         assert_eq!(
             App::normalize_value("tab_title_show_basename_only", "false"),
+            Some("Off".into())
+        );
+        assert_eq!(
+            App::normalize_value("tab_title_show_foreground_process", "true"),
+            Some("On".into())
+        );
+        assert_eq!(
+            App::normalize_value("tab_title_show_foreground_process", "false"),
             Some("Off".into())
         );
     }
