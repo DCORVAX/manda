@@ -319,6 +319,39 @@ custom_headers = ["X-Customer-ID: your-id", "X-Org: your-org"]
 
 Note: `Authorization` and `Content-Type` are reserved and cannot be overridden.
 
+**Extend Command Palette**
+
+Add a custom command to Command Palette (`Cmd + Shift + P`) via `kaku.lua`:
+
+```lua
+wezterm.on('augment-command-palette', function(window, pane)
+  if not pane then return {} end
+
+  local cwd_obj = pane:get_current_working_dir()
+  if not cwd_obj then return {} end
+
+  -- Finder can only reveal local paths. file_path is already URL-decoded,
+  -- so directories containing spaces or non-ASCII characters work too.
+  local host = cwd_obj.host
+  if cwd_obj.scheme ~= 'file'
+      or (host and host ~= '' and host ~= 'localhost' and host ~= wezterm.hostname()) then
+    return {}
+  end
+  local cwd = cwd_obj.file_path
+  if not cwd then return {} end
+
+  return {
+    {
+      brief = 'Reveal in Finder',
+      doc = 'Reveal current directory in Finder',
+      action = wezterm.action_callback(function()
+        wezterm.run_child_process({ 'open', '-R', cwd })
+      end),
+    },
+  }
+end)
+```
+
 **Full WezTerm Lua API**
 
 Kaku uses WezTerm's configuration system. Any WezTerm config option works in `kaku.lua`. For the complete reference, see:
