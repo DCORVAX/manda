@@ -4099,17 +4099,55 @@ impl TermWindow {
 
         let config = self.config.clone();
         let alphabet = args.alphabet.unwrap_or(config.launcher_alphabet.clone());
+        let mut launcher_initial_choice_idx = initial_choice_idx;
         let tabs = if flags.contains(LauncherFlags::TABS) {
             let tab_info = self.get_tab_information();
-            Some(
-                tab_info
-                    .iter()
-                    .map(|tab| LauncherTabEntry {
+            let target_tab_idx = initial_choice_idx;
+            let mut entries = vec![];
+            for tab in &tab_info {
+                let Some(mux_tab) = mux.get_tab(tab.tab_id) else {
+                    continue;
+                };
+                let mut panes = mux_tab.iter_panes();
+                if panes.len() <= 1 {
+                    if tab.tab_index == target_tab_idx {
+                        launcher_initial_choice_idx = entries.len();
+                    }
+                    entries.push(LauncherTabEntry {
                         title: crate::tabbar::compute_tab_plain_title(tab),
                         tab_idx: tab.tab_index,
-                    })
-                    .collect(),
-            )
+                        pane_idx: None,
+                    });
+                    continue;
+                }
+
+                panes.sort_by_key(|pane| (!pane.is_active, pane.index));
+                let include_foreground_process = config.tab_title_show_foreground_process;
+                for pane in panes {
+                    if tab.tab_index == target_tab_idx && pane.is_active {
+                        launcher_initial_choice_idx = entries.len();
+                    }
+                    let pane_info = Self::pos_pane_to_pane_info(&pane);
+                    let title = if pane.is_active && !tab.tab_title.is_empty() {
+                        tab.tab_title.clone()
+                    } else {
+                        crate::tabbar::compute_pane_plain_title(
+                            &pane_info,
+                            include_foreground_process,
+                        )
+                    };
+                    entries.push(LauncherTabEntry {
+                        title: if pane.is_active {
+                            title
+                        } else {
+                            format!("  |- {title}")
+                        },
+                        tab_idx: tab.tab_index,
+                        pane_idx: Some(pane.index),
+                    });
+                }
+            }
+            Some(entries)
         } else {
             None
         };
@@ -4119,7 +4157,6 @@ impl TermWindow {
                 &title,
                 flags,
                 mux_window_id,
-                pane_id,
                 domain_id_of_current_pane,
                 &help_text,
                 &fuzzy_help_text,
@@ -4135,11 +4172,24 @@ impl TermWindow {
                     let window = window.clone();
                     let (overlay, future) =
                         start_overlay(term_window, &tab, move |_tab_id, term| {
-                            launcher(args, term, window, initial_choice_idx)
+                            launcher(args, term, launcher_initial_choice_idx)
                         });
 
                     term_window.assign_overlay(tab_id, overlay);
-                    promise::spawn::spawn(future).detach();
+                    promise::spawn::spawn(async move {
+                        match future.await {
+                            Ok(Some(assignment)) => {
+                                window.notify(TermWindowNotif::PerformAssignment {
+                                    pane_id,
+                                    assignment,
+                                    tx: None,
+                                });
+                            }
+                            Ok(None) => {}
+                            Err(err) => log::error!("launcher failed: {err:#}"),
+                        }
+                    })
+                    .detach();
                 }
             })));
         })

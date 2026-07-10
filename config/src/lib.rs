@@ -1002,16 +1002,19 @@ mod tests {
     }
 
     #[test]
-    fn bundled_kaku_lua_multi_pane_titles_keep_full_segments() {
+    fn bundled_kaku_lua_multi_pane_titles_focus_active_pane() {
         let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
         let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
 
         assert!(
-            content
-                .contains("-- Multi-pane path: render each pane's cwd, active segment highlighted")
+            content.contains(
+                "-- Multi-pane path: focus the active pane, reveal all panes while hovering"
+            ) && content
+                .contains("local visible_titles = hover and pane_titles or { active_title }")
+                && content.contains("items[#items + 1] = { Text = '\\u{2191}' }")
                 && content.contains(r"local sep = ' \u{2219} '"),
-            "bundled kaku.lua should keep the multi-pane tab title path"
+            "bundled kaku.lua should focus the active pane and reveal siblings on hover"
         );
         assert!(
             !content.contains(r"seg.text = '\u{2026}'")

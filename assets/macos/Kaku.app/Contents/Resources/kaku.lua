@@ -3423,7 +3423,7 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
     table.sort(own_panes, function(a, b) return a.pane_id < b.pane_id end)
   end
 
-  -- Multi-pane path: render each pane's cwd, active segment highlighted
+  -- Multi-pane path: focus the active pane, reveal all panes while hovering
   if #own_panes > 1 and tab.tab_title == '' then
     local basename_only = effective_config and effective_config.tab_title_show_basename_only
     local show_process = effective_config and effective_config.tab_title_show_foreground_process == true
@@ -3449,10 +3449,19 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
       pane_titles[#pane_titles + 1] = { full = full_text, short = short_text, active = p.is_active }
     end
 
+    local active_title = pane_titles[1]
+    for _, entry in ipairs(pane_titles) do
+      if entry.active then
+        active_title = entry
+        break
+      end
+    end
+    local visible_titles = hover and pane_titles or { active_title }
+
     -- Merge panes whose chosen text is identical into one segment
     local function dedupe_segments(key)
       local merged, seg_index = {}, {}
-      for _, entry in ipairs(pane_titles) do
+      for _, entry in ipairs(visible_titles) do
         local seg_text = entry[key]
         local idx = seg_index[seg_text]
         if idx then
@@ -3475,6 +3484,9 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
       local w = (#segs - 1) * 3
       for _, seg in ipairs(segs) do
         w = w + wezterm.column_width(seg.text)
+        if seg.active then
+          w = w + 1
+        end
       end
       return w
     end
@@ -3486,7 +3498,13 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
       segments = dedupe_segments('short')
     end
 
-    local avail = budget - (#segments - 1) * 3
+    local active_marker_width = 0
+    for _, seg in ipairs(segments) do
+      if seg.active then
+        active_marker_width = active_marker_width + 1
+      end
+    end
+    local avail = budget - (#segments - 1) * 3 - active_marker_width
     local widths, need = {}, 0
     for i, seg in ipairs(segments) do
       widths[i] = wezterm.column_width(seg.text)
@@ -3535,6 +3553,9 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
         items[#items + 1] = { Foreground = { Color = fg_inactive_pane } }
       end
       items[#items + 1] = { Text = seg.text }
+      if seg.active then
+        items[#items + 1] = { Text = '\u{2191}' }
+      end
       if i < #segments then
         items[#items + 1] = { Attribute = { Intensity = 'Normal' } }
         items[#items + 1] = { Foreground = { Color = fg_inactive_pane } }

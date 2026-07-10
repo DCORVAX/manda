@@ -400,20 +400,20 @@ pub fn compute_tab_plain_title(tab: &TabInformation) -> String {
     }
 
     if let Some(pane) = &tab.active_pane {
-        if let Some(ssh_host) = ssh_destination_for_pane(pane) {
-            return ssh_host;
-        }
         let include_foreground_process = config::configuration().tab_title_show_foreground_process;
-        if let Some(multi) = tab_multi_pane_title(tab.tab_id, include_foreground_process) {
-            return multi;
-        }
-        if let Some(title) = pane_context_title(pane, include_foreground_process) {
-            return title;
-        }
-        return pane.title.clone();
+        return compute_pane_plain_title(pane, include_foreground_process);
     }
 
     "no pane".to_string()
+}
+
+pub(crate) fn compute_pane_plain_title(
+    pane: &PaneInformation,
+    include_foreground_process: bool,
+) -> String {
+    ssh_destination_for_pane(pane)
+        .or_else(|| pane_context_title(pane, include_foreground_process))
+        .unwrap_or_else(|| pane.title.clone())
 }
 
 fn build_default_title(
@@ -1046,7 +1046,6 @@ impl TabBarState {
 
         for tab_idx in 0..number_of_tabs {
             let active = tab_idx == active_tab_no;
-            let mut hover = false;
 
             let precomputed = precomputed_titles
                 .titles
@@ -1077,9 +1076,7 @@ impl TabBarState {
                 tab_line.resize(tab_width_max, SEQ_ZERO);
             }
             let mut width = tab_line.len();
-            if !active {
-                hover = is_tab_hover(mouse_x, x, width);
-            }
+            let hover = is_tab_hover(mouse_x, x, width);
             if hover {
                 // The normal callback may return nil to opt into the default
                 // title while still customizing the hover state.
@@ -1109,7 +1106,11 @@ impl TabBarState {
                     config,
                     hover_precomputed,
                 );
-                cell_attrs = &inactive_hover_attrs;
+                cell_attrs = if active {
+                    &active_cell_attrs
+                } else {
+                    &inactive_hover_attrs
+                };
                 esc = format_as_escapes(tab_title.items.clone()).expect("already parsed ok above");
                 tab_line = parse_status_text(
                     &esc,
