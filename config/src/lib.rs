@@ -1010,7 +1010,7 @@ mod tests {
         assert!(
             content
                 .contains("-- Multi-pane path: render each pane's cwd, active segment highlighted")
-                && content.contains(r"local sep = ' \u{2219} '"),
+                && content.contains(r"local sep = '\u{2219}'"),
             "bundled kaku.lua should keep the multi-pane tab title path"
         );
         assert!(

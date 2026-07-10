@@ -3522,7 +3522,7 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
       end
     end
 
-    local sep = ' \u{2219} '  -- U+2219 bullet operator, separates panes
+    local sep = '\u{2219}'  -- U+2219 bullet operator, separates panes
 
     -- Build FormatItem sequence
     local items = { { Text = ' ' } }
