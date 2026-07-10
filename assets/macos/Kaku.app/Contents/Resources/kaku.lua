@@ -3425,31 +3425,100 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
 
   -- Multi-pane path: render each pane's cwd, active segment highlighted
   if #own_panes > 1 and tab.tab_title == '' then
-    local segments = {}
-    local seg_index = {}
     local basename_only = effective_config and effective_config.tab_title_show_basename_only
     local show_process = effective_config and effective_config.tab_title_show_foreground_process == true
+    local pane_titles = {}
     for _, p in ipairs(own_panes) do
       local parent, current = pane_path_parts(p)
-      local seg_text = current
+      local full_text = current
       if not basename_only and parent ~= '' and current ~= '' then
-        seg_text = parent .. '/' .. current
+        full_text = parent .. '/' .. current
       end
+      local short_text = current
       local process_title = show_process and kaku_foreground_process_title(p) or nil
       if process_title then
-        seg_text = kaku_context_process_title(seg_text, process_title) or ''
+        full_text = kaku_context_process_title(full_text, process_title) or ''
+        short_text = kaku_context_process_title(short_text, process_title) or ''
       end
-      if seg_text == '' then
-        seg_text = resolve_remote_target_from_pane(p) or p.title or '?'
+      if full_text == '' then
+        full_text = resolve_remote_target_from_pane(p) or p.title or '?'
       end
-      local idx = seg_index[seg_text]
-      if idx then
-        if p.is_active then
-          segments[idx].active = true
+      if short_text == '' then
+        short_text = full_text
+      end
+      pane_titles[#pane_titles + 1] = { full = full_text, short = short_text, active = p.is_active }
+    end
+
+    -- Merge panes whose chosen text is identical into one segment
+    local function dedupe_segments(key)
+      local merged, seg_index = {}, {}
+      for _, entry in ipairs(pane_titles) do
+        local seg_text = entry[key]
+        local idx = seg_index[seg_text]
+        if idx then
+          if entry.active then
+            merged[idx].active = true
+          end
+        else
+          merged[#merged + 1] = { text = seg_text, active = entry.active }
+          seg_index[seg_text] = #merged
         end
-      else
-        segments[#segments + 1] = { text = seg_text, active = p.is_active }
-        seg_index[seg_text] = #segments
+      end
+      return merged
+    end
+
+    -- Fit segments into the tab's width budget; anything wider is
+    -- hard-clipped mid-segment by the renderer, taking the trailing
+    -- bell slot with it. Reserve the leading space, the trailing
+    -- slot, and one 3-cell separator between segments.
+    local function segments_width(segs)
+      local w = (#segs - 1) * 3
+      for _, seg in ipairs(segs) do
+        w = w + wezterm.column_width(seg.text)
+      end
+      return w
+    end
+
+    local budget = math.max(8, (max_width or 32) - 2)
+    local segments = dedupe_segments('full')
+    if segments_width(segments) > budget then
+      -- Degrade to basename-only segments before cutting anything
+      segments = dedupe_segments('short')
+    end
+
+    local avail = budget - (#segments - 1) * 3
+    local widths, need = {}, 0
+    for i, seg in ipairs(segments) do
+      widths[i] = wezterm.column_width(seg.text)
+      need = need + widths[i]
+    end
+    if need > avail then
+      -- Fair-share truncation: segments under their share keep their
+      -- natural width, the freed columns go to the longer ones.
+      local remaining, pending, pending_count = avail, {}, #segments
+      for i = 1, #segments do
+        pending[i] = true
+      end
+      local locked = true
+      while locked and pending_count > 0 do
+        locked = false
+        local share = math.floor(remaining / pending_count)
+        for i = 1, #segments do
+          if pending[i] and widths[i] <= share then
+            pending[i] = nil
+            pending_count = pending_count - 1
+            remaining = remaining - widths[i]
+            locked = true
+          end
+        end
+      end
+      if pending_count > 0 then
+        local share = math.max(2, math.floor(remaining / pending_count))
+        for i = 1, #segments do
+          if pending[i] then
+            segments[i].text = wezterm.truncate_right(segments[i].text, share - 1) .. '\u{2026}'
+          end
+        end
       end
     end
 
@@ -3496,7 +3565,12 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
     text = tab_index .. ":" .. text
   end
 
-  text = wezterm.truncate_right(text, math.max(8, max_width - 2))
+  -- Truncate on our terms with an ellipsis; the renderer would otherwise
+  -- hard-clip mid-word and swallow the trailing bell slot.
+  local title_limit = math.max(8, (max_width or 32) - 2)
+  if wezterm.column_width(text) > title_limit then
+    text = wezterm.truncate_right(text, title_limit - 1) .. '\u{2026}'
+  end
 
   local intensity = tab.is_active and 'Bold' or 'Normal'
 
@@ -4236,7 +4310,7 @@ config.smart_tab_mode = 'suggestion_first'
 config.enable_tab_bar = true
 config.tab_bar_at_bottom = true
 config.use_fancy_tab_bar = false
-config.tab_max_width = 32
+config.tab_max_width = 48
 config.tab_title_show_foreground_process = false
 config.hide_tab_bar_if_only_one_tab = true
 config.show_tab_index_in_tab_bar = false
