@@ -3263,7 +3263,7 @@ local KAKU = {
   GRAY = '#6d6d6d',
   PURPLE = '#8e6ad9',
   -- Use rgba() here because config::RgbaColor does not accept #RRGGBBAA.
-  PURPLE_FADING = 'rgba(61,55,94,0.5)',
+  PURPLE_FADING = 'rgba(142,106,217,0.55)',
   SURFACE = '#1f1d28',
   SURFACE_ACTIVE = '#29263c',
   GREEN = '#58d8ad',
@@ -4334,7 +4334,7 @@ config.color_schemes['Kaku Dark'] = {
 
   -- Selection
   selection_bg = KAKU.PURPLE_FADING,
-  selection_fg = 'none',
+  selection_fg = KAKU.WHITE,
 
   -- Normal colors (ANSI 0-7)
   ansi = {

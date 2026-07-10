@@ -161,11 +161,47 @@ pub struct SelectionRange {
     pub end: SelectionCoordinate,
 }
 
-fn is_double_click_word(s: &str) -> bool {
-    match s.chars().count() {
-        1 => !config::configuration().selection_word_boundary.contains(s),
-        0 => false,
-        _ => true,
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum DoubleClickWordClass {
+    Cjk,
+    Other,
+}
+
+fn is_cjk_character(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{3040}'..='\u{30ff}'
+            | '\u{3400}'..='\u{4dbf}'
+            | '\u{4e00}'..='\u{9fff}'
+            | '\u{ac00}'..='\u{d7af}'
+            | '\u{f900}'..='\u{faff}'
+            | '\u{20000}'..='\u{2fa1f}'
+    )
+}
+
+fn is_cjk_punctuation(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{3000}'..='\u{303f}'
+            | '\u{ff01}'..='\u{ff0f}'
+            | '\u{ff1a}'..='\u{ff20}'
+            | '\u{ff3b}'..='\u{ff40}'
+            | '\u{ff5b}'..='\u{ff65}'
+    )
+}
+
+fn double_click_word_class(s: &str) -> Option<DoubleClickWordClass> {
+    if s.is_empty()
+        || config::configuration().selection_word_boundary.contains(s)
+        || s.chars().all(is_cjk_punctuation)
+    {
+        return None;
+    }
+
+    if s.chars().all(is_cjk_character) {
+        Some(DoubleClickWordClass::Cjk)
+    } else {
+        Some(DoubleClickWordClass::Other)
     }
 }
 
@@ -245,7 +281,7 @@ impl SelectionRange {
                 let start_idx = logical.xy_to_logical_x(start_x, start.y);
                 return match logical
                     .logical
-                    .compute_double_click_range(start_idx, is_double_click_word)
+                    .compute_double_click_range_by_class(start_idx, double_click_word_class)
                 {
                     DoubleClickRange::RangeWithWrap(click_range)
                     | DoubleClickRange::Range(click_range) => {
@@ -356,5 +392,39 @@ impl SelectionRange {
                 0..usize::max_value()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wezterm_term::Line;
+
+    #[test]
+    fn double_click_separates_cjk_and_latin_runs() {
+        let line: Line = "测试test".into();
+
+        assert_eq!(
+            line.compute_double_click_range_by_class(4, double_click_word_class),
+            DoubleClickRange::Range(4..8)
+        );
+        assert_eq!(
+            line.compute_double_click_range_by_class(0, double_click_word_class),
+            DoubleClickRange::Range(0..3)
+        );
+        assert_eq!(
+            line.compute_double_click_range_by_class(1, double_click_word_class),
+            DoubleClickRange::Range(0..3)
+        );
+    }
+
+    #[test]
+    fn double_click_treats_cjk_punctuation_as_a_boundary() {
+        let line: Line = "测试，test".into();
+
+        assert_eq!(
+            line.compute_double_click_range_by_class(6, double_click_word_class),
+            DoubleClickRange::Range(6..10)
+        );
     }
 }

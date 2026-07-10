@@ -663,32 +663,44 @@ impl Line {
         click_col: usize,
         is_word: F,
     ) -> DoubleClickRange {
+        self.compute_double_click_range_by_class(click_col, |text| is_word(text).then_some(()))
+    }
+
+    pub fn compute_double_click_range_by_class<C: Eq, F: Fn(&str) -> Option<C>>(
+        &self,
+        click_col: usize,
+        classify: F,
+    ) -> DoubleClickRange {
         let len = self.len();
 
         if click_col >= len {
             return DoubleClickRange::Range(click_col..click_col);
         }
 
-        let mut lower = click_col;
-        let mut upper = click_col;
-
         // TODO: look back and look ahead for cells that are hidden by
         // a preceding multi-wide cell
         let cells = self.visible_cells().collect::<Vec<_>>();
-        for cell in &cells {
-            if cell.cell_index() < click_col {
-                continue;
-            }
-            if !is_word(cell.str()) {
+        let Some(clicked_idx) = cells
+            .iter()
+            .rposition(|cell| cell.cell_index() <= click_col)
+        else {
+            return DoubleClickRange::Range(click_col..click_col);
+        };
+        let Some(clicked_class) = classify(cells[clicked_idx].str()) else {
+            return DoubleClickRange::Range(click_col..click_col);
+        };
+
+        let mut lower = cells[clicked_idx].cell_index();
+        let mut upper = lower + 1;
+
+        for cell in &cells[clicked_idx..] {
+            if classify(cell.str()).as_ref() != Some(&clicked_class) {
                 break;
             }
             upper = cell.cell_index() + 1;
         }
-        for cell in cells.iter().rev() {
-            if cell.cell_index() > click_col {
-                continue;
-            }
-            if !is_word(cell.str()) {
+        for cell in cells[..=clicked_idx].iter().rev() {
+            if classify(cell.str()).as_ref() != Some(&clicked_class) {
                 break;
             }
             lower = cell.cell_index();
