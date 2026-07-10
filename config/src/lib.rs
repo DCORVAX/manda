@@ -1002,17 +1002,21 @@ mod tests {
     }
 
     #[test]
-    fn bundled_kaku_lua_keeps_tab_titles_stable() {
+    fn bundled_kaku_lua_multi_pane_titles_keep_full_segments() {
         let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
         let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
 
         assert!(
-            content.contains("-- Keep tab width stable: always render the active pane title only.")
-                && !content.contains("local visible_titles = hover and pane_titles")
-                && !content.contains("items[#items + 1] = { Text = '\\u{2191}' }")
-                && !content.contains(r"local sep = ' \u{2219} '"),
-            "bundled kaku.lua should keep tab titles stable and leave pane navigation to the GUI"
+            content
+                .contains("-- Multi-pane path: render each pane's cwd, active segment highlighted")
+                && content.contains(r"local sep = ' \u{2219} '"),
+            "bundled kaku.lua should keep the multi-pane tab title path"
+        );
+        assert!(
+            !content.contains(r"seg.text = '\u{2026}'")
+                && !content.contains("Trim non-active segments"),
+            "multi-pane tab titles should show real pane names instead of collapsing inactive panes to ellipsis"
         );
     }
 

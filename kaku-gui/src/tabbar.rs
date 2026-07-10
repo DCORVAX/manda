@@ -3,6 +3,7 @@ use config::{ConfigHandle, TabBarColors};
 use finl_unicode::grapheme_clusters::Graphemes;
 use mlua::FromLua;
 use mux::pane::CachePolicy;
+use mux::tab::TabId;
 use mux::Mux;
 use std::path::Path;
 use termwiz::cell::{unicode_column_width, Cell, CellAttributes};
@@ -36,14 +37,6 @@ pub struct TabEntry {
     pub item: TabBarItem,
     pub title: Line,
     pub progress: Progress,
-    x: usize,
-    width: usize,
-    pane_badge: Option<PaneBadge>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct PaneBadge {
-    tab_idx: usize,
     x: usize,
     width: usize,
 }
@@ -268,6 +261,7 @@ fn pct_to_glyph(pct: u8) -> char {
 }
 
 const CONTEXT_PROCESS_SEPARATOR: &str = "\u{00b7}";
+const MULTI_PANE_TITLE_SEPARATOR: &str = " \u{2219} ";
 
 fn path_title_from_str(path: &str) -> Option<String> {
     let path_str = path.trim_end_matches('/');
@@ -308,6 +302,40 @@ fn context_process_title(context: Option<&str>, process: Option<&str>) -> Option
     }
 }
 
+fn tab_multi_pane_title(tab_id: TabId, include_foreground_process: bool) -> Option<String> {
+    let mux = Mux::try_get()?;
+    let tab = mux.get_tab(tab_id)?;
+    let panes = tab.iter_panes();
+    if panes.len() <= 1 {
+        return None;
+    }
+    let mut parts: Vec<String> = Vec::new();
+    for pos in panes.iter() {
+        let Some(real_pane) = mux.get_pane(pos.pane.pane_id()) else {
+            continue;
+        };
+        let process_title = if include_foreground_process {
+            foreground_process_title(&*real_pane)
+        } else {
+            None
+        };
+        let path_title = real_pane
+            .get_current_working_dir(CachePolicy::AllowStale)
+            .and_then(|cwd| path_title_from_str(cwd.path()));
+        let Some(segment) = context_process_title(path_title.as_deref(), process_title.as_deref())
+        else {
+            continue;
+        };
+        if !parts.iter().any(|p| p == &segment) {
+            parts.push(segment);
+        }
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(parts.join(MULTI_PANE_TITLE_SEPARATOR))
+}
+
 fn compute_tab_title_from_precomputed(
     tab: &TabInformation,
     config: &ConfigHandle,
@@ -326,6 +354,10 @@ fn compute_tab_title_from_precomputed(
             if let Some(pane) = &tab.active_pane {
                 let title = if !tab.tab_title.is_empty() {
                     tab.tab_title.clone()
+                } else if let Some(multi) =
+                    tab_multi_pane_title(tab.tab_id, config.tab_title_show_foreground_process)
+                {
+                    multi
                 } else if let Some(context_title) =
                     pane_context_title(pane, config.tab_title_show_foreground_process)
                 {
@@ -736,20 +768,6 @@ fn is_tab_hover(mouse_x: Option<usize>, x: usize, tab_title_len: usize) -> bool 
         .unwrap_or(false)
 }
 
-fn pane_count_badge_text(
-    pane_count: usize,
-    tab_width_max: usize,
-    use_fancy_tab_bar: bool,
-) -> Option<String> {
-    if use_fancy_tab_bar || pane_count <= 1 {
-        return None;
-    }
-
-    let text = format!(" {pane_count} ");
-    let width = unicode_column_width(&text, None);
-    (tab_width_max > width).then_some(text)
-}
-
 /// Maximum width, in cell columns, that each tab title may occupy on the
 /// non-fancy tab bar. Titles wider than this are truncated, so this is the
 /// budget that governs the "tab gets cut off / squeezed to nothing" class of
@@ -786,7 +804,6 @@ impl TabBarState {
                 progress: Progress::None,
                 x: 1,
                 width: 1,
-                pane_badge: None,
             }],
         }
     }
@@ -881,7 +898,6 @@ impl TabBarState {
                 progress: Progress::None,
                 x: *x,
                 width,
-                pane_badge: None,
             });
 
             *x += width;
@@ -1010,7 +1026,6 @@ impl TabBarState {
                 progress: Progress::None,
                 x,
                 width: left_status_line.len(),
-                pane_badge: None,
             });
             x += left_status_line.len();
             line.append_line(left_status_line, SEQ_ZERO);
@@ -1057,18 +1072,8 @@ impl TabBarState {
                     cell_attrs.clone()
                 },
             );
-            let badge_text = pane_count_badge_text(
-                tab_info[tab_idx].pane_count,
-                tab_width_max,
-                config.use_fancy_tab_bar,
-            );
-            let badge_width = badge_text
-                .as_deref()
-                .map(|text| unicode_column_width(text, None))
-                .unwrap_or(0);
-            let title_width_max = tab_width_max.saturating_sub(badge_width).max(1);
-            if tab_line.len() > title_width_max {
-                tab_line.resize(title_width_max, SEQ_ZERO);
+            if tab_line.len() > tab_width_max {
+                tab_line.resize(tab_width_max, SEQ_ZERO);
             }
             let mut width = tab_line.len();
             let hover = is_tab_hover(mouse_x, x, width);
@@ -1115,25 +1120,11 @@ impl TabBarState {
                         cell_attrs.clone()
                     },
                 );
-                if tab_line.len() > title_width_max {
-                    tab_line.resize(title_width_max, SEQ_ZERO);
+                if tab_line.len() > tab_width_max {
+                    tab_line.resize(tab_width_max, SEQ_ZERO);
                 }
                 width = tab_line.len();
             }
-            let pane_badge = badge_text.map(|text| {
-                let mut attrs = cell_attrs.clone();
-                attrs.set_intensity(wezterm_term::Intensity::Half);
-                attrs.set_background(ColorSpec::TrueColor(*colors.background()));
-                let badge_line = Line::from_text(&text, &attrs, SEQ_ZERO, None);
-                let pane_badge = PaneBadge {
-                    tab_idx,
-                    x: tab_start_idx + width,
-                    width: badge_line.len(),
-                };
-                tab_line.append_line(badge_line, SEQ_ZERO);
-                width = tab_line.len();
-                pane_badge
-            });
             let title = tab_line.clone();
 
             items.push(TabEntry {
@@ -1145,7 +1136,6 @@ impl TabBarState {
                     .map_or(Progress::None, |p| p.progress.clone()),
                 x: tab_start_idx,
                 width,
-                pane_badge,
             });
 
             line.append_line(tab_line, SEQ_ZERO);
@@ -1169,7 +1159,6 @@ impl TabBarState {
                 progress: Progress::None,
                 x: button_start,
                 width,
-                pane_badge: None,
             });
 
             x += width;
@@ -1233,7 +1222,6 @@ impl TabBarState {
             progress: Progress::None,
             x,
             width: status_space_available,
-            pane_badge: None,
         });
 
         if right_status_line.len() > status_space_available {
@@ -1268,17 +1256,6 @@ impl TabBarState {
                 height: cell_height,
                 item_type: UIItemType::TabBar(entry.item),
             });
-            if let Some(badge) = &entry.pane_badge {
-                items.push(UIItem {
-                    x: badge.x * cell_width,
-                    width: badge.width * cell_width,
-                    y,
-                    height: cell_height,
-                    item_type: UIItemType::TabPaneBadge {
-                        tab_idx: badge.tab_idx,
-                    },
-                });
-            }
         }
 
         items
@@ -1414,7 +1391,6 @@ mod test {
             active_pane: None,
             window_id: 0,
             tab_title: title.to_string(),
-            pane_count: 1,
         }
     }
 
@@ -1567,52 +1543,12 @@ mod test {
     }
 
     #[test]
-    fn pane_count_badge_requires_room_for_the_title() {
-        assert_eq!(pane_count_badge_text(1, 12, false), None);
-        assert_eq!(pane_count_badge_text(2, 12, true), None);
-        assert_eq!(pane_count_badge_text(2, 3, false), None);
-        assert_eq!(pane_count_badge_text(2, 4, false), Some(" 2 ".to_string()));
+    fn multi_pane_separator_is_distinct_from_context_process_separator() {
         assert_eq!(
-            pane_count_badge_text(12, 5, false),
-            Some(" 12 ".to_string())
+            ["www/kaku\u{00b7}codex", "www/kaku"].join(MULTI_PANE_TITLE_SEPARATOR),
+            "www/kaku\u{00b7}codex \u{2219} www/kaku"
         );
-    }
-
-    #[test]
-    fn pane_count_badge_has_its_own_hit_target() {
-        let state = TabBarState {
-            line: Line::with_width(10, SEQ_ZERO),
-            items: vec![TabEntry {
-                item: TabBarItem::Tab {
-                    tab_idx: 2,
-                    active: true,
-                },
-                title: Line::with_width(10, SEQ_ZERO),
-                progress: Progress::None,
-                x: 4,
-                width: 10,
-                pane_badge: Some(PaneBadge {
-                    tab_idx: 2,
-                    x: 11,
-                    width: 3,
-                }),
-            }],
-        };
-
-        let items = state.compute_ui_items(20, 16, 8);
-        assert_eq!(items.len(), 2);
-        assert_eq!(items[0].x, 32);
-        assert_eq!(items[0].width, 80);
-        assert_eq!(
-            items[1],
-            UIItem {
-                x: 88,
-                width: 24,
-                y: 20,
-                height: 16,
-                item_type: UIItemType::TabPaneBadge { tab_idx: 2 },
-            }
-        );
+        assert_ne!(CONTEXT_PROCESS_SEPARATOR, MULTI_PANE_TITLE_SEPARATOR.trim());
     }
 
     #[test]

@@ -80,13 +80,6 @@ fn tab_bar_item_starts_window_drag(item: TabBarItem) -> bool {
     )
 }
 
-fn tab_pane_menu_assignment(tab_idx: usize, pane_idx: usize) -> KeyAssignment {
-    KeyAssignment::Multiple(vec![
-        KeyAssignment::ActivateTab(tab_idx as isize),
-        KeyAssignment::ActivatePaneByIndex(pane_idx),
-    ])
-}
-
 fn should_use_manual_window_drag(window_state: WindowState) -> bool {
     cfg!(target_os = "macos")
         && !window_state.intersects(WindowState::FULL_SCREEN | WindowState::MAXIMIZED)
@@ -476,7 +469,6 @@ impl super::TermWindow {
             UIItemType::TabBar(_) => {
                 self.update_title_post_status();
             }
-            UIItemType::TabPaneBadge { .. } | UIItemType::TabPaneMenu { .. } => {}
             UIItemType::CloseTab(_)
             | UIItemType::AboveScrollThumb
             | UIItemType::BelowScrollThumb
@@ -488,7 +480,6 @@ impl super::TermWindow {
     fn enter_ui_item(&mut self, item: &UIItem) {
         match item.item_type {
             UIItemType::TabBar(_) => {}
-            UIItemType::TabPaneBadge { .. } | UIItemType::TabPaneMenu { .. } => {}
             UIItemType::CloseTab(_)
             | UIItemType::AboveScrollThumb
             | UIItemType::BelowScrollThumb
@@ -815,17 +806,6 @@ impl super::TermWindow {
             None
         };
 
-        if matches!(event.kind, WMEK::Press(_))
-            && self.tab_pane_menu.is_some()
-            && !matches!(
-                ui_item.as_ref().map(|item| &item.item_type),
-                Some(UIItemType::TabPaneBadge { .. } | UIItemType::TabPaneMenu { .. })
-            )
-        {
-            self.tab_pane_menu = None;
-            context.invalidate();
-        }
-
         match mouse_dispatch_target(
             ui_item.is_some(),
             event.coords.y,
@@ -1062,70 +1042,7 @@ impl super::TermWindow {
             UIItemType::CloseTab(idx) => {
                 self.mouse_event_close_tab(idx, event, context);
             }
-            UIItemType::TabPaneBadge { tab_idx } => {
-                self.mouse_event_tab_pane_badge(tab_idx, event, context);
-            }
-            UIItemType::TabPaneMenu { tab_id, pane_idx } => {
-                self.mouse_event_tab_pane_menu(tab_id, pane_idx, pane, event, context);
-            }
         }
-    }
-
-    fn mouse_event_tab_pane_badge(
-        &mut self,
-        tab_idx: usize,
-        event: MouseEvent,
-        context: &dyn WindowOps,
-    ) {
-        if matches!(event.kind, WMEK::Press(MousePress::Left)) {
-            self.tab_drag_state = None;
-            let mux = Mux::get();
-            let tab = mux
-                .get_window(self.mux_window_id)
-                .and_then(|window| window.get_by_idx(tab_idx).cloned());
-            let next = tab.and_then(|tab| {
-                (tab.iter_panes().len() > 1).then_some(super::TabPaneMenuState {
-                    tab_id: tab.tab_id(),
-                })
-            });
-            self.tab_pane_menu = match (self.tab_pane_menu, next) {
-                (Some(current), Some(next)) if current == next => None,
-                (_, next) => next,
-            };
-            context.invalidate();
-        }
-        context.set_cursor(Some(MouseCursor::Hand));
-    }
-
-    fn mouse_event_tab_pane_menu(
-        &mut self,
-        tab_id: mux::tab::TabId,
-        pane_idx: usize,
-        pane: Arc<dyn Pane>,
-        event: MouseEvent,
-        context: &dyn WindowOps,
-    ) {
-        if matches!(event.kind, WMEK::Press(MousePress::Left)) {
-            self.tab_drag_state = None;
-            self.tab_pane_menu = None;
-
-            let mux = Mux::get();
-            let tab_idx = mux
-                .get_window(self.mux_window_id)
-                .and_then(|window| window.iter().position(|tab| tab.tab_id() == tab_id));
-            let pane_exists = mux
-                .get_tab(tab_id)
-                .map(|tab| tab.iter_panes().iter().any(|pane| pane.index == pane_idx))
-                .unwrap_or(false);
-            if let (Some(tab_idx), true) = (tab_idx, pane_exists) {
-                let action = tab_pane_menu_assignment(tab_idx, pane_idx);
-                if let Err(err) = self.perform_key_assignment(&pane, &action) {
-                    log::debug!("activate pane {pane_idx} from tab menu failed: {err:#}");
-                }
-            }
-            context.invalidate();
-        }
-        context.set_cursor(Some(MouseCursor::Hand));
     }
 
     pub fn mouse_event_close_tab(
@@ -2114,13 +2031,12 @@ mod tests {
         manual_drag_window_top_left, mouse_dispatch_target, should_bypass_wheel_assignment_in_alt,
         should_preserve_tmux_bypass_reporting, should_use_manual_window_drag,
         should_use_native_maximized_window_drag, should_zoom_title_area,
-        tab_bar_item_starts_window_drag, tab_pane_menu_assignment,
-        title_area_double_click_zoom_action, wheel_during_terminal_selection_action,
-        MouseDispatchTarget, SelectionDragWheelAction, TitleAreaZoomAction,
+        tab_bar_item_starts_window_drag, title_area_double_click_zoom_action,
+        wheel_during_terminal_selection_action, MouseDispatchTarget, SelectionDragWheelAction,
+        TitleAreaZoomAction,
     };
     use crate::tabbar::TabBarItem;
     use crate::termwindow::MouseCapture;
-    use config::keyassignment::KeyAssignment;
     use config::SelectionWheelScrollBehavior;
     use mux::pane::PaneId;
     use window::{
@@ -2204,17 +2120,6 @@ mod tests {
         assert_eq!(
             mouse_dispatch_target(true, 0, 24, Some(&MouseCapture::UI)),
             MouseDispatchTarget::Ui
-        );
-    }
-
-    #[test]
-    fn pane_menu_activates_the_tab_before_the_pane() {
-        assert_eq!(
-            tab_pane_menu_assignment(3, 2),
-            KeyAssignment::Multiple(vec![
-                KeyAssignment::ActivateTab(3),
-                KeyAssignment::ActivatePaneByIndex(2),
-            ])
         );
     }
 
