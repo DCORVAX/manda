@@ -1010,8 +1010,16 @@ mod tests {
         assert!(
             content
                 .contains("-- Multi-pane path: render each pane's cwd, active segment highlighted")
-                && content.contains(r"local sep = '\u{2219}'"),
+                && content.contains(r"local sep = '\u{2219}'")
+                && content.contains("local sep_width = wezterm.column_width(sep)")
+                && content.contains("local w = (#segs - 1) * sep_width")
+                && content.contains("local avail = budget - (#segments - 1) * sep_width"),
             "bundled kaku.lua should keep the multi-pane tab title path"
+        );
+        assert!(
+            !content.contains("local w = (#segs - 1) * 3")
+                && !content.contains("local avail = budget - (#segments - 1) * 3"),
+            "multi-pane width accounting must follow the rendered separator width"
         );
         assert!(
             !content.contains(r"seg.text = '\u{2026}'")

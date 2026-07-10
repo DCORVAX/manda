@@ -550,6 +550,10 @@ fn is_window_logically_closed(window_id: MuxWindowId) -> bool {
     logically_closed().lock().contains(&window_id)
 }
 
+fn should_remove_empty_session_file(snapshot_consumed: bool, snapshot_errors: bool) -> bool {
+    snapshot_consumed && !snapshot_errors
+}
+
 struct RestoringGuard;
 
 impl RestoringGuard {
@@ -763,7 +767,10 @@ pub fn save_session_snapshot() -> anyhow::Result<()> {
         // that never restored (e.g. spawned to run one command) must not
         // destroy the main session, and a capture error is not intentional
         // closure either.
-        if SNAPSHOT_CONSUMED.load(Ordering::Acquire) && !snapshot_errors {
+        if should_remove_empty_session_file(
+            SNAPSHOT_CONSUMED.load(Ordering::Acquire),
+            snapshot_errors,
+        ) {
             let _ = std::fs::remove_file(session_file());
             gc_kept_content_dirs();
         }
@@ -1373,6 +1380,13 @@ mod tests {
         assert!(is_window_logically_closed(id));
         forget_logically_closed(id);
         assert!(!is_window_logically_closed(id));
+    }
+
+    #[test]
+    fn consumed_snapshot_is_removed_only_after_intentional_full_close() {
+        assert!(should_remove_empty_session_file(true, false));
+        assert!(!should_remove_empty_session_file(false, false));
+        assert!(!should_remove_empty_session_file(true, true));
     }
 
     #[test]

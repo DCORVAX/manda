@@ -3467,12 +3467,15 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
       return merged
     end
 
+    local sep = '\u{2219}'  -- U+2219 bullet operator, separates panes
+    local sep_width = wezterm.column_width(sep)
+
     -- Fit segments into the tab's width budget; anything wider is
     -- hard-clipped mid-segment by the renderer, taking the trailing
     -- bell slot with it. Reserve the leading space, the trailing
-    -- slot, and one 3-cell separator between segments.
+    -- slot, and the rendered separator width between segments.
     local function segments_width(segs)
-      local w = (#segs - 1) * 3
+      local w = (#segs - 1) * sep_width
       for _, seg in ipairs(segs) do
         w = w + wezterm.column_width(seg.text)
       end
@@ -3486,7 +3489,7 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
       segments = dedupe_segments('short')
     end
 
-    local avail = budget - (#segments - 1) * 3
+    local avail = budget - (#segments - 1) * sep_width
     local widths, need = {}, 0
     for i, seg in ipairs(segments) do
       widths[i] = wezterm.column_width(seg.text)
@@ -3521,8 +3524,6 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
         end
       end
     end
-
-    local sep = '\u{2219}'  -- U+2219 bullet operator, separates panes
 
     -- Build FormatItem sequence
     local items = { { Text = ' ' } }

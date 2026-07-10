@@ -27,5 +27,6 @@ instruction files; read the txt file instead.
 | v25 | - | No schema change. Bumps so an updated install regenerates the bundled zsh integration, picking up the fast-syntax-highlighting `path-to-dir` style that no longer underlines existing directories. |
 | v26 | V0.12.4 | No schema or bundled-integration change; increments only because the release gate requires a bump every release. The release highlight reuses the Cmd+Click-opens-links improvement. |
 | v27 | V0.13.0 | Adds `tab_title_show_foreground_process`, an opt-in setting for showing foreground process names in auto-generated tab titles. No migration is needed because this key did not exist in V0.12.4. |
+| v28 | - | No schema change. Bumps so existing installs regenerate the bundled zsh integration with the self-contained SSH wrapper required by shell snapshot tools. |
 
 When you bump the version, add a row here in the same change.

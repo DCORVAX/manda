@@ -4,7 +4,7 @@ use super::utilsprites::RenderMetrics;
 use crate::colorease::ColorEase;
 use crate::frontend::{front_end, refresh_fast_config_snapshot, try_front_end};
 use crate::inputmap::InputMap;
-use crate::overlay::launcher::LauncherTabEntry;
+use crate::overlay::launcher::{LauncherAction, LauncherTabEntry};
 use crate::overlay::{
     confirm_close_pane, confirm_close_tab, confirm_quit_program, launcher, start_overlay,
     start_overlay_pane, CopyModeParams, CopyOverlay, LauncherArgs, LauncherFlags,
@@ -4074,7 +4074,6 @@ impl TermWindow {
     }
 
     fn show_launcher_impl(&mut self, args: LauncherActionArgs, initial_choice_idx: usize) {
-        let mux_window_id = self.mux_window_id;
         let window = self.window.as_ref().unwrap().clone();
 
         let mux = Mux::get();
@@ -4118,13 +4117,15 @@ impl TermWindow {
                 };
                 let mut panes = mux_tab.iter_panes();
                 if panes.len() <= 1 {
+                    let Some(pane_id) = panes.first().map(|pane| pane.pane.pane_id()) else {
+                        continue;
+                    };
                     if tab.tab_index == target_tab_idx {
                         launcher_initial_choice_idx = entries.len();
                     }
                     entries.push(LauncherTabEntry {
                         title: crate::tabbar::compute_tab_plain_title(tab),
-                        tab_idx: tab.tab_index,
-                        pane_idx: None,
+                        pane_id,
                     });
                     continue;
                 }
@@ -4150,21 +4151,19 @@ impl TermWindow {
                         } else {
                             format!("  |- {title}")
                         },
-                        tab_idx: tab.tab_index,
-                        pane_idx: Some(pane.index),
+                        pane_id: pane.pane.pane_id(),
                     });
                 }
             }
-            Some(entries)
+            entries
         } else {
-            None
+            vec![]
         };
 
         promise::spawn::spawn(async move {
             let args = LauncherArgs::new(
                 &title,
                 flags,
-                mux_window_id,
                 domain_id_of_current_pane,
                 &help_text,
                 &fuzzy_help_text,
@@ -4186,12 +4185,26 @@ impl TermWindow {
                     term_window.assign_overlay(tab_id, overlay);
                     promise::spawn::spawn(async move {
                         match future.await {
-                            Ok(Some(assignment)) => {
+                            Ok(Some(LauncherAction::Assignment(assignment))) => {
                                 window.notify(TermWindowNotif::PerformAssignment {
                                     pane_id,
                                     assignment,
                                     tx: None,
                                 });
+                            }
+                            Ok(Some(LauncherAction::ActivatePane(target_pane_id))) => {
+                                window.notify(TermWindowNotif::Apply(Box::new(
+                                    move |term_window| {
+                                        if let Err(err) = Mux::get()
+                                            .focus_pane_and_containing_tab(target_pane_id)
+                                        {
+                                            log::debug!(
+                                                "launcher pane {target_pane_id} is no longer available: {err:#}"
+                                            );
+                                        }
+                                        term_window.update_title_post_status();
+                                    },
+                                )));
                             }
                             Ok(None) => {}
                             Err(err) => log::error!("launcher failed: {err:#}"),

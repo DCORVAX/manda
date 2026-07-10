@@ -15,8 +15,8 @@ use config::keyassignment::{
     KeyAssignment, LauncherActionArgs, PaneEncoding, SpawnCommand, SpawnTabDomain,
 };
 use mux::domain::{DomainId, DomainState};
+use mux::pane::PaneId;
 use mux::termwiztermtab::TermWizTerminal;
-use mux::window::WindowId;
 use mux::Mux;
 use rayon::prelude::*;
 use std::collections::BTreeMap;
@@ -32,13 +32,24 @@ pub use config::keyassignment::LauncherFlags;
 #[derive(Clone)]
 struct Entry {
     pub label: String,
-    pub action: KeyAssignment,
+    pub action: LauncherAction,
 }
 
 pub struct LauncherTabEntry {
     pub title: String,
-    pub tab_idx: usize,
-    pub pane_idx: Option<usize>,
+    pub pane_id: PaneId,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum LauncherAction {
+    Assignment(KeyAssignment),
+    ActivatePane(PaneId),
+}
+
+impl From<KeyAssignment> for LauncherAction {
+    fn from(action: KeyAssignment) -> Self {
+        Self::Assignment(action)
+    }
 }
 
 #[derive(Debug)]
@@ -67,12 +78,11 @@ impl LauncherArgs {
     pub async fn new(
         title: &str,
         flags: LauncherFlags,
-        mux_window_id: WindowId,
         domain_id_of_current_tab: DomainId,
         help_text: &str,
         fuzzy_help_text: &str,
         alphabet: &str,
-        tabs: Option<Vec<LauncherTabEntry>>,
+        tabs: Vec<LauncherTabEntry>,
     ) -> Self {
         let mux = Mux::get();
 
@@ -80,63 +90,6 @@ impl LauncherArgs {
 
         let workspaces = if flags.contains(LauncherFlags::WORKSPACES) {
             mux.iter_workspaces()
-        } else {
-            vec![]
-        };
-
-        let tabs = if let Some(tabs) = tabs {
-            tabs
-        } else if flags.contains(LauncherFlags::TABS) {
-            // Ideally we'd resolve the tabs on the fly once we've started the
-            // overlay, but since the overlay runs in a different thread, accessing
-            // the mux list is a bit awkward.  To get the ball rolling we capture
-            // the list of tabs up front and live with a static list.
-            let window = mux
-                .get_window(mux_window_id)
-                .expect("to resolve my own window_id");
-            window
-                .iter()
-                .enumerate()
-                .flat_map(|(tab_idx, tab)| {
-                    let tab_title = tab.get_title();
-                    let mut panes = tab.iter_panes();
-                    if panes.len() <= 1 {
-                        let title = if tab_title.is_empty() {
-                            tab.get_active_pane()
-                                .expect("tab to have a pane")
-                                .get_title()
-                        } else {
-                            tab_title
-                        };
-                        return vec![LauncherTabEntry {
-                            title,
-                            tab_idx,
-                            pane_idx: None,
-                        }];
-                    }
-
-                    panes.sort_by_key(|pane| (!pane.is_active, pane.index));
-                    panes
-                        .into_iter()
-                        .map(|pane| {
-                            let title = if pane.is_active && !tab_title.is_empty() {
-                                tab_title.clone()
-                            } else {
-                                pane.pane.get_title()
-                            };
-                            LauncherTabEntry {
-                                title: if pane.is_active {
-                                    title
-                                } else {
-                                    format!("  |- {title}")
-                                },
-                                tab_idx,
-                                pane_idx: Some(pane.index),
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .collect()
         } else {
             vec![]
         };
@@ -273,7 +226,7 @@ impl LauncherState {
                             None => "(default shell)".to_string(),
                         },
                     },
-                    action: KeyAssignment::SpawnCommandInNewTab(item.clone()),
+                    action: KeyAssignment::SpawnCommandInNewTab(item.clone()).into(),
                 });
             }
         }
@@ -285,12 +238,13 @@ impl LauncherState {
                     action: KeyAssignment::SpawnCommandInNewTab(SpawnCommand {
                         domain: SpawnTabDomain::DomainName(domain.name.to_string()),
                         ..SpawnCommand::default()
-                    }),
+                    })
+                    .into(),
                 }
             } else {
                 Entry {
                     label: format!("Attach {}", domain.label),
-                    action: KeyAssignment::AttachDomain(domain.name.to_string()),
+                    action: KeyAssignment::AttachDomain(domain.name.to_string()).into(),
                 }
             };
 
@@ -311,7 +265,8 @@ impl LauncherState {
                         action: KeyAssignment::SwitchToWorkspace {
                             name: Some(ws.clone()),
                             spawn: None,
-                        },
+                        }
+                        .into(),
                     });
                 }
             }
@@ -323,7 +278,8 @@ impl LauncherState {
                 action: KeyAssignment::SwitchToWorkspace {
                     name: None,
                     spawn: None,
-                },
+                }
+                .into(),
             });
         }
 
@@ -338,7 +294,7 @@ impl LauncherState {
             for encoding in PaneEncoding::ordered_list() {
                 self.entries.push(Entry {
                     label: format!("Set pane encoding to {encoding}"),
-                    action: SetPaneEncoding(encoding),
+                    action: SetPaneEncoding(encoding).into(),
                 });
             }
         }
@@ -362,7 +318,7 @@ impl LauncherState {
                 }
                 self.entries.push(Entry {
                     label: cmd.brief.to_string(),
-                    action: cmd.action,
+                    action: cmd.action.into(),
                 });
             }
         }
@@ -396,7 +352,12 @@ impl LauncherState {
                 }
                 if key_entries
                     .iter()
-                    .find(|ent| ent.action == entry.action)
+                    .find(|ent| {
+                        matches!(
+                            &ent.action,
+                            LauncherAction::Assignment(action) if action == &entry.action
+                        )
+                    })
                     .is_some()
                 {
                     // Avoid duplicate entries
@@ -414,7 +375,7 @@ impl LauncherState {
                 };
                 key_entries.push(Entry {
                     label,
-                    action: entry.action,
+                    action: entry.action.into(),
                 });
             }
             key_entries.sort_by(|a, b| a.label.cmp(&b.label));
@@ -432,7 +393,8 @@ impl LauncherState {
                     help_text: None,
                     fuzzy_help_text: None,
                     alphabet: None,
-                }),
+                })
+                .into(),
             });
         }
     }
@@ -575,12 +537,12 @@ impl LauncherState {
         term.render(&changes)
     }
 
-    fn launch(&mut self, active_idx: usize) -> Option<KeyAssignment> {
+    fn launch(&mut self, active_idx: usize) -> Option<LauncherAction> {
         let action = match self.filtered_entries.get(active_idx) {
             Some(entry) => entry.action.clone(),
             None => return None,
         };
-        if let KeyAssignment::ShowLauncherArgs(ref args) = action {
+        if let LauncherAction::Assignment(KeyAssignment::ShowLauncherArgs(ref args)) = action {
             if args.flags.contains(LauncherFlags::PANE_ENCODINGS) {
                 self.enter_encoding_submenu();
                 return None;
@@ -617,7 +579,7 @@ impl LauncherState {
         for encoding in PaneEncoding::ordered_list() {
             self.entries.push(Entry {
                 label: format!("Set pane encoding to {encoding}"),
-                action: SetPaneEncoding(encoding),
+                action: SetPaneEncoding(encoding).into(),
             });
         }
         self.help_text =
@@ -645,7 +607,7 @@ impl LauncherState {
         }
     }
 
-    fn run_loop(&mut self, term: &mut TermWizTerminal) -> anyhow::Result<Option<KeyAssignment>> {
+    fn run_loop(&mut self, term: &mut TermWizTerminal) -> anyhow::Result<Option<LauncherAction>> {
         while let Ok(Some(event)) = term.poll_input(None) {
             match event {
                 InputEvent::Key(KeyEvent {
@@ -785,22 +747,15 @@ impl LauncherState {
     }
 }
 
-fn launcher_tab_action(tab: &LauncherTabEntry) -> KeyAssignment {
-    let activate_tab = KeyAssignment::ActivateTab(tab.tab_idx as isize);
-    match tab.pane_idx {
-        Some(pane_idx) => KeyAssignment::Multiple(vec![
-            activate_tab,
-            KeyAssignment::ActivatePaneByIndex(pane_idx),
-        ]),
-        None => activate_tab,
-    }
+fn launcher_tab_action(tab: &LauncherTabEntry) -> LauncherAction {
+    LauncherAction::ActivatePane(tab.pane_id)
 }
 
 pub fn launcher(
     args: LauncherArgs,
     mut term: TermWizTerminal,
     initial_choice_idx: usize,
-) -> anyhow::Result<Option<KeyAssignment>> {
+) -> anyhow::Result<Option<LauncherAction>> {
     let filtering = args.flags.contains(LauncherFlags::FUZZY);
     let mut state = LauncherState {
         active_idx: initial_choice_idx,
@@ -832,19 +787,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pane_entries_activate_the_tab_before_the_pane() {
+    fn pane_entries_keep_the_stable_pane_id() {
         let entry = LauncherTabEntry {
             title: "  |- src/main.rs".to_string(),
-            tab_idx: 2,
-            pane_idx: Some(4),
+            pane_id: 42.into(),
         };
 
         assert_eq!(
             launcher_tab_action(&entry),
-            KeyAssignment::Multiple(vec![
-                KeyAssignment::ActivateTab(2),
-                KeyAssignment::ActivatePaneByIndex(4),
-            ])
+            LauncherAction::ActivatePane(42.into())
         );
     }
 }
