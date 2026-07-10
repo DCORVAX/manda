@@ -538,6 +538,19 @@ impl super::TermWindow {
             return;
         }
 
+        if key.key_is_down && self.tab_pane_menu.is_some() {
+            use ::window::PhysKeyCode as PK;
+
+            let is_plain_escape = matches!(key.phys_code, Some(PK::Escape))
+                && key.modifiers.remove_positional_mods() == Modifiers::NONE;
+            if is_plain_escape {
+                return;
+            }
+
+            self.tab_pane_menu = None;
+            context.invalidate();
+        }
+
         let pane = match self.get_active_pane_or_overlay() {
             Some(pane) => pane,
             None => return,
@@ -1029,6 +1042,21 @@ impl super::TermWindow {
             Some(pane) => pane,
             None => return,
         };
+
+        let is_plain_escape = matches!(window_key.key, ::window::KeyCode::Char('\u{1b}'))
+            && window_key.modifiers.remove_positional_mods() == Modifiers::NONE;
+        if is_plain_escape && !window_key.key_is_down && self.tab_pane_menu_suppress_escape_key_up {
+            self.tab_pane_menu_suppress_escape_key_up = false;
+            return;
+        }
+        if window_key.key_is_down && self.tab_pane_menu.is_some() {
+            self.tab_pane_menu = None;
+            context.invalidate();
+            if is_plain_escape {
+                self.tab_pane_menu_suppress_escape_key_up = true;
+                return;
+            }
+        }
 
         if window_key.key_is_down {
             let mut state = self.pane_state(pane.pane_id());

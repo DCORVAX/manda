@@ -1002,24 +1002,17 @@ mod tests {
     }
 
     #[test]
-    fn bundled_kaku_lua_multi_pane_titles_focus_active_pane() {
+    fn bundled_kaku_lua_keeps_tab_titles_stable() {
         let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
         let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
 
         assert!(
-            content.contains(
-                "-- Multi-pane path: focus the active pane, reveal all panes while hovering"
-            ) && content
-                .contains("local visible_titles = hover and pane_titles or { active_title }")
-                && content.contains("items[#items + 1] = { Text = '\\u{2191}' }")
-                && content.contains(r"local sep = ' \u{2219} '"),
-            "bundled kaku.lua should focus the active pane and reveal siblings on hover"
-        );
-        assert!(
-            !content.contains(r"seg.text = '\u{2026}'")
-                && !content.contains("Trim non-active segments"),
-            "multi-pane tab titles should show real pane names instead of collapsing inactive panes to ellipsis"
+            content.contains("-- Keep tab width stable: always render the active pane title only.")
+                && !content.contains("local visible_titles = hover and pane_titles")
+                && !content.contains("items[#items + 1] = { Text = '\\u{2191}' }")
+                && !content.contains(r"local sep = ' \u{2219} '"),
+            "bundled kaku.lua should keep tab titles stable and leave pane navigation to the GUI"
         );
     }
 

@@ -753,11 +753,18 @@ pub enum TermWindowNotif {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UIItemType {
     TabBar(TabBarItem),
+    TabPaneBadge { tab_idx: usize },
+    TabPaneMenu { tab_id: TabId, pane_idx: usize },
     CloseTab(usize),
     AboveScrollThumb,
     ScrollThumb,
     BelowScrollThumb,
     Split(PositionedSplit),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TabPaneMenuState {
+    tab_id: TabId,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -817,6 +824,7 @@ pub struct TabInformation {
     pub active_pane: Option<PaneInformation>,
     pub window_id: MuxWindowId,
     pub tab_title: String,
+    pub pane_count: usize,
 }
 
 impl UserData for TabInformation {
@@ -1031,6 +1039,8 @@ pub struct TermWindow {
     show_scroll_bar: bool,
     tab_bar: TabBarState,
     fancy_tab_bar: Option<box_model::ComputedElement>,
+    tab_pane_menu: Option<TabPaneMenuState>,
+    tab_pane_menu_suppress_escape_key_up: bool,
     pub right_status: String,
     pub left_status: String,
     last_ui_item: Option<UIItem>,
@@ -1301,6 +1311,8 @@ impl TermWindow {
         }
 
         if self.focused.is_none() {
+            self.tab_pane_menu = None;
+            self.tab_pane_menu_suppress_escape_key_up = false;
             self.last_mouse_click = None;
             self.current_mouse_buttons.clear();
             self.current_mouse_capture = None;
@@ -1708,6 +1720,8 @@ impl TermWindow {
             show_scroll_bar: config.enable_scroll_bar,
             tab_bar: TabBarState::default(),
             fancy_tab_bar: None,
+            tab_pane_menu: None,
+            tab_pane_menu_suppress_escape_key_up: false,
             right_status: String::new(),
             left_status: String::new(),
             last_mouse_coords: (0, -1),
@@ -6205,21 +6219,24 @@ impl TermWindow {
         window
             .iter()
             .enumerate()
-            .map(|(idx, tab)| TabInformation {
-                tab_index: idx,
-                tab_id: tab.tab_id(),
-                is_active: tab_index == idx,
-                is_last_active: window
-                    .get_last_active_idx()
-                    .map(|last_active| last_active == idx)
-                    .unwrap_or(false),
-                window_id: self.mux_window_id,
-                tab_title: tab.get_title(),
-                active_pane: tab
-                    .iter_panes()
-                    .into_iter()
-                    .find(|p| p.is_active)
-                    .map(|p| Self::pos_pane_to_pane_info(&p)),
+            .map(|(idx, tab)| {
+                let panes = tab.iter_panes();
+                TabInformation {
+                    tab_index: idx,
+                    tab_id: tab.tab_id(),
+                    is_active: tab_index == idx,
+                    is_last_active: window
+                        .get_last_active_idx()
+                        .map(|last_active| last_active == idx)
+                        .unwrap_or(false),
+                    window_id: self.mux_window_id,
+                    tab_title: tab.get_title(),
+                    pane_count: panes.len(),
+                    active_pane: panes
+                        .into_iter()
+                        .find(|p| p.is_active)
+                        .map(|p| Self::pos_pane_to_pane_info(&p)),
+                }
             })
             .collect()
     }
