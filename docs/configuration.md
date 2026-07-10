@@ -319,6 +319,28 @@ custom_headers = ["X-Customer-ID: your-id", "X-Org: your-org"]
 
 Note: `Authorization` and `Content-Type` are reserved and cannot be overridden.
 
+**Extend Command Palette**
+
+Add custom command to Command Palette via `kaku.lua`:
+
+```lua
+wezterm.on('augment-command-palette', function(window, pane)
+  local cwd_obj = pane:get_current_working_dir()
+  if not cwd_obj then return {} end
+  local cwd = cwd_obj.path
+
+  return {
+    {
+      brief = 'Reveal in Finder',
+      doc = 'Reveal current directory in Finder',
+      action = wezterm.action_callback(function()
+        wezterm.run_child_process({ 'open', '-R', cwd })
+      end),
+    },
+  }
+end)
+```
+
 **Full WezTerm Lua API**
 
 Kaku uses WezTerm's configuration system. Any WezTerm config option works in `kaku.lua`. For the complete reference, see:
