@@ -261,7 +261,7 @@ fn pct_to_glyph(pct: u8) -> char {
 }
 
 const CONTEXT_PROCESS_SEPARATOR: &str = "\u{00b7}";
-const MULTI_PANE_TITLE_SEPARATOR: &str = " \u{2219} ";
+const MULTI_PANE_TITLE_SEPARATOR: &str = "\u{2219}";
 
 fn path_title_from_str(path: &str) -> Option<String> {
     let path_str = path.trim_end_matches('/');
@@ -1546,7 +1546,7 @@ mod test {
     fn multi_pane_separator_is_distinct_from_context_process_separator() {
         assert_eq!(
             ["www/kaku\u{00b7}codex", "www/kaku"].join(MULTI_PANE_TITLE_SEPARATOR),
-            "www/kaku\u{00b7}codex \u{2219} www/kaku"
+            "www/kaku\u{00b7}codex\u{2219}www/kaku"
         );
         assert_ne!(CONTEXT_PROCESS_SEPARATOR, MULTI_PANE_TITLE_SEPARATOR.trim());
     }
