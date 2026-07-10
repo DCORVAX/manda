@@ -35,15 +35,17 @@ return config
 
 ---
 
-## Recommended Config
+## Common Overrides
 
-Start with the generated file and keep overrides small. Most users should only touch the settings they can see or feel in daily terminal use:
+Start with the generated file and keep overrides small. Add only the settings you want to change:
 
 ```lua
 config.font_size = 16
-config.color_scheme = "Kaku Dark"
 config.window_background_opacity = 0.95
-config.scrollback_lines = 10000
+
+-- Choose one only if you do not want to follow macOS appearance:
+-- config.color_scheme = "Kaku Dark"
+-- config.color_scheme = "Kaku Light"
 ```
 
 Keep terminal behavior, appearance, key bindings, launch behavior, and other WezTerm-compatible settings in `kaku.lua`.
@@ -56,7 +58,10 @@ Manage Kaku Assistant settings with `kaku ai`. That command writes `~/.config/ka
 
 **Theme**
 
-Kaku auto-switches between dark and light based on macOS system appearance. Override manually:
+Kaku follows macOS appearance by default and switches between Kaku Dark and
+Kaku Light automatically. To return to this behavior, choose **Auto** in
+`kaku config` or remove an explicit `config.color_scheme` override. To force
+one theme:
 
 ```lua
 config.color_scheme = "Kaku Dark"   -- always dark
