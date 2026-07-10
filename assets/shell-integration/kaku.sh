@@ -43,33 +43,40 @@ esac
 # Override TERM for ssh sessions the same way Kaku's built-in SSH domain does.
 # Set KAKU_SSH_SKIP_TERM_FIX=1 to disable. If the user already defined ssh(),
 # keep their function untouched.
-_kaku_wrapped_ssh() {
-    if [[ -z "${KAKU_SSH_SKIP_TERM_FIX-}" && "${TERM:-}" == "kaku" ]]; then
-      TERM=xterm-256color command ssh "$@"
-    else
-      command ssh "$@"
-    fi
-  }
-
+# The wrapper body must stay self-contained: agent snapshot tools (Claude
+# Code and similar) capture the ssh function into shell snapshots but drop
+# _-prefixed helpers, so calling one from here leaves a dangling reference
+# in snapshot-restored shells (#493).
 if [ -n "${ZSH_NAME-}" ] && alias ssh >/dev/null 2>&1; then
   _kaku_existing_ssh_alias="${aliases[ssh]-}"
   function ssh {
-    local -a _kaku_alias_words
+    local -a _kaku_alias_words _kaku_ssh_cmd
     _kaku_alias_words=(${(z)_kaku_existing_ssh_alias})
-    if [[ "${_kaku_alias_words[1]-}" == "ssh" ]]; then
-      _kaku_wrapped_ssh "${(@)_kaku_alias_words[2,-1]}" "$@"
+    # Snapshot-restored shells keep this function but not the alias
+    # variable; fall back to plain ssh instead of exec'ing "$1".
+    if [[ ${#_kaku_alias_words[@]} -eq 0 ]]; then
+      _kaku_ssh_cmd=(command ssh)
+    elif [[ "${_kaku_alias_words[1]-}" == "ssh" ]]; then
+      _kaku_ssh_cmd=(command ssh "${(@)_kaku_alias_words[2,-1]}")
     elif [[ "${_kaku_alias_words[1]-}" == "command" && "${_kaku_alias_words[2]-}" == "ssh" ]]; then
-      _kaku_wrapped_ssh "${(@)_kaku_alias_words[3,-1]}" "$@"
-    elif [[ -z "${KAKU_SSH_SKIP_TERM_FIX-}" && "${TERM:-}" == "kaku" ]]; then
-      TERM=xterm-256color "${_kaku_alias_words[@]}" "$@"
+      _kaku_ssh_cmd=(command ssh "${(@)_kaku_alias_words[3,-1]}")
     else
-      "${_kaku_alias_words[@]}" "$@"
+      _kaku_ssh_cmd=("${_kaku_alias_words[@]}")
+    fi
+    if [[ -z "${KAKU_SSH_SKIP_TERM_FIX-}" && "${TERM:-}" == "kaku" ]]; then
+      TERM=xterm-256color "${_kaku_ssh_cmd[@]}" "$@"
+    else
+      "${_kaku_ssh_cmd[@]}" "$@"
     fi
   }
   unalias ssh
 elif ! typeset -f ssh >/dev/null 2>&1; then
   function ssh {
-    _kaku_wrapped_ssh "$@"
+    if [[ -z "${KAKU_SSH_SKIP_TERM_FIX-}" && "${TERM:-}" == "kaku" ]]; then
+      TERM=xterm-256color command ssh "$@"
+    else
+      command ssh "$@"
+    fi
   }
 fi
 
