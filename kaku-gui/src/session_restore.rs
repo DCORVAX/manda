@@ -515,6 +515,12 @@ fn focused_window_id() -> Option<MuxWindowId> {
 // drop clears MUX_DIRTY.
 static RESTORING_DEPTH: AtomicUsize = AtomicUsize::new(0);
 static MUX_DIRTY: AtomicBool = AtomicBool::new(false);
+/// Set once the on-disk session snapshot has been restored into this
+/// process. From that point the live mux is strictly more authoritative
+/// than the file, so exit-time saves must not preserve the old file in
+/// favor of a "trivial" live session: trivial then means the user closed
+/// the restored tabs on purpose.
+static SNAPSHOT_CONSUMED: AtomicBool = AtomicBool::new(false);
 
 fn logically_closed() -> &'static Mutex<HashSet<MuxWindowId>> {
     static SET: std::sync::OnceLock<Mutex<HashSet<MuxWindowId>>> = std::sync::OnceLock::new();
@@ -731,13 +737,17 @@ pub fn save_session_snapshot() -> anyhow::Result<()> {
     }
 
     let mut windows = Vec::new();
+    let mut snapshot_errors = false;
     for id in window_ids {
         if is_window_logically_closed(id) {
             continue;
         }
         match build_snapshot_for_window(id, Some(&content_dir)) {
             Ok(snap) => windows.push(snap),
-            Err(err) => log::debug!("skip window {id} for session snapshot: {err:#}"),
+            Err(err) => {
+                snapshot_errors = true;
+                log::debug!("skip window {id} for session snapshot: {err:#}");
+            }
         }
     }
 
@@ -745,9 +755,24 @@ pub fn save_session_snapshot() -> anyhow::Result<()> {
     // trivial (e.g. a single fresh shell prompt the user opened and closed).
     if windows.is_empty() {
         let _ = std::fs::remove_dir_all(&content_dir);
+        // No window survived because the user closed every one of them
+        // (logically closed and hidden, or already gone from the mux).
+        // Keeping the previous snapshot would resurrect those tabs with
+        // stale content on the next launch, so drop it. Only a process that
+        // actually consumed the snapshot may do this: a secondary instance
+        // that never restored (e.g. spawned to run one command) must not
+        // destroy the main session, and a capture error is not intentional
+        // closure either.
+        if SNAPSHOT_CONSUMED.load(Ordering::Acquire) && !snapshot_errors {
+            let _ = std::fs::remove_file(session_file());
+            gc_kept_content_dirs();
+        }
         return Ok(());
     }
-    if windows.len() == 1 {
+    // Only guard the old file while it has not been consumed: once this
+    // process restored it, a trivial live session reflects tabs the user
+    // closed after the restore and must replace the snapshot, not lose to it.
+    if windows.len() == 1 && !SNAPSHOT_CONSUMED.load(Ordering::Acquire) {
         let w = &windows[0];
         let mut leaves = Vec::new();
         if let Some(t) = w.tabs.first() {
@@ -1190,6 +1215,7 @@ pub async fn try_restore_on_startup() -> anyhow::Result<bool> {
                 .into_iter()
                 .find(|id| is_window_empty(*id));
             restore_session(session, preexisting_empty).await?;
+            SNAPSHOT_CONSUMED.store(true, Ordering::Release);
             Ok(true)
         }
         None => Ok(false),

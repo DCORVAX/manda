@@ -1288,6 +1288,14 @@ impl TermWindow {
 
     fn focus_changed(&mut self, focused: bool, window: &Window) {
         log::trace!("Setting focus to {:?}", focused);
+        if focused {
+            // On macOS a closed window is only hidden (see close_requested) and a
+            // Dock click brings it back via makeKeyAndOrderFront, which lands here.
+            // The window is in use again, so drop its logically-closed marker;
+            // otherwise the exit-time session save skips it forever and the stale
+            // last_session.json resurrects tabs the user already closed.
+            crate::session_restore::forget_logically_closed(self.mux_window_id);
+        }
         if !self.config.tab_bar_at_bottom && self.layout_is_effective_fullscreen() {
             self.arm_layout_sticky_fullscreen();
         }
