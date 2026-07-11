@@ -521,6 +521,10 @@ static MUX_DIRTY: AtomicBool = AtomicBool::new(false);
 /// favor of a "trivial" live session: trivial then means the user closed
 /// the restored tabs on purpose.
 static SNAPSHOT_CONSUMED: AtomicBool = AtomicBool::new(false);
+/// Set when startup restored only part of the saved session. The original
+/// snapshot and its scrollback sidecars remain the only complete copy, so
+/// this process must not replace or delete them on exit.
+static SNAPSHOT_RESTORE_INCOMPLETE: AtomicBool = AtomicBool::new(false);
 
 fn logically_closed() -> &'static Mutex<HashSet<MuxWindowId>> {
     static SET: std::sync::OnceLock<Mutex<HashSet<MuxWindowId>>> = std::sync::OnceLock::new();
@@ -552,6 +556,16 @@ fn is_window_logically_closed(window_id: MuxWindowId) -> bool {
 
 fn should_remove_empty_session_file(snapshot_consumed: bool, snapshot_errors: bool) -> bool {
     snapshot_consumed && !snapshot_errors
+}
+
+fn record_startup_restore_outcome(outcome: SessionRestoreOutcome) {
+    let complete = outcome.is_complete();
+    SNAPSHOT_CONSUMED.store(complete, Ordering::Release);
+    SNAPSHOT_RESTORE_INCOMPLETE.store(!complete, Ordering::Release);
+}
+
+fn should_preserve_existing_session_snapshot() -> bool {
+    SNAPSHOT_RESTORE_INCOMPLETE.load(Ordering::Acquire)
 }
 
 struct RestoringGuard;
@@ -724,6 +738,10 @@ pub fn save_closed_window_snapshot(window_id: MuxWindowId) -> anyhow::Result<()>
 
 pub fn save_session_snapshot() -> anyhow::Result<()> {
     if !is_dirty() {
+        return Ok(());
+    }
+    if should_preserve_existing_session_snapshot() {
+        log::warn!("preserving session snapshot after an incomplete startup restore");
         return Ok(());
     }
 
@@ -1114,7 +1132,7 @@ async fn restore_window(
 async fn restore_session(
     session: SavedSession,
     current_window_id: Option<MuxWindowId>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<SessionRestoreOutcome> {
     let _guard = RestoringGuard::new();
 
     let SavedSession {
@@ -1123,8 +1141,9 @@ async fn restore_session(
         windows,
     } = session;
     if windows.is_empty() {
-        return Ok(());
+        return Ok(SessionRestoreOutcome::default());
     }
+    let expected_windows = windows.len();
 
     let content_dir_path = if content_dir_name.is_empty() {
         None
@@ -1135,11 +1154,17 @@ async fn restore_session(
 
     let focused_idx = windows.iter().position(|w| w.is_focused).unwrap_or(0);
 
-    let mut new_window_ids: Vec<MuxWindowId> = Vec::with_capacity(windows.len());
+    let mut restored_windows = 0;
+    let mut focused_window_id = None;
     for (idx, window_snap) in windows.into_iter().enumerate() {
         let target = if idx == 0 { current_window_id } else { None };
         match restore_window(window_snap, target, content_dir).await {
-            Ok(id) => new_window_ids.push(id),
+            Ok(id) => {
+                restored_windows += 1;
+                if idx == focused_idx {
+                    focused_window_id = Some(id);
+                }
+            }
             Err(err) => log::warn!("failed to restore one window from session: {err:#}"),
         }
     }
@@ -1148,7 +1173,7 @@ async fn restore_session(
     // for a freshly-created mux window is spawned asynchronously, so the
     // lookup may miss; that is acceptable — focus then stays on whichever
     // window the platform picked.
-    if let Some(&target_id) = new_window_ids.get(focused_idx) {
+    if let Some(target_id) = focused_window_id {
         if let Some(fe) = frontend::try_front_end() {
             if let Some(gui) = fe.gui_window_for_mux_window(target_id) {
                 gui.window.focus();
@@ -1156,7 +1181,26 @@ async fn restore_session(
         }
     }
 
-    Ok(())
+    Ok(SessionRestoreOutcome {
+        expected_windows,
+        restored_windows,
+    })
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct SessionRestoreOutcome {
+    expected_windows: usize,
+    restored_windows: usize,
+}
+
+impl SessionRestoreOutcome {
+    fn is_complete(self) -> bool {
+        self.restored_windows == self.expected_windows
+    }
+
+    fn restored_any(self) -> bool {
+        self.restored_windows > 0
+    }
 }
 
 pub fn restore_previous_window_from_menu(current_window_id: Option<MuxWindowId>) {
@@ -1221,9 +1265,16 @@ pub async fn try_restore_on_startup() -> anyhow::Result<bool> {
                 .iter_windows()
                 .into_iter()
                 .find(|id| is_window_empty(*id));
-            restore_session(session, preexisting_empty).await?;
-            SNAPSHOT_CONSUMED.store(true, Ordering::Release);
-            Ok(true)
+            let outcome = restore_session(session, preexisting_empty).await?;
+            record_startup_restore_outcome(outcome);
+            if !outcome.is_complete() {
+                log::warn!(
+                    "restored {} of {} session windows; preserving the original snapshot",
+                    outcome.restored_windows,
+                    outcome.expected_windows
+                );
+            }
+            Ok(outcome.restored_any())
         }
         None => Ok(false),
     }
@@ -1387,6 +1438,51 @@ mod tests {
         assert!(should_remove_empty_session_file(true, false));
         assert!(!should_remove_empty_session_file(false, false));
         assert!(!should_remove_empty_session_file(true, true));
+    }
+
+    #[test]
+    fn session_snapshot_is_consumed_only_after_every_window_restores() {
+        SNAPSHOT_CONSUMED.store(false, Ordering::Release);
+        SNAPSHOT_RESTORE_INCOMPLETE.store(false, Ordering::Release);
+
+        let complete = SessionRestoreOutcome {
+            expected_windows: 2,
+            restored_windows: 2,
+        };
+        assert!(complete.is_complete());
+        assert!(complete.restored_any());
+        record_startup_restore_outcome(complete);
+        assert!(SNAPSHOT_CONSUMED.load(Ordering::Acquire));
+        assert!(!should_preserve_existing_session_snapshot());
+
+        let partial = SessionRestoreOutcome {
+            expected_windows: 2,
+            restored_windows: 1,
+        };
+        assert!(!partial.is_complete());
+        assert!(partial.restored_any());
+        record_startup_restore_outcome(partial);
+        assert!(!SNAPSHOT_CONSUMED.load(Ordering::Acquire));
+        assert!(should_preserve_existing_session_snapshot());
+
+        let failed = SessionRestoreOutcome {
+            expected_windows: 2,
+            restored_windows: 0,
+        };
+        assert!(!failed.is_complete());
+        assert!(!failed.restored_any());
+        record_startup_restore_outcome(failed);
+        assert!(!SNAPSHOT_CONSUMED.load(Ordering::Acquire));
+        assert!(should_preserve_existing_session_snapshot());
+
+        let empty = SessionRestoreOutcome::default();
+        assert!(empty.is_complete());
+        assert!(!empty.restored_any());
+        record_startup_restore_outcome(empty);
+        assert!(SNAPSHOT_CONSUMED.load(Ordering::Acquire));
+        assert!(!should_preserve_existing_session_snapshot());
+
+        SNAPSHOT_CONSUMED.store(false, Ordering::Release);
     }
 
     #[test]

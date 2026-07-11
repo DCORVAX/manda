@@ -1013,7 +1013,8 @@ mod tests {
                 && content.contains(r"local sep = '\u{2219}'")
                 && content.contains("local sep_width = wezterm.column_width(sep)")
                 && content.contains("local w = (#segs - 1) * sep_width")
-                && content.contains("local avail = budget - (#segments - 1) * sep_width"),
+                && content
+                    .contains("local avail = budget - math.max(0, #segments - 1) * sep_width"),
             "bundled kaku.lua should keep the multi-pane tab title path"
         );
         assert!(
@@ -1022,10 +1023,132 @@ mod tests {
             "multi-pane width accounting must follow the rendered separator width"
         );
         assert!(
-            !content.contains(r"seg.text = '\u{2026}'")
-                && !content.contains("Trim non-active segments"),
-            "multi-pane tab titles should show real pane names instead of collapsing inactive panes to ellipsis"
+            !content.contains("Trim non-active segments"),
+            "multi-pane tab titles should keep pane context until the width budget requires truncation"
         );
+    }
+
+    #[test]
+    fn bundled_kaku_lua_tab_titles_fit_narrow_width_budgets() -> anyhow::Result<()> {
+        let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
+        let source = std::fs::read_to_string(&bundled)?;
+        let lua = crate::lua::make_lua_context(&bundled)?;
+        let wezterm: mlua::Table = lua.load("return require 'wezterm'").eval()?;
+        wezterm.set(
+            "column_width",
+            lua.create_function(|_, text: String| {
+                Ok(termwiz::cell::unicode_column_width(&text, None))
+            })?,
+        )?;
+        wezterm.set(
+            "truncate_right",
+            lua.create_function(|_, (text, limit): (String, usize)| {
+                let mut truncated = String::new();
+                let mut width = 0;
+                for ch in text.chars() {
+                    let ch_width = termwiz::cell::unicode_column_width(&ch.to_string(), None);
+                    if width + ch_width > limit {
+                        break;
+                    }
+                    truncated.push(ch);
+                    width += ch_width;
+                }
+                Ok(truncated)
+            })?,
+        )?;
+        smol::block_on(
+            lua.load(&source)
+                .set_name(bundled.to_string_lossy())
+                .eval_async::<mlua::Value>(),
+        )?;
+
+        for pane_count in [1, 4] {
+            let fixture = format!(
+                r#"
+local panes = {{}}
+for i = 1, {pane_count} do
+  panes[i] = {{
+    pane_id = i,
+    pane_index = i - 1,
+    is_active = i == {pane_count},
+    is_zoomed = false,
+    title = 'pane-' .. i,
+    current_working_dir = 'file:///Users/test/projects/repository-' .. i,
+    user_vars = {{}},
+  }}
+end
+local tab = {{
+  tab_id = 1,
+  tab_index = 0,
+  is_active = false,
+  active_pane = panes[{pane_count}],
+  panes = panes,
+  tab_title = '',
+}}
+local effective_config = {{
+  bell_tab_indicator = true,
+  resolved_palette = {{
+    tab_bar = {{
+      background = '#15141b',
+      active_tab = {{ fg_color = '#ffffff' }},
+      inactive_tab = {{ fg_color = '#888888' }},
+      inactive_tab_hover = {{ fg_color = '#aaaaaa' }},
+    }},
+  }},
+}}
+return tab, {{ tab }}, panes, effective_config
+"#
+            );
+            let (tab, tabs, panes, config): (mlua::Table, mlua::Table, mlua::Table, mlua::Table) =
+                lua.load(&fixture).eval()?;
+
+            for max_width in 1..=12 {
+                let value = crate::lua::emit_sync_callback(
+                    &lua,
+                    (
+                        "format-tab-title".to_string(),
+                        (
+                            tab.clone(),
+                            tabs.clone(),
+                            panes.clone(),
+                            config.clone(),
+                            false,
+                            max_width,
+                        ),
+                    ),
+                )?;
+                let items = match value {
+                    mlua::Value::Table(items) => items,
+                    other => anyhow::bail!("expected format items, got {other:?}"),
+                };
+                let mut text = String::new();
+                let mut last_text = None;
+                for item in items.sequence_values::<mlua::Table>() {
+                    let item = item?;
+                    if let Some(part) = item.get::<_, Option<String>>("Text")? {
+                        text.push_str(&part);
+                        last_text = Some(part);
+                    }
+                }
+                let rendered_width = termwiz::cell::unicode_column_width(&text, None);
+                assert!(
+                    rendered_width <= max_width,
+                    "{} pane title rendered {} columns for a {}-column budget: {:?}",
+                    pane_count,
+                    rendered_width,
+                    max_width,
+                    text
+                );
+                assert_eq!(
+                    last_text.as_deref(),
+                    Some(" "),
+                    "the trailing bell slot must survive a {max_width}-column budget"
+                );
+            }
+        }
+
+        Ok(())
     }
 
     #[test]

@@ -67,6 +67,7 @@
 - Scrollback viewport pruning: when the scrolled-back position falls out of scrollback during output, `normalize_viewport` (`termwindow/mod.rs`) snaps to the bottom (`None`). Do NOT re-clamp to `scrollback_top` -- that pins the view to the advancing top edge and reads as a jarring jump-to-top during streaming output (#448). This policy has flip-flopped before; keep it snap-to-bottom.
 - Tab bar sizing and hit-testing have pure seams in `src/tabbar.rs`: `tab_width_budget` (per-tab column budget that drives truncation) and `is_tab_hover` (clickable span). The truncation and position regressions (#439/#443/#445) came from layout logic with no test seam, so when you change tab sizing, truncation, or click regions, extend their unit tests instead of only eyeballing the running app. `tab_width_budget` locks the invariant that a tab is never squeezed below 1 column.
 - Launcher entries that target a pane must retain its stable `PaneId`, not a tab or topological pane index. The launcher snapshot can outlive pane exits and split-tree reindexing; resolve the `PaneId` against the live mux only after the overlay closes.
+- A partially failed startup session restore must preserve the original session envelope and scrollback sidecars. Only mark a snapshot consumed after every saved window restores successfully; otherwise exit-time saving can overwrite the only complete copy.
 
 ## Cross-References
 

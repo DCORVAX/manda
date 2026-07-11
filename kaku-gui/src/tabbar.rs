@@ -401,10 +401,22 @@ pub fn compute_tab_plain_title(tab: &TabInformation) -> String {
 
     if let Some(pane) = &tab.active_pane {
         let include_foreground_process = config::configuration().tab_title_show_foreground_process;
-        return compute_pane_plain_title(pane, include_foreground_process);
+        return choose_plain_tab_title(
+            ssh_destination_for_pane(pane),
+            tab_multi_pane_title(tab.tab_id, include_foreground_process),
+            compute_pane_plain_title(pane, include_foreground_process),
+        );
     }
 
     "no pane".to_string()
+}
+
+fn choose_plain_tab_title(
+    ssh_host: Option<String>,
+    multi_pane_title: Option<String>,
+    active_pane_title: String,
+) -> String {
+    ssh_host.or(multi_pane_title).unwrap_or(active_pane_title)
 }
 
 pub(crate) fn compute_pane_plain_title(
@@ -1549,6 +1561,26 @@ mod test {
             "www/kaku\u{00b7}codex\u{2219}www/kaku"
         );
         assert_ne!(CONTEXT_PROCESS_SEPARATOR, MULTI_PANE_TITLE_SEPARATOR.trim());
+    }
+
+    #[test]
+    fn plain_tab_title_keeps_multi_pane_context_for_rename() {
+        assert_eq!(
+            choose_plain_tab_title(
+                None,
+                Some("src/main.rs∙src/app.rs".to_string()),
+                "src/main.rs".to_string(),
+            ),
+            "src/main.rs∙src/app.rs"
+        );
+        assert_eq!(
+            choose_plain_tab_title(
+                Some("server.example".to_string()),
+                Some("src/main.rs∙src/app.rs".to_string()),
+                "src/main.rs".to_string(),
+            ),
+            "server.example"
+        );
     }
 
     #[test]

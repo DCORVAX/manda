@@ -192,7 +192,10 @@ NOTARYTOOL_ARGS=(
 	--wait
 )
 
-NOTARYTOOL_UPLOAD_ERROR_PATTERN="abortedUpload|deadlineExceeded|ThroughputBelowMinimum"
+# connectTimeout: swift-nio transport error seen when the S3 acceleration
+# endpoint is unreachable on restricted networks; retrying reaches the final
+# attempt which disables acceleration.
+NOTARYTOOL_UPLOAD_ERROR_PATTERN="abortedUpload|deadlineExceeded|ThroughputBelowMinimum|connectTimeout"
 SUBMIT_OUTPUT=""
 attempt=1
 while (( attempt <= NOTARY_SUBMIT_MAX_ATTEMPTS )); do

@@ -3482,14 +3482,31 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
       return w
     end
 
-    local budget = math.max(8, (max_width or 32) - 2)
+    local total_limit = math.max(1, max_width or 32)
+    local leading = total_limit >= 2 and ' ' or ''
+    local budget = math.max(0, total_limit - wezterm.column_width(leading) - 1)
     local segments = dedupe_segments('full')
     if segments_width(segments) > budget then
       -- Degrade to basename-only segments before cutting anything
       segments = dedupe_segments('short')
     end
 
-    local avail = budget - (#segments - 1) * sep_width
+    -- When the tab is too narrow to give every segment one cell plus
+    -- separators, keep the active pane only. The hover title still exposes
+    -- the full context without sacrificing the trailing bell slot.
+    local minimum_width = #segments + math.max(0, #segments - 1) * sep_width
+    if minimum_width > budget then
+      local selected = segments[1]
+      for _, seg in ipairs(segments) do
+        if seg.active then
+          selected = seg
+          break
+        end
+      end
+      segments = budget > 0 and { selected } or {}
+    end
+
+    local avail = budget - math.max(0, #segments - 1) * sep_width
     local widths, need = {}, 0
     for i, seg in ipairs(segments) do
       widths[i] = wezterm.column_width(seg.text)
@@ -3516,17 +3533,24 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
         end
       end
       if pending_count > 0 then
-        local share = math.max(2, math.floor(remaining / pending_count))
+        local share = math.max(1, math.floor(remaining / pending_count))
         for i = 1, #segments do
           if pending[i] then
-            segments[i].text = wezterm.truncate_right(segments[i].text, share - 1) .. '\u{2026}'
+            if share == 1 then
+              segments[i].text = '\u{2026}'
+            else
+              segments[i].text = wezterm.truncate_right(segments[i].text, share - 1) .. '\u{2026}'
+            end
           end
         end
       end
     end
 
     -- Build FormatItem sequence
-    local items = { { Text = ' ' } }
+    local items = {}
+    if leading ~= '' then
+      items[#items + 1] = { Text = leading }
+    end
     for i, seg in ipairs(segments) do
       if seg.active then
         items[#items + 1] = { Attribute = { Intensity = 'Bold' } }
@@ -3568,9 +3592,17 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
 
   -- Truncate on our terms with an ellipsis; the renderer would otherwise
   -- hard-clip mid-word and swallow the trailing bell slot.
-  local title_limit = math.max(8, (max_width or 32) - 2)
+  local total_limit = math.max(1, max_width or 32)
+  local leading = total_limit >= 2 and ' ' or ''
+  local title_limit = math.max(0, total_limit - wezterm.column_width(leading) - 1)
   if wezterm.column_width(text) > title_limit then
-    text = wezterm.truncate_right(text, title_limit - 1) .. '\u{2026}'
+    if title_limit == 0 then
+      text = ''
+    elseif title_limit == 1 then
+      text = '\u{2026}'
+    else
+      text = wezterm.truncate_right(text, title_limit - 1) .. '\u{2026}'
+    end
   end
 
   local intensity = tab.is_active and 'Bold' or 'Normal'
@@ -3581,7 +3613,7 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
     return {
       { Attribute = { Intensity = intensity } },
       { Foreground = { Color = fg_active } },
-      { Text = ' ' .. text },
+      { Text = leading .. text },
       { Foreground = { Color = has_bell and dot_color or fg_active } },
       { Text = has_bell and '\u{2022}' or ' ' },
     }
@@ -3590,7 +3622,7 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
   return {
     { Attribute = { Intensity = intensity } },
     { Foreground = { Color = fg_active } },
-    { Text = ' ' .. text .. ' ' },
+    { Text = leading .. text .. ' ' },
   }
 end)
 
