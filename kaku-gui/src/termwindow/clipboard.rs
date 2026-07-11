@@ -173,7 +173,7 @@ impl TermWindow {
         promise::spawn::spawn(async move {
             match future.await {
                 Ok(data) => {
-                    window.notify(TermWindowNotif::Apply(Box::new(move |_myself| {
+                    window.notify(TermWindowNotif::Apply(Box::new(move |myself| {
                         if let window::ClipboardData::Image(_) = &data {
                             // Clipboard holds an image, not text.  Instead of
                             // pasting the temp-file path (which confuses TUI
@@ -181,7 +181,8 @@ impl TermWindow {
                             // read the system clipboard image itself, using the same
                             // path that a real Ctrl+V keypress takes.
                             for pane in &targets {
-                                if let Err(err) = pane.writer().write_all(b"\x16") {
+                                let result = pane.writer().write_all(b"\x16");
+                                if let Err(err) = myself.finish_terminal_input(pane, result) {
                                     log::warn!(
                                         "failed to send ctrl-v for image paste to pane {}: {err:#}",
                                         pane.pane_id()
@@ -196,7 +197,8 @@ impl TermWindow {
                         };
 
                         for pane in &targets {
-                            if let Err(err) = pane.send_paste(&clip) {
+                            let result = pane.send_paste(&clip);
+                            if let Err(err) = myself.finish_terminal_input(pane, result) {
                                 log::warn!(
                                     "failed to paste clipboard content into pane {}: {err:#}",
                                     pane.pane_id()

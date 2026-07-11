@@ -2106,7 +2106,8 @@ impl TermWindow {
                     Some(pane) => pane,
                     None => return Ok(true),
                 };
-                pane.send_paste(text.as_str())?;
+                let result = pane.send_paste(text.as_str());
+                self.finish_terminal_input(&pane, result)?;
                 Ok(true)
             }
             WindowEvent::DroppedUrl(urls) => {
@@ -2120,7 +2121,8 @@ impl TermWindow {
                     .collect::<Vec<_>>()
                     .join(" ")
                     + " ";
-                pane.send_paste(urls.as_str())?;
+                let result = pane.send_paste(urls.as_str());
+                self.finish_terminal_input(&pane, result)?;
                 Ok(true)
             }
             WindowEvent::DroppedFile(paths) => {
@@ -2138,7 +2140,8 @@ impl TermWindow {
                     .collect::<Vec<_>>()
                     .join(" ")
                     + " ";
-                pane.send_paste(&paths)?;
+                let result = pane.send_paste(&paths);
+                self.finish_terminal_input(&pane, result)?;
                 Ok(true)
             }
             WindowEvent::DraggedFile(_) => Ok(true),
@@ -4784,9 +4787,11 @@ impl TermWindow {
                 } else if name == "restart-to-update" {
                     crate::frontend::restart_to_update();
                 } else if name == "run-kaku-cli" {
-                    pane.writer().write_all(b"kaku\n")?;
+                    let result = pane.writer().write_all(b"kaku\n");
+                    self.finish_terminal_input(pane, result)?;
                 } else if name == "run-kaku-ai-config" {
-                    pane.writer().write_all(b"kaku ai\n")?;
+                    let result = pane.writer().write_all(b"kaku ai\n");
+                    self.finish_terminal_input(pane, result)?;
                 } else if let Some(msg) = lookup_kaku_toast(name) {
                     self.show_toast(msg.to_string());
                 } else if name == "kaku-toast-ai-analyzing" {
@@ -6048,10 +6053,15 @@ impl TermWindow {
 
     fn write_terminal_input_bytes(&self, pane: &Arc<dyn Pane>, bytes: &[u8]) -> anyhow::Result<()> {
         self.for_each_terminal_input_target(pane, |target| {
-            target
+            let result = target
                 .writer()
                 .write_all(bytes)
-                .context("sending terminal input bytes")
+                .context("sending terminal input bytes");
+            if bytes.is_empty() {
+                result
+            } else {
+                self.finish_terminal_input(target, result)
+            }
         })
     }
 
@@ -6064,25 +6074,25 @@ impl TermWindow {
         key_event: Option<&KeyEvent>,
     ) -> anyhow::Result<()> {
         self.for_each_terminal_input_target(pane, |target| {
-            if let Some(key_event) = key_event {
-                if let Some(encoded) = self.encode_win32_input(target, key_event) {
-                    return target
-                        .writer()
-                        .write_all(encoded.as_bytes())
-                        .context("sending win32-input-mode encoded data");
-                }
-                if let Some(encoded) = self.encode_kitty_input(target, key_event) {
-                    return target
-                        .writer()
-                        .write_all(encoded.as_bytes())
-                        .context("sending kitty encoded data");
-                }
-            }
-
-            if is_down {
+            let encoded = key_event.and_then(|event| {
+                self.encode_win32_input(target, event)
+                    .or_else(|| self.encode_kitty_input(target, event))
+            });
+            let result = if let Some(encoded) = encoded {
+                target
+                    .writer()
+                    .write_all(encoded.as_bytes())
+                    .context("sending encoded terminal input")
+            } else if is_down {
                 target.key_down(key.clone(), modifiers)
             } else {
                 target.key_up(key.clone(), modifiers)
+            };
+
+            if is_down && !key.is_modifier() {
+                self.finish_terminal_input(target, result)
+            } else {
+                result
             }
         })
     }

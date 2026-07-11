@@ -6,6 +6,14 @@ use std::sync::Arc;
 use termwiz::surface::Line;
 use wezterm_term::StableRowIndex;
 
+fn clear_selection_after_successful_terminal_input(
+    selection: &mut Selection,
+    result: anyhow::Result<()>,
+) -> anyhow::Result<bool> {
+    result?;
+    Ok(selection.clear())
+}
+
 impl super::TermWindow {
     pub fn selection(&self, pane_id: PaneId) -> RefMut<'_, Selection> {
         RefMut::map(self.pane_state(pane_id), |state| &mut state.selection)
@@ -154,10 +162,43 @@ impl super::TermWindow {
         s
     }
 
-    pub fn clear_selection(&mut self, pane: &Arc<dyn Pane>) {
+    pub fn clear_selection(&self, pane: &Arc<dyn Pane>) {
         let mut selection = self.selection(pane.pane_id());
-        selection.clear();
-        self.window.as_ref().unwrap().invalidate();
+        let cleared = selection.clear();
+        drop(selection);
+        if cleared {
+            if let Some(window) = self.window.as_ref() {
+                window.invalidate();
+            }
+        }
+    }
+
+    pub(super) fn finish_terminal_input<E>(
+        &self,
+        pane: &Arc<dyn Pane>,
+        result: Result<(), E>,
+    ) -> anyhow::Result<()>
+    where
+        E: Into<anyhow::Error>,
+    {
+        let result = result.map_err(Into::into);
+
+        // Per-pane overlays own their input and may share the underlying pane id.
+        // Preserve the terminal selection while an overlay handles the event.
+        if self.pane_state(pane.pane_id()).overlay.is_some() {
+            return result;
+        }
+
+        let cleared = {
+            let mut selection = self.selection(pane.pane_id());
+            clear_selection_after_successful_terminal_input(&mut selection, result)?
+        };
+        if cleared {
+            if let Some(window) = self.window.as_ref() {
+                window.invalidate();
+            }
+        }
+        Ok(())
     }
 
     pub fn extend_selection_at_mouse_cursor(&mut self, mode: SelectionMode, pane: &Arc<dyn Pane>) {
@@ -319,5 +360,46 @@ impl super::TermWindow {
         }
 
         self.window.as_ref().unwrap().invalidate();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clear_selection_after_successful_terminal_input;
+    use crate::selection::{Selection, SelectionCoordinate, SelectionRange};
+
+    fn active_selection() -> Selection {
+        let start = SelectionCoordinate::x_y(2, 3);
+        Selection {
+            origin: Some(start),
+            range: Some(SelectionRange::start(start)),
+            rectangular: false,
+        }
+    }
+
+    #[test]
+    fn successful_terminal_input_clears_selection() {
+        let mut selection = active_selection();
+
+        let cleared = clear_selection_after_successful_terminal_input(&mut selection, Ok(()))
+            .expect("successful input should clear the selection");
+
+        assert!(cleared);
+        assert!(selection.is_empty());
+        assert!(selection.origin.is_none());
+    }
+
+    #[test]
+    fn failed_terminal_input_preserves_selection() {
+        let mut selection = active_selection();
+
+        assert!(clear_selection_after_successful_terminal_input(
+            &mut selection,
+            Err(anyhow::anyhow!("input failed")),
+        )
+        .is_err());
+
+        assert!(!selection.is_empty());
+        assert!(selection.origin.is_some());
     }
 }

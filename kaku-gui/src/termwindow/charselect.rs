@@ -682,7 +682,8 @@ impl Modal for CharSelector {
                     term_window.copy_to_clipboard(self.copy_to, glyph.clone());
                 }
                 if let Some(pane) = term_window.get_active_pane_or_overlay() {
-                    if let Err(err) = pane.writer().write_all(glyph.as_bytes()) {
+                    let result = pane.writer().write_all(glyph.as_bytes());
+                    if let Err(err) = term_window.finish_terminal_input(&pane, result) {
                         log::warn!("failed to write selected glyph to pane: {err:#}");
                     }
                 }

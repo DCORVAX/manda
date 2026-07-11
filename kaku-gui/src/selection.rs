@@ -21,9 +21,11 @@ pub struct Selection {
 pub use config::keyassignment::SelectionMode;
 
 impl Selection {
-    pub fn clear(&mut self) {
+    pub fn clear(&mut self) -> bool {
+        let had_selection = self.range.is_some() || self.origin.is_some();
         self.range = None;
         self.origin = None;
+        had_selection
     }
 
     pub fn begin(&mut self, origin: SelectionCoordinate) {
