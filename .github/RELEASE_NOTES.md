@@ -1,25 +1,25 @@
-# V0.13.0 Faster
+# V0.14.0 Focused
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/tw93/Kaku/main/assets/logo.png" alt="Kaku Logo" width="120" height="120" />
-  <h1 style="margin: 12px 0 6px;">Kaku V0.13.0</h1>
+  <h1 style="margin: 12px 0 6px;">Kaku V0.14.0</h1>
   <p><em>A fast, out-of-the-box terminal built for AI coding.</em></p>
 </div>
 
 ### Changelog
 
-1. **Startup & Prompt**: Kaku now does less work before the first frame and keeps shell, config, and font caches warm, so new windows and prompts feel faster.
-2. **Default Prompt**: The bundled prompt now shows Git status and Node version while keeping the same compact terminal feel.
-3. **Tab Titles**: Tabs stay path-focused by default, with an optional Command Tab Titles setting for showing running tools such as `project·claude`; split panes also keep their titles readable.
-4. **AI Chat**: Long streaming conversations no longer re-highlight the whole chat on every update, keeping the AI panel smoother during large sessions.
-5. **Window & Terminal Stability**: Moving between displays, half-intensity text, resizing terminals smaller, and deferred config setup are handled more reliably.
+1. **Pane Navigation**: Tab Navigator now lists every pane inside split tabs and lets you jump directly to the one you need, while narrow tab titles keep the active pane visible.
+2. **Tab Renaming**: The rename dialog has clearer text and cursor behavior, canceling with Escape or the mouse no longer leaves a phantom selection, and automatic split-pane titles stay intact.
+3. **Tabs & Selection**: Tab separators are cleaner, selected text is easier to see in dark themes, and double-click selection now respects boundaries between CJK and Latin text.
+4. **Session Restore**: Closed tabs stay closed after restart, incomplete restores preserve the original recovery data, and SSH sessions can be restored from saved snapshots again.
+5. **Security & Stability**: Dependency advisories for `anyhow` and `crossbeam-epoch` are resolved, while pane actions and mouse releases handle disappearing UI state more safely.
 
 ### 更新日志
 
-1. **启动与提示符**：Kaku 现在会在首帧前少做一些工作，并缓存 shell、配置和字体相关结果，新窗口和提示符响应会更快。
-2. **默认提示符**：内置提示符现在会显示 Git 状态和 Node 版本，同时保留原本紧凑的终端观感。
-3. **标签标题**：标签默认继续以路径为主，需要时可以打开 Command Tab Titles 来显示 `project·claude` 这类正在运行的工具，分屏标题也会保持可读。
-4. **AI 聊天**：长对话流式输出时不再每次都重新高亮整段聊天，AI 面板在大段会话里会更顺。
-5. **窗口与终端稳定性**：跨显示器缩放、半亮文本、终端缩小时的滚动历史，以及延迟配置初始化都处理得更稳。
+1. **分屏导航**：Tab Navigator 现在会列出标签内的每个分屏，可以直接跳到需要的分屏；标签很窄时也会优先保留当前分屏标题。
+2. **标签重命名**：重命名窗口的文字与光标表现更清楚，按 Esc 或用鼠标取消后不再留下错误选区，自动生成的分屏标题也不会被意外覆盖。
+3. **标签与选择**：标签分隔线更简洁，深色主题下的选区更清楚，双击选择也会正确区分中日韩文字与拉丁文字的边界。
+4. **会话恢复**：重启后不会再恢复已经关闭的标签，恢复不完整时会保留原始恢复数据，SSH 会话也能再次从快照中恢复。
+5. **安全与稳定性**：已解决 `anyhow` 与 `crossbeam-epoch` 的安全公告，分屏操作和鼠标释放在界面状态变化时也会更稳。
 
 > https://github.com/tw93/Kaku
