@@ -339,7 +339,7 @@ wezterm.on('augment-command-palette', function(window, pane)
   -- so directories containing spaces or non-ASCII characters work too.
   local host = cwd_obj.host
   if cwd_obj.scheme ~= 'file'
-      or (host and host ~= '' and host ~= 'localhost' and host ~= wezterm.hostname()) then
+      or (host and host ~= '' and host ~= 'localhost' and host ~= wezterm.hostname():lower()) then
     return {}
   end
   local cwd = cwd_obj.file_path
