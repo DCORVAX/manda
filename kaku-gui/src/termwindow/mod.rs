@@ -69,11 +69,12 @@ use termwiz::surface::SequenceNo;
 use wezterm_dynamic::Value;
 use wezterm_font::units::PixelLength;
 use wezterm_font::FontConfiguration;
-use wezterm_term::color::{ColorPalette, SrgbaTuple};
+use wezterm_term::color::ColorPalette;
 use wezterm_term::input::LastMouseClick;
 use wezterm_term::{Alert, Progress, StableRowIndex, TerminalConfiguration, TerminalSize};
 use wezterm_toast_notification::ToastNotification;
 
+mod ai_chat;
 pub mod background;
 pub mod box_model;
 pub mod charselect;
@@ -4673,115 +4674,7 @@ impl TermWindow {
             }
             EmitEvent(name) => {
                 if name == "kaku-ai-chat" {
-                    let pane_id_check = pane.pane_id();
-                    if self.ai_chat_overlay_panes.contains(&pane_id_check) {
-                        self.cancel_overlay_for_pane(pane_id_check);
-                        return Ok(PerformAssignmentResult::Handled);
-                    }
-                    let dims = pane.get_dimensions();
-                    // Collect only the last 20 visible rows for the implicit prompt context.
-                    let bottom = dims.physical_top + dims.viewport_rows as StableRowIndex;
-                    let visible_top = bottom.saturating_sub(20);
-                    let (_, lines) = pane.get_lines(visible_top..bottom);
-                    let visible_lines: Vec<String> =
-                        lines.iter().map(|l| l.as_str().to_string()).collect();
-                    // Freeze a larger pane snapshot for explicit `@tab` attachment use.
-                    let tab_top = bottom.saturating_sub(120);
-                    let (_, tab_lines) = pane.get_lines(tab_top..bottom);
-                    let mut tab_snapshot = String::new();
-                    for line in tab_lines {
-                        let text = line.as_str();
-                        let next_len = tab_snapshot.len() + text.len() + 1;
-                        if next_len > 12 * 1024 {
-                            break;
-                        }
-                        if !tab_snapshot.is_empty() {
-                            tab_snapshot.push('\n');
-                        }
-                        tab_snapshot.push_str(&text);
-                    }
-                    let cwd = pane
-                        .get_current_working_dir(CachePolicy::AllowStale)
-                        .map(|u| u.path().to_string())
-                        .unwrap_or_default();
-                    let selected_text = self.selection_text(pane);
-
-                    // Extract last command status and output if available
-                    let last_exit_code = pane.get_last_command_status();
-
-                    let last_command_output = if let (Some(code), Some(output_start)) =
-                        (last_exit_code, pane.get_last_command_output_start())
-                    {
-                        if code != 0 {
-                            // Only extract output when command failed
-                            let output_end = bottom.min(output_start + 51);
-                            if output_end > output_start {
-                                let (_, output_lines) = pane.get_lines(output_start..output_end);
-                                Some(
-                                    output_lines
-                                        .iter()
-                                        .map(|l| l.as_str().to_string())
-                                        .collect(),
-                                )
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
-
-                    let pal = self.palette().clone();
-                    // Helper: wrap a resolved SrgbaTuple as a ChatPalette color field.
-                    fn srgb(t: SrgbaTuple) -> SrgbaTuple {
-                        t
-                    }
-                    // colors.0 layout: 0-7 = ANSI, 8-15 = bright ANSI.
-                    // bright cyan (14) for accent, bright black (8) for border,
-                    // bright yellow (11) for user header.
-                    let chat_colors = crate::overlay::ai_chat::ChatPalette {
-                        bg: srgb(pal.background),
-                        fg: srgb(pal.foreground),
-                        accent: srgb(pal.colors.0[14]),
-                        border: srgb(pal.colors.0[8]),
-                        user_header: srgb(pal.colors.0[11]),
-                        user_text: srgb(pal.foreground),
-                        ai_text: srgb(pal.foreground),
-                        selection_fg: srgb(pal.selection_fg),
-                        selection_bg: srgb(pal.selection_bg),
-                    };
-                    let context = crate::overlay::ai_chat::TerminalContext {
-                        cwd,
-                        visible_lines,
-                        tab_snapshot,
-                        selected_text,
-                        colors: chat_colors,
-                        panel_cols: dims.cols,
-                        panel_rows: dims.viewport_rows,
-                        last_exit_code,
-                        last_command_output,
-                    };
-                    let pane_id = pane.pane_id();
-                    let (overlay, future) =
-                        start_overlay_pane(self, &pane, move |pane_id, term| {
-                            crate::overlay::ai_chat::ai_chat_overlay(pane_id, term, context)
-                        });
-                    self.assign_overlay_for_pane(pane_id, overlay);
-                    self.ai_chat_overlay_panes.insert(pane_id);
-                    // Shrink bottom padding for the chat overlay. Re-run layout
-                    // so the overlay pane gets the extra row(s) immediately.
-                    if let Some(window) = self.window.clone() {
-                        let dims = self.dimensions.clone();
-                        self.apply_dimensions(&dims, None, &window, false);
-                    }
-                    promise::spawn::spawn(async move {
-                        if let Err(e) = future.await {
-                            log::error!("AI chat overlay error for pane {pane_id}: {e:#}");
-                        }
-                    })
-                    .detach();
+                    ai_chat::toggle_overlay(self, pane);
                 } else if name == "update-kaku" || name == "run-kaku-update" {
                     crate::frontend::run_kaku_update_from_menu();
                 } else if name == "restart-to-update" {
