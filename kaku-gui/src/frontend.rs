@@ -13,11 +13,11 @@ use mux::window::WindowId as MuxWindowId;
 use mux::{Mux, MuxNotification};
 use promise::{Future, Promise};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use wezterm_term::{Alert, ClipboardSelection};
 use wezterm_toast_notification::*;
 
@@ -135,16 +135,75 @@ pub(crate) fn kaku_cli_program_for_spawn() -> String {
     }
 }
 
+struct SingletonState {
+    window_id: MuxWindowId,
+    pending: bool,
+}
+
+static SINGLETON_WINDOWS: LazyLock<Mutex<HashMap<&'static str, SingletonState>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Open or focus a singleton window identified by `namespace`.
+/// If a window for the given namespace already exists, focus it.
+/// Otherwise, run `handler` to create one and track it by namespace.
+fn ensure_singleton_window<F, Fut>(namespace: &'static str, handler: F)
+where
+    F: FnOnce() -> Fut + 'static,
+    Fut: std::future::Future<Output = anyhow::Result<MuxWindowId>> + 'static,
+{
+    // Atomic check-and-mark: if window exists, focus and return;
+    // otherwise mark as pending to prevent duplicate spawns.
+    {
+        let mut guard = SINGLETON_WINDOWS.lock().unwrap();
+        if let Some(state) = guard.get(namespace) {
+            if state.pending {
+                return;
+            }
+            if Mux::get().get_window(state.window_id).is_some() {
+                if let Some(fe) = try_front_end() {
+                    if let Some(gw) = fe.gui_window_for_mux_window(state.window_id) {
+                        gw.window.focus();
+                        return;
+                    }
+                }
+            }
+        }
+        guard.insert(
+            namespace,
+            SingletonState {
+                window_id: 0,
+                pending: true,
+            },
+        );
+    }
+
+    promise::spawn::spawn(async move {
+        match handler().await {
+            Ok(window_id) => {
+                let mut guard = SINGLETON_WINDOWS.lock().unwrap();
+                if let Some(state) = guard.get_mut(namespace) {
+                    state.window_id = window_id;
+                    state.pending = false;
+                }
+            }
+            Err(err) => {
+                log::error!("singleton window '{namespace}' error: {:#}", err);
+                SINGLETON_WINDOWS.lock().unwrap().remove(namespace);
+            }
+        }
+    })
+    .detach();
+}
+
 pub fn open_kaku_config() {
     let kaku_bin = kaku_cli_program_for_spawn();
-
-    promise::spawn::spawn_into_main_thread(async move {
+    ensure_singleton_window("kaku-config", async move || {
         let config = fast_config_snapshot();
         let dpi = config.dpi.unwrap_or_else(|| ::window::default_dpi());
         let size = config.initial_size(dpi as u32, None);
         let term_config = Arc::new(config::TermConfig::with_config(config));
-        crate::spawn::spawn_command_impl(
-            &SpawnCommand {
+        crate::spawn::spawn_command_internal(
+            SpawnCommand {
                 domain: SpawnTabDomain::DomainName("local".to_string()),
                 args: Some(vec![kaku_bin, "config".to_string()]),
                 ..Default::default()
@@ -155,9 +214,9 @@ pub fn open_kaku_config() {
             size,
             None,
             term_config,
-        );
-    })
-    .detach();
+        )
+        .await
+    });
 }
 
 pub fn run_kaku_update_from_menu() {
