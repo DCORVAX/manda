@@ -1,25 +1,27 @@
-# V0.14.0 Focused
+# V0.15.0 Connected
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/tw93/Kaku/main/assets/logo.png" alt="Kaku Logo" width="120" height="120" />
-  <h1 style="margin: 12px 0 6px;">Kaku V0.14.0</h1>
+  <h1 style="margin: 12px 0 6px;">Kaku V0.15.0</h1>
   <p><em>A fast, out-of-the-box terminal built for AI coding.</em></p>
 </div>
 
 ### Changelog
 
-1. **Pane Navigation**: Tab Navigator now lists every pane inside split tabs and lets you jump directly to the one you need, while narrow tab titles keep the active pane visible.
-2. **Tab Renaming**: The rename dialog has clearer text and cursor behavior, canceling with Escape or the mouse no longer leaves a phantom selection, and automatic split-pane titles stay intact.
-3. **Tabs & Selection**: Tab separators are cleaner, selected text is easier to see in dark themes, and double-click selection now respects boundaries between CJK and Latin text.
-4. **Session Restore**: Closed tabs stay closed after restart, incomplete restores preserve the original recovery data, and SSH sessions can be restored from saved snapshots again.
-5. **Security & Stability**: Dependency advisories for `anyhow` and `crossbeam-epoch` are resolved, while pane actions and mouse releases handle disappearing UI state more safely.
+1. **Remote Tabs**: Tabs connected over ssh now show a dedicated icon with the host name, split tabs reveal which pane is remote, and mosh, autossh, and et sessions are recognized too.
+2. **AI in SSH Sessions**: AI chat now understands when the current directory lives on a remote host, stops running local commands against it, and answers from the terminal context instead.
+3. **SSH Everywhere**: The fish integration keeps your own ssh function and gains the 1Password fix, env-prefixed ssh aliases work again, and mosh gets the same terminfo fallback as ssh.
+4. **Session Restore**: Restored ssh panes return to their remote working directory, and when a window cannot come back Kaku says how many were kept and retries them on the next launch.
+5. **Fixes**: Text selection clears right after Ctrl+L instead of lingering, Cmd+, focuses the existing settings window instead of stacking new ones, and AI shell commands work for fish users again.
 
 ### 更新日志
 
-1. **分屏导航**：Tab Navigator 现在会列出标签内的每个分屏，可以直接跳到需要的分屏；标签很窄时也会优先保留当前分屏标题。
-2. **标签重命名**：重命名窗口的文字与光标表现更清楚，按 Esc 或用鼠标取消后不再留下错误选区，自动生成的分屏标题也不会被意外覆盖。
-3. **标签与选择**：标签分隔线更简洁，深色主题下的选区更清楚，双击选择也会正确区分中日韩文字与拉丁文字的边界。
-4. **会话恢复**：重启后不会再恢复已经关闭的标签，恢复不完整时会保留原始恢复数据，SSH 会话也能再次从快照中恢复。
-5. **安全与稳定性**：已解决 `anyhow` 与 `crossbeam-epoch` 的安全公告，分屏操作和鼠标释放在界面状态变化时也会更稳。
+1. **远程标签**：通过 ssh 连接的标签会显示专属图标和主机名，分屏里也能看出哪个窗格在远程，mosh、autossh、et 会话同样能识别。
+2. **SSH 里的 AI**：AI 聊天现在能识别当前目录在远程主机上，不再把本地命令跑在远程路径里，而是基于终端上下文直接回答。
+3. **SSH 一致体验**：fish 集成不再覆盖你自定义的 ssh 函数并支持 1Password 修复，带环境变量前缀的 ssh 别名恢复可用，mosh 也获得与 ssh 相同的 terminfo 回退。
+4. **会话恢复**：恢复的 ssh 窗格会回到原来的远程目录，有窗口无法恢复时会说明数量并在下次启动时重试。
+5. **问题修复**：Ctrl+L 清屏后选区高亮立即消失，Cmd+, 会聚焦已有设置窗口而不是不断新开，fish 用户的 AI 命令执行恢复正常。
+
+Special thanks to @shlroland, @mortalYoung, and @darion-yaphet for their contributions to this release.
 
 > https://github.com/tw93/Kaku

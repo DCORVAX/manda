@@ -60,3 +60,5 @@
 27	tab 标题里的前台进程名现在改为通过 tab_title_show_foreground_process 选择开启，默认标题继续以路径为主、更简洁
 28	Shell snapshots no longer leave Kaku's ssh wrapper pointing to a missing helper, so restored zsh sessions can use ssh normally
 28	Shell 快照不再让 Kaku 的 ssh 包装函数指向缺失的辅助函数，恢复后的 zsh 会话可以正常使用 ssh
+29	The ssh wrapper now behaves the same across zsh, fish, and bash, keeps user-defined ssh functions, and mosh gets the same TERM fallback
+29	ssh 包装在 zsh、fish、bash 下行为一致，保留用户自定义的 ssh 函数，mosh 也会获得相同的 TERM 回退
