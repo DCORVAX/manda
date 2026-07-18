@@ -176,6 +176,12 @@ fn build_snapshot_attachment(
 
 pub(super) fn build_cwd_attachment(context: &TerminalContext) -> Result<MessageAttachment, String> {
     let cwd = context.cwd.trim();
+    if let Some(host) = &context.remote_host {
+        return Err(format!(
+            "`@cwd` is unavailable because `{}` is on the remote host `{}`.",
+            cwd, host
+        ));
+    }
     if cwd.is_empty() {
         return Err(
             "`@cwd` is unavailable because the pane working directory is unknown.".to_string(),
@@ -1404,7 +1410,11 @@ impl App {
         let cwd = self.context.cwd.clone();
         let conv_id = self.active_id.clone();
         let transient = self.stream_is_transient;
-        let tools: Vec<serde_json::Value> = if client.tools_enabled() && !transient {
+        // Tools execute on this machine; inside an ssh session the pane cwd
+        // belongs to the remote host, so running them locally would target
+        // wrong (same-named local) paths. Disable and let the prompt explain.
+        let remote = self.context.remote_host.is_some();
+        let tools: Vec<serde_json::Value> = if client.tools_enabled() && !transient && !remote {
             crate::ai_tools::all_tools(client.config())
                 .iter()
                 .map(crate::ai_tools::to_api_schema)

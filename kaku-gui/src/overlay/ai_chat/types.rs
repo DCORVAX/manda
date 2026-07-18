@@ -146,6 +146,10 @@ impl ChatPalette {
 /// Terminal context captured from the active pane before entering chat mode.
 pub struct TerminalContext {
     pub cwd: String,
+    /// Remote host from the pane's OSC 7 cwd when it does not match this
+    /// machine. When set, `cwd` is a path on that host, so local shell/fs
+    /// tools are disabled for the conversation.
+    pub remote_host: Option<String>,
     pub visible_lines: Vec<String>,
     pub tab_snapshot: String,
     pub selected_text: String,

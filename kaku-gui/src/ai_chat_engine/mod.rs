@@ -118,6 +118,10 @@ pub(crate) fn strip_prompt_metadata(s: &str) -> &str {
 #[derive(Default)]
 pub(crate) struct EnvironmentInputs<'a> {
     pub cwd: &'a str,
+    /// Remote host owning `cwd` when the pane is inside an ssh session.
+    /// The overlay disables local tools in that case; this line tells the
+    /// model why and keeps it from suggesting local file operations.
+    pub remote_host: Option<&'a str>,
     /// Visible terminal panel width / height in cells. `None` omits the line.
     /// Overlay supplies these; the `k` CLI does not have a comparable concept.
     pub panel_cols: Option<usize>,
@@ -161,6 +165,15 @@ pub(crate) fn build_environment_message(input: &EnvironmentInputs<'_>) -> ApiMes
 
     if !input.cwd.is_empty() {
         s.push_str(&format!("Current directory: {}\n", input.cwd));
+    }
+    if let Some(host) = input.remote_host {
+        s.push_str(&format!(
+            "Remote session: the terminal is connected to `{}` over ssh, and the \
+             current directory is on that host. Local shell and file tools are \
+             disabled; answer from context and suggest commands the user can run \
+             in the remote terminal instead.\n",
+            host
+        ));
     }
 
     if input.include_project_hints && !input.cwd.is_empty() {

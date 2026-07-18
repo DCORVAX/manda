@@ -27,6 +27,7 @@ mod markdown_tests {
     fn test_context() -> TerminalContext {
         TerminalContext {
             cwd: "/tmp".to_string(),
+            remote_host: None,
             visible_lines: vec!["line 1".to_string()],
             tab_snapshot: "cargo test\nerror: boom".to_string(),
             selected_text: "selected snippet".to_string(),
@@ -384,6 +385,7 @@ mod markdown_tests {
         std::fs::create_dir(dir.path().join("src")).unwrap();
         let context = TerminalContext {
             cwd: dir.path().to_string_lossy().into_owned(),
+            remote_host: None,
             visible_lines: vec![],
             tab_snapshot: String::new(),
             selected_text: String::new(),
@@ -768,6 +770,7 @@ mod markdown_tests {
     fn visible_snapshot_message_prefixes_each_line() {
         let msg = build_visible_snapshot_message(&TerminalContext {
             cwd: "/tmp".to_string(),
+            remote_host: None,
             visible_lines: vec![
                 "line 1".to_string(),
                 "```".to_string(),
