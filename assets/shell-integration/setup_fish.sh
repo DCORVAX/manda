@@ -752,13 +752,40 @@ end
 
 # === SSH TERM fix ===
 # Auto-set TERM to xterm-256color for SSH connections since remote hosts
-# typically lack the kaku terminfo entry.
+# typically lack the kaku terminfo entry. Also add IdentitiesOnly=yes when
+# the 1Password SSH agent is active, matching the zsh integration; set
+# KAKU_SSH_SKIP_1PASSWORD_FIX=1 to disable. Guard: keep a user-defined ssh
+# function untouched.
+if not functions -q ssh
 function ssh
-    if test "$TERM" = kaku; and not set -q KAKU_SSH_SKIP_TERM_FIX
-        TERM=xterm-256color command ssh $argv
-    else
-        command ssh $argv
+    set -l _kaku_extra
+    if not set -q KAKU_SSH_SKIP_1PASSWORD_FIX
+        switch "$SSH_AUTH_SOCK"
+            case '*1password*' '*2BUA8C4S2C*'
+                if not string match -q -- '*IdentitiesOnly=*' $argv
+                    set _kaku_extra -oIdentitiesOnly=yes
+                end
+        end
     end
+    if test "$TERM" = kaku; and not set -q KAKU_SSH_SKIP_TERM_FIX
+        TERM=xterm-256color command ssh $_kaku_extra $argv
+    else
+        command ssh $_kaku_extra $argv
+    end
+end
+end
+
+# === mosh TERM fix ===
+# mosh-server inherits TERM on the remote side, so mosh needs the same
+# terminfo fallback as ssh.
+if command -q mosh; and not functions -q mosh
+function mosh
+    if test "$TERM" = kaku; and not set -q KAKU_SSH_SKIP_TERM_FIX
+        TERM=xterm-256color command mosh $argv
+    else
+        command mosh $argv
+    end
+end
 end
 
 # === sudo TERM fix ===

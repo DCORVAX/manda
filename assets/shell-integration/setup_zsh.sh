@@ -1555,6 +1555,12 @@ if (( \$+aliases[ssh] )); then
         elif [[ "\${_kaku_alias_words[1]-}" == "command" && "\${_kaku_alias_words[2]-}" == "ssh" ]]; then
             _kaku_ssh_cmd=(command ssh)
             _kaku_ssh_args=("\${(@)_kaku_alias_words[3,-1]}" "\$@")
+        elif [[ "\${_kaku_alias_words[1]-}" == *=* ]]; then
+            # Alias starts with VAR=value prefixes (e.g. alias ssh='TERM=xterm ssh');
+            # expanded array words are not re-parsed as assignments, so route
+            # through env to keep them out of command position.
+            _kaku_ssh_cmd=(env "\${_kaku_alias_words[@]}")
+            _kaku_ssh_args=("\$@")
         else
             _kaku_ssh_cmd=("\${_kaku_alias_words[@]}")
             _kaku_ssh_args=("\$@")
@@ -1574,7 +1580,7 @@ if (( \$+aliases[ssh] )); then
             fi
         fi
 
-        if [[ "\$TERM" == "kaku" ]]; then
+        if [[ -z "\${KAKU_SSH_SKIP_TERM_FIX-}" && "\$TERM" == "kaku" ]]; then
             TERM=xterm-256color "\${_kaku_ssh_cmd[@]}" "\${extra_opts[@]}" "\${_kaku_ssh_args[@]}"
         else
             "\${_kaku_ssh_cmd[@]}" "\${extra_opts[@]}" "\${_kaku_ssh_args[@]}"
@@ -1596,10 +1602,23 @@ function ssh {
             \$has_identitiesonly || extra_opts+=(-o "IdentitiesOnly=yes")
         fi
     fi
-    if [[ "\$TERM" == "kaku" ]]; then
+    if [[ -z "\${KAKU_SSH_SKIP_TERM_FIX-}" && "\$TERM" == "kaku" ]]; then
         TERM=xterm-256color command ssh "\${extra_opts[@]}" "\$@"
     else
         command ssh "\${extra_opts[@]}" "\$@"
+    fi
+}
+fi
+
+# Same TERM fix for mosh: mosh-server inherits TERM on the remote side, so a
+# kaku TERM breaks remote rendering exactly like plain ssh would. Guard: keep
+# user-defined mosh functions and aliases untouched. Self-contained (#493).
+if command -v mosh > /dev/null 2>&1 && ! typeset -f mosh > /dev/null 2>&1 && ! (( \$+aliases[mosh] )); then
+function mosh {
+    if [[ -z "\${KAKU_SSH_SKIP_TERM_FIX-}" && "\$TERM" == "kaku" ]]; then
+        TERM=xterm-256color command mosh "\$@"
+    else
+        command mosh "\$@"
     fi
 }
 fi
