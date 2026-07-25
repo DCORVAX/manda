@@ -556,13 +556,13 @@ impl LauncherState {
     }
 
     fn close_tab_action(&self) -> Option<LauncherAction> {
-        match self.filtered_entries.get(self.active_idx) {
-            Some(Entry {
-                action: LauncherAction::ActivatePane { tab_id, .. },
-                ..
-            }) => Some(LauncherAction::CloseNavigatorTab(*tab_id)),
-            _ => None,
-        }
+        backspace_tab_close_action(
+            self.allow_tab_close,
+            self.filtering,
+            self.filtered_entries
+                .get(self.active_idx)
+                .map(|entry| &entry.action),
+        )
     }
 
     fn move_up(&mut self) {
@@ -673,12 +673,10 @@ impl LauncherState {
                     key: KeyCode::Backspace,
                     ..
                 }) => {
+                    if let Some(action) = self.close_tab_action() {
+                        return Ok(Some(action));
+                    }
                     if !self.filtering {
-                        if self.allow_tab_close {
-                            if let Some(action) = self.close_tab_action() {
-                                return Ok(Some(action));
-                            }
-                        }
                         self.selection.pop();
                     } else {
                         if self.filter_term.pop().is_none() && !self.always_fuzzy {
@@ -766,6 +764,23 @@ impl LauncherState {
     }
 }
 
+fn backspace_tab_close_action(
+    allow_tab_close: bool,
+    filtering: bool,
+    action: Option<&LauncherAction>,
+) -> Option<LauncherAction> {
+    if !allow_tab_close || filtering {
+        return None;
+    }
+
+    match action {
+        Some(LauncherAction::ActivatePane { tab_id, .. }) => {
+            Some(LauncherAction::CloseNavigatorTab(*tab_id))
+        }
+        _ => None,
+    }
+}
+
 fn launcher_tab_action(tab: &LauncherTabEntry) -> LauncherAction {
     LauncherAction::ActivatePane {
         pane_id: tab.pane_id,
@@ -810,6 +825,13 @@ pub fn launcher(
 mod tests {
     use super::*;
 
+    fn pane_action(tab_id: TabId) -> LauncherAction {
+        LauncherAction::ActivatePane {
+            pane_id: 42.into(),
+            tab_id,
+        }
+    }
+
     #[test]
     fn pane_entries_keep_the_stable_pane_id() {
         let entry = LauncherTabEntry {
@@ -824,6 +846,33 @@ mod tests {
                 pane_id: 42.into(),
                 tab_id: TabId::new(7),
             }
+        );
+    }
+
+    #[test]
+    fn backspace_closes_the_selected_tab_in_the_navigator() {
+        let action = pane_action(TabId::new(7));
+
+        assert_eq!(
+            backspace_tab_close_action(true, false, Some(&action)),
+            Some(LauncherAction::CloseNavigatorTab(TabId::new(7)))
+        );
+    }
+
+    #[test]
+    fn backspace_does_not_close_a_tab_while_filtering() {
+        let action = pane_action(TabId::new(7));
+
+        assert_eq!(backspace_tab_close_action(true, true, Some(&action)), None);
+    }
+
+    #[test]
+    fn backspace_does_not_close_a_tab_in_a_custom_launcher() {
+        let action = pane_action(TabId::new(7));
+
+        assert_eq!(
+            backspace_tab_close_action(false, false, Some(&action)),
+            None
         );
     }
 }
