@@ -4725,7 +4725,12 @@ impl TermWindow {
                 self.do_open_link_at_mouse_cursor(pane);
             }
             EmitEvent(name) => {
-                if name == "kaku-ai-chat" {
+                if let Some(job_id) = name.strip_prefix(crate::inline_ai::EVENT_PREFIX) {
+                    if let Err(err) = crate::inline_ai::spawn_job(job_id) {
+                        log::error!("failed to start inline AI job {job_id}: {err:#}");
+                    }
+                    return Ok(PerformAssignmentResult::Handled);
+                } else if name == "kaku-ai-chat" {
                     ai_chat::toggle_overlay(self, pane);
                 } else if name == "update-kaku" || name == "run-kaku-update" {
                     crate::frontend::run_kaku_update_from_menu();
@@ -4745,6 +4750,8 @@ impl TermWindow {
                 } else if name == "kaku-toast-ai-generating" {
                     let message = "Kaku generating command";
                     self.show_ai_progress_toast(message.to_string(), ai_toast_lifetime_ms(message));
+                } else if name == "kaku-toast-ai-clear-progress" {
+                    self.clear_ai_progress_toast();
                 } else if name == "kaku-toast-ai-applied" {
                     // No notification on successful apply; command output is enough.
                 } else if let Some(msg) = lookup_ai_toast(name) {

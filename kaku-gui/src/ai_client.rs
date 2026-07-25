@@ -61,6 +61,13 @@ pub struct AssistantConfig {
 }
 
 impl AssistantConfig {
+    /// Whether the assistant configuration file exists at the active config path.
+    pub fn file_exists() -> bool {
+        assistant_toml_path()
+            .map(|path| path.is_file())
+            .unwrap_or(false)
+    }
+
     pub fn load() -> Result<Self> {
         let path = assistant_toml_path()?;
         let raw = std::fs::read_to_string(&path)
@@ -340,6 +347,7 @@ pub struct AiClient {
     config: AssistantConfig,
     client: reqwest::blocking::Client,
     codex_auth: Arc<Mutex<Option<ai_auth::CodexAuth>>>,
+    max_request_attempts: u32,
 }
 
 /// Build a blocking reqwest client that respects the user's system proxy.
@@ -443,6 +451,20 @@ impl AiClient {
             config,
             client: shared_http_client().clone(),
             codex_auth: Arc::new(Mutex::new(None)),
+            max_request_attempts: 3,
+        }
+    }
+
+    /// Build a provider-aware one-shot client with a caller-specific timeout.
+    ///
+    /// Inline shell requests already have a UI-level timeout. Keep them to one
+    /// normal API transport attempt so retry layers cannot multiply that budget.
+    pub fn new_with_timeout(config: AssistantConfig, timeout: std::time::Duration) -> Self {
+        Self {
+            config,
+            client: build_client_with_proxy(timeout),
+            codex_auth: Arc::new(Mutex::new(None)),
+            max_request_attempts: 1,
         }
     }
 
@@ -620,7 +642,7 @@ impl AiClient {
             .json(&body);
         let req = self.apply_auth_headers(req)?;
 
-        let response = send_with_retry(req, "API", cancelled)?;
+        let response = send_with_retry(req, "API", cancelled, self.max_request_attempts)?;
 
         let reader = BufReader::new(response);
         // Accumulate tool call fragments by index; each index is one pending call.
@@ -978,7 +1000,7 @@ impl AiClient {
     }
 }
 
-/// Send a request up to 3 times with exponential backoff on transient
+/// Send a request up to `max_attempts` times with exponential backoff on transient
 /// failures (network errors, HTTP 429, HTTP 5xx). Non-retryable HTTP errors
 /// (4xx other than 429) bail immediately so misconfiguration surfaces fast.
 ///
@@ -988,9 +1010,11 @@ fn send_with_retry(
     req: reqwest::blocking::RequestBuilder,
     provider_label: &str,
     cancelled: &AtomicBool,
+    max_attempts: u32,
 ) -> Result<reqwest::blocking::Response> {
     let mut last_err = String::new();
-    for attempt in 0..3u32 {
+    let max_attempts = max_attempts.max(1);
+    for attempt in 0..max_attempts {
         if attempt > 0 {
             let backoff = std::time::Duration::from_secs(1 << attempt);
             std::thread::sleep(backoff);
@@ -1031,8 +1055,9 @@ fn send_with_retry(
         anyhow::bail!("{} error {}: {}", provider_label, code, body);
     }
     Err(anyhow::anyhow!(
-        "{} request failed after 3 attempts: {}",
+        "{} request failed after {} attempts: {}",
         provider_label,
+        max_attempts,
         last_err
     ))
 }
@@ -1577,6 +1602,28 @@ mod tests {
             headers.get("X-Customer-ID").and_then(|v| v.to_str().ok()),
             Some("acme")
         );
+    }
+
+    #[test]
+    fn one_shot_client_does_not_multiply_inline_timeout_with_retries() {
+        let config = AssistantConfig {
+            api_key: "test-token".to_string(),
+            chat_model: "gpt-test".to_string(),
+            chat_model_choices: Vec::new(),
+            base_url: "https://example.test/v1".to_string(),
+            custom_headers: Vec::new(),
+            provider: "Custom".to_string(),
+            auth_type: "api_key".to_string(),
+            chat_tools_enabled: true,
+            web_search_provider: None,
+            web_search_api_key: None,
+            web_fetch_script: None,
+            fast_model: None,
+            memory_curator_model: None,
+        };
+
+        let client = AiClient::new_with_timeout(config, std::time::Duration::from_millis(100));
+        assert_eq!(client.max_request_attempts, 1);
     }
 
     #[test]

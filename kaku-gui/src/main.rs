@@ -102,6 +102,7 @@ mod customglyph;
 mod download;
 mod frontend;
 mod glyphcache;
+mod inline_ai;
 mod inputmap;
 #[cfg(target_os = "macos")]
 mod macos;
