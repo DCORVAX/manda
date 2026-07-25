@@ -831,12 +831,22 @@ function __kaku_set_user_var
     end
 end
 
+# Authenticate Kaku's privileged control messages so arbitrary PTY output
+# cannot trigger local AI requests or reuse the user's assistant credentials.
+function __kaku_set_ai_user_var
+    set -l capability_file "$HOME/.config/kaku/ai_inline_capability"
+    test -r "$capability_file"; or return 1
+    read -l capability < "$capability_file"; or return 1
+    test -n "$capability"; or return 1
+    __kaku_set_user_var $argv[1] "$capability:$argv[2]"
+end
+
 # Capture last command for AI suggestion (preexec fires before command runs)
 function __kaku_ai_preexec --on-event fish_preexec
     if set -q KAKU_AUTO_DISABLE
         return
     end
-    __kaku_set_user_var kaku_last_cmd $argv[1]
+    __kaku_set_ai_user_var kaku_last_cmd $argv[1]; or true
     set -g _kaku_ai_cmd_pending 1
 end
 
@@ -850,7 +860,7 @@ function __kaku_ai_precmd --on-event fish_prompt
     if not set -q _kaku_ai_cmd_pending; or test "$_kaku_ai_cmd_pending" != 1
         return
     end
-    __kaku_set_user_var kaku_last_exit_code $last_exit
+    __kaku_set_ai_user_var kaku_last_exit_code $last_exit; or true
     set -g _kaku_ai_cmd_pending 0
 end
 
@@ -894,12 +904,13 @@ function __kaku_ai_query_execute
                 builtin history append -- $cmd
                 set -g __kaku_ai_waiting 1
                 set -g __kaku_ai_waiting_ts (date +%s)
-                __kaku_set_user_var kaku_ai_query "[mode:$mode] $query"
-                # Clear the submitted comment immediately so generated commands
-                # cannot append after the stale "# query" buffer.
-                commandline -r ""
-                commandline -f repaint
-                return
+                if __kaku_set_ai_user_var kaku_ai_query "[mode:$mode] $query"
+                    # Clear the submitted comment immediately so generated commands
+                    # cannot append after the stale "# query" buffer.
+                    commandline -r ""
+                    commandline -f repaint
+                    return
+                end
             end
         end
     end

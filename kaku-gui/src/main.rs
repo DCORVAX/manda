@@ -854,6 +854,10 @@ fn run_terminal_gui(opts: StartCommand, default_domain_name: Option<String>) -> 
         return Ok(());
     }
 
+    if let Err(err) = kaku_gui_lib::inline_ai_control::initialize_capability() {
+        log::error!("Inline AI control messages are disabled: {err:#}");
+    }
+
     // This process owns the GUI and will create the first window through the
     // normal startup pipeline below. Claim that ownership synchronously, before
     // any AppKit event can fire, so macOS's applicationOpenUntitledFile does not

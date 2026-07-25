@@ -29,5 +29,6 @@ instruction files; read the txt file instead.
 | v27 | V0.13.0 | Adds `tab_title_show_foreground_process`, an opt-in setting for showing foreground process names in auto-generated tab titles. No migration is needed because this key did not exist in V0.12.4. |
 | v28 | - | No schema change. Bumps so existing installs regenerate the bundled zsh integration with the self-contained SSH wrapper required by shell snapshot tools. |
 | v29 | V0.15.0 | No schema change. Bumps so existing installs regenerate the bundled shell integrations with the aligned ssh wrappers: fish keeps user-defined ssh functions and gains the 1Password fix, env-prefix ssh aliases work, and mosh gets the same TERM fallback. |
+| v30 | - | No schema change. Bumps so existing installs regenerate shell integrations that authenticate inline AI control messages with a local capability before terminal output can trigger assistant requests. |
 
 When you bump the version, add a row here in the same change.

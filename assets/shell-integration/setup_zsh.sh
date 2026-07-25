@@ -1412,6 +1412,20 @@ _kaku_set_user_var() {
     fi
 }
 
+# Authenticate Kaku's privileged control messages so arbitrary PTY output
+# cannot trigger local AI requests or reuse the user's assistant credentials.
+_kaku_set_ai_user_var() {
+    local name="\$1"
+    local value="\$2"
+    local capability_file="\$HOME/.config/kaku/ai_inline_capability"
+    local capability=""
+
+    [[ -r "\$capability_file" ]] || return 1
+    IFS= read -r capability < "\$capability_file" || return 1
+    [[ -n "\$capability" ]] || return 1
+    _kaku_set_user_var "\$name" "\${capability}:\${value}"
+}
+
 # Only emit exit code when a real command was executed.
 # Empty Enter should not re-trigger AI suggestions for the previous failure.
 typeset -g _kaku_ai_cmd_pending=0
@@ -1421,7 +1435,7 @@ _kaku_ai_preexec() {
         return
     fi
     _kaku_ai_cmd_pending=1
-    _kaku_set_user_var "kaku_last_cmd" "\$1"
+    _kaku_set_ai_user_var "kaku_last_cmd" "\$1" || true
 }
 
 _kaku_ai_precmd() {
@@ -1433,7 +1447,7 @@ _kaku_ai_precmd() {
     if [[ "\${_kaku_ai_cmd_pending:-0}" != "1" ]]; then
         return 0
     fi
-    _kaku_set_user_var "kaku_last_exit_code" "\$last_exit_code"
+    _kaku_set_ai_user_var "kaku_last_exit_code" "\$last_exit_code" || true
     _kaku_ai_cmd_pending=0
 }
 
@@ -1451,7 +1465,7 @@ typeset -g _kaku_ai_cancel_sent=0
 
 _kaku_cancel_ai_on_typing() {
     if [[ "\$_kaku_ai_cancel_sent" == "0" && -n "\$BUFFER" ]]; then
-        _kaku_set_user_var "kaku_user_typing" "1"
+        _kaku_set_ai_user_var "kaku_user_typing" "1" || true
         _kaku_ai_cancel_sent=1
     fi
 }
@@ -1508,14 +1522,15 @@ _kaku_ai_query_accept_line() {
         body="\${body# }"
         if [[ -n "\$body" ]]; then
             print -s -- "\${BUFFER}"
-            _kaku_set_user_var "kaku_ai_query" "[mode:\${mode}] \${body}"
-            _kaku_ai_waiting=1
-            _kaku_ai_waiting_ts=\$EPOCHSECONDS
-            # Keep # query visible; Lua sends \x15 to clear it when result arrives.
-            # Do NOT call 'zle reset-prompt' here: it redraws the prompt with
-            # BUFFER still set, causing the query line to appear twice.
-            POSTDISPLAY=
-            return
+            if _kaku_set_ai_user_var "kaku_ai_query" "[mode:\${mode}] \${body}"; then
+                _kaku_ai_waiting=1
+                _kaku_ai_waiting_ts=\$EPOCHSECONDS
+                # Keep # query visible; Lua sends \x15 to clear it when result arrives.
+                # Do NOT call 'zle reset-prompt' here: it redraws the prompt with
+                # BUFFER still set, causing the query line to appear twice.
+                POSTDISPLAY=
+                return
+            fi
         fi
     fi
     POSTDISPLAY=

@@ -37,6 +37,10 @@ enum CompletionOutcome {
     Failed(String),
 }
 
+fn kaku_state_dir() -> PathBuf {
+    config::HOME_DIR.join(".config").join("kaku")
+}
+
 fn classify_config_load_error(config_file_exists: bool) -> CompletionError {
     if config_file_exists {
         CompletionError::Failed("assistant configuration could not be loaded")
@@ -218,10 +222,7 @@ fn process_job(jobs_dir: &Path, job_id: &str) -> Result<()> {
 }
 
 pub(crate) fn spawn_job(job_id: &str) -> Result<()> {
-    let jobs_dir = config::HOME_DIR
-        .join(".config")
-        .join("kaku")
-        .join("ai_jobs");
+    let jobs_dir = kaku_state_dir().join("ai_jobs");
     let claim = claim_job(&jobs_dir, job_id)?;
 
     let job_id = job_id.to_string();
@@ -352,6 +353,8 @@ mod tests {
         assert!(lua.contains("wezterm.time.now():format_utc(\"%s%f\")"));
         assert!(lua.contains("cleanup_ai_fix_job_files(job)"));
         assert!(lua.contains("kaku-toast-ai-clear-progress"));
+        assert!(lua.contains("trusted_ai_last_command_by_pane"));
+        assert!(!lua.contains("vars.kaku_last_cmd"));
         assert!(!lua.contains("/tmp/kaku_ai_debug.log"));
         assert!(!lua.contains("model = model,"));
     }

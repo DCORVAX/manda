@@ -35,7 +35,6 @@ pub fn run(args: CliArgs) -> anyhow::Result<()> {
     if inside_kaku && args.prompt.is_none() && !args.new && args.resume.is_none() {
         use base64::engine::general_purpose::STANDARD;
         use base64::Engine as _;
-        use std::io::Write;
         // The receiving terminal suppresses SetUserVar alerts when the decoded
         // value matches the previous one, so each invocation needs a unique
         // payload to re-trigger the overlay after the user closed it.
@@ -43,7 +42,11 @@ pub fn run(args: CliArgs) -> anyhow::Result<()> {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let encoded = STANDARD.encode(nonce.to_string());
+        let control_value = crate::inline_ai_control::encode_control_value(
+            "kaku_open_ai_chat",
+            &nonce.to_string(),
+        )?;
+        let encoded = STANDARD.encode(control_value);
         print!("\x1b]1337;SetUserVar=kaku_open_ai_chat={}\x07", encoded);
         let _ = std::io::stdout().flush();
         return Ok(());

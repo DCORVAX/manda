@@ -737,6 +737,7 @@ local ai_fix_timeout_secs = 30
 local ai_fix_debug_enabled = false
 local ai_fix_ignored_exit_codes = {}
 local ai_fix_state_by_pane = {}
+local trusted_ai_last_command_by_pane = {}
 local ai_fix_poll_interval_secs = 0.2
 local ai_fix_poll_deadline_secs = ai_fix_timeout_secs + 4
 local ai_fix_jobs_dir = kaku_state_dir and (kaku_state_dir .. "/ai_jobs") or "/tmp"
@@ -3119,6 +3120,11 @@ local function evict_stale_bell_panes(live_pane_ids)
       ai_fix_state_by_pane[pane_id] = nil
     end
   end
+  for pane_id in pairs(trusted_ai_last_command_by_pane) do
+    if not live_pane_ids[pane_id] then
+      trusted_ai_last_command_by_pane[pane_id] = nil
+    end
+  end
   for pane_id in pairs(ai_generate_state_by_pane) do
     if not live_pane_ids[pane_id] then
       ai_generate_state_by_pane[pane_id] = nil
@@ -3581,6 +3587,7 @@ wezterm.on('user-var-changed', function(window, pane, name, value)
     end
 
     local pane_id = tostring(pane_id_value)
+    trusted_ai_last_command_by_pane[pane_id] = trim_surrounding_whitespace(value or "")
     local pane_state = ai_fix_state_by_pane[pane_id]
     if not pane_state or not pane_state.inflight then
       return
@@ -3671,15 +3678,7 @@ wezterm.on('user-var-changed', function(window, pane, name, value)
     return
   end
 
-  local vars_ok, vars = pcall(function()
-    return pane:get_user_vars()
-  end)
-  if not vars_ok or type(vars) ~= "table" then
-    ai_debug_log("user-var-changed ignored no user vars")
-    return
-  end
-
-  local failed_command = trim_surrounding_whitespace(vars.kaku_last_cmd or "")
+  local failed_command = trusted_ai_last_command_by_pane[pane_id] or ""
   if failed_command == "" then
     ai_debug_log("user-var-changed ignored missing kaku_last_cmd")
     return
@@ -3752,9 +3751,7 @@ wezterm.on('user-var-changed', function(window, pane, name, value)
   end
 
   -- The shell-integration widgets prepend "[mode:auto|explain|candidates] "
-  -- so we know whether the user typed '#', '#?', or '##'. Older widget
-  -- versions (or non-shell injectors) will pass the bare query and fall
-  -- through to mode=auto.
+  -- so we know whether the user typed '#', '#?', or '##'.
   local mode, query = raw:match("^%[mode:(%w+)%]%s*(.*)$")
   if not mode then
     mode = "auto"

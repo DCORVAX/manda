@@ -61,6 +61,12 @@ fi
 grep -Fq 'if [[ "${TERM_PROGRAM:-}" == "Kaku" ]] && command -v starship' \
   "$tmp_home/.config/kaku/zsh/kaku.zsh" \
   || fail "generated kaku.zsh did not preserve the runtime Kaku session guard"
+grep -Fq 'local capability_file="$HOME/.config/kaku/ai_inline_capability"' \
+  "$tmp_home/.config/kaku/zsh/kaku.zsh" \
+  || fail "generated kaku.zsh did not read the inline AI capability"
+grep -Fq '_kaku_set_ai_user_var "kaku_ai_query" "[mode:${mode}] ${body}"' \
+  "$tmp_home/.config/kaku/zsh/kaku.zsh" \
+  || fail "generated kaku.zsh did not authenticate inline AI queries"
 
 # The generated file is sourced by the user's real zsh, so it must parse under
 # zsh. A corrupted heredoc (e.g. an unescaped backtick that bash expanded at

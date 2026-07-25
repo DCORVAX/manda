@@ -67,6 +67,7 @@ fastrand.workspace = true
 finl_unicode.workspace = true
 frecency.workspace = true
 futures.workspace = true
+getrandom.workspace = true
 hdrhistogram.workspace = true
 hostname.workspace = true
 http_req.workspace = true

@@ -2445,7 +2445,13 @@ impl TermWindow {
                                 .map(|pane| {
                                     let user_vars = pane.copy_user_vars();
                                     (
-                                        user_vars.get("kaku_last_cmd").cloned(),
+                                        user_vars.get("kaku_last_cmd").and_then(|value| {
+                                            kaku_gui_lib::inline_ai_control::decode_control_value(
+                                                "kaku_last_cmd",
+                                                value,
+                                            )
+                                            .map(str::to_string)
+                                        }),
                                         user_vars.get("WEZTERM_PROG").cloned(),
                                         pane.get_title(),
                                         pane.get_foreground_process_name(CachePolicy::AllowStale),
@@ -3492,6 +3498,14 @@ impl TermWindow {
         if !window_contains_pane {
             return;
         }
+
+        let value = match kaku_gui_lib::inline_ai_control::decode_control_value(&name, &value) {
+            Some(value) => value.to_string(),
+            None => {
+                log::warn!("Ignored unauthenticated Kaku control user var {name}");
+                return;
+            }
+        };
 
         // `k` CLI running inside a Kaku pane signals us to open the AI chat overlay.
         if name == "kaku_open_ai_chat" {
