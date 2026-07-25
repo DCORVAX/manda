@@ -4057,15 +4057,29 @@ impl TermWindow {
             Some(mux_window) => mux_window.get_active_idx(),
             None => return,
         };
+        self.show_tab_navigator_at(active_tab_idx);
+    }
+
+    fn show_tab_navigator_at(&mut self, initial_choice_idx: usize) {
+        let mux = Mux::get();
+        let initial_choice_idx = match mux.get_window(self.mux_window_id) {
+            Some(mux_window) if !mux_window.is_empty() => {
+                initial_choice_idx.min(mux_window.len() - 1)
+            }
+            _ => return,
+        };
         let title = "Tab Navigator".to_string();
         let args = LauncherActionArgs {
             title: Some(title),
             flags: LauncherFlags::TABS,
-            help_text: None,
+            help_text: Some(
+                "Select an item and press Enter=launch  Backspace=close  Esc=cancel  /=filter"
+                    .to_string(),
+            ),
             fuzzy_help_text: None,
             alphabet: None,
         };
-        self.show_launcher_impl(args, active_tab_idx);
+        self.show_launcher_impl(args, initial_choice_idx, true);
     }
 
     fn show_launcher(&mut self) {
@@ -4079,10 +4093,15 @@ impl TermWindow {
             fuzzy_help_text: None,
             alphabet: None,
         };
-        self.show_launcher_impl(args, 0);
+        self.show_launcher_impl(args, 0, false);
     }
 
-    fn show_launcher_impl(&mut self, args: LauncherActionArgs, initial_choice_idx: usize) {
+    fn show_launcher_impl(
+        &mut self,
+        args: LauncherActionArgs,
+        initial_choice_idx: usize,
+        is_tab_navigator: bool,
+    ) {
         let window = self.window.as_ref().unwrap().clone();
 
         let mux = Mux::get();
@@ -4091,9 +4110,18 @@ impl TermWindow {
             None => return,
         };
 
-        let pane = match self.get_active_pane_or_overlay() {
-            Some(pane) => pane,
-            None => return,
+        // A rebuilt Navigator can overlap the prior overlay's shutdown, so bind
+        // its actions to the real pane rather than the overlay being replaced.
+        let pane = if is_tab_navigator {
+            match tab.get_active_pane() {
+                Some(pane) => pane,
+                None => return,
+            }
+        } else {
+            match self.get_active_pane_or_overlay() {
+                Some(pane) => pane,
+                None => return,
+            }
         };
 
         let domain_id_of_current_pane = tab
@@ -4135,6 +4163,7 @@ impl TermWindow {
                     entries.push(LauncherTabEntry {
                         title: crate::tabbar::compute_tab_plain_title(tab),
                         pane_id,
+                        tab_id: tab.tab_id,
                     });
                     continue;
                 }
@@ -4161,6 +4190,7 @@ impl TermWindow {
                             format!("  |- {title}")
                         },
                         pane_id: pane.pane.pane_id(),
+                        tab_id: tab.tab_id,
                     });
                 }
             }
@@ -4188,7 +4218,12 @@ impl TermWindow {
                     let window = window.clone();
                     let (overlay, future) =
                         start_overlay(term_window, &tab, move |_tab_id, term| {
-                            launcher(args, term, launcher_initial_choice_idx)
+                            launcher(
+                                args,
+                                term,
+                                launcher_initial_choice_idx,
+                                is_tab_navigator,
+                            )
                         });
 
                     term_window.assign_overlay(tab_id, overlay);
@@ -4201,7 +4236,10 @@ impl TermWindow {
                                     tx: None,
                                 });
                             }
-                            Ok(Some(LauncherAction::ActivatePane(target_pane_id))) => {
+                            Ok(Some(LauncherAction::ActivatePane {
+                                pane_id: target_pane_id,
+                                ..
+                            })) => {
                                 window.notify(TermWindowNotif::Apply(Box::new(
                                     move |term_window| {
                                         if let Err(err) = Mux::get()
@@ -4212,6 +4250,13 @@ impl TermWindow {
                                             );
                                         }
                                         term_window.update_title_post_status();
+                                    },
+                                )));
+                            }
+                            Ok(Some(LauncherAction::CloseNavigatorTab(tab_id))) => {
+                                window.notify(TermWindowNotif::Apply(Box::new(
+                                    move |term_window| {
+                                        term_window.close_tab_from_navigator(tab_id);
                                     },
                                 )));
                             }
@@ -4615,7 +4660,7 @@ impl TermWindow {
                     fuzzy_help_text: args.fuzzy_help_text.clone(),
                     alphabet: args.alphabet.clone(),
                 };
-                self.show_launcher_impl(args, 0);
+                self.show_launcher_impl(args, 0, false);
             }
             HideApplication => {
                 let con = Connection::get().expect("call on gui thread");
@@ -5435,6 +5480,105 @@ impl TermWindow {
         }
     }
 
+    fn close_tab_from_navigator(&mut self, tab_id: TabId) {
+        let mux = Mux::get();
+        let target = {
+            let mux_window = match mux.get_window(self.mux_window_id) {
+                Some(window) => window,
+                None => return,
+            };
+            if mux_window.len() <= 1 {
+                return;
+            }
+            mux_window.idx_by_id(tab_id).and_then(|tab_idx| {
+                mux_window
+                    .get_by_idx(tab_idx)
+                    .cloned()
+                    .map(|tab| (tab_idx, tab))
+            })
+        };
+
+        let Some((tab_idx, tab)) = target else {
+            self.show_tab_navigator();
+            return;
+        };
+
+        let should_confirm = self
+            .config
+            .tab_close_confirmation
+            .should_prompt(true, || tab.can_close_without_prompting(CloseReason::Tab));
+        if should_confirm {
+            let Some(host_tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+                return;
+            };
+            let host_tab_id = host_tab.tab_id();
+            if let Some(window) = self.window.clone() {
+                let notify_window = window.clone();
+                let (overlay, future) = start_overlay(self, &host_tab, move |_tab_id, mut term| {
+                    crate::overlay::confirm::run_confirmation(
+                        "Close this tab?\nAll panes in this tab will be terminated.",
+                        &mut term,
+                    )
+                });
+                self.assign_overlay(host_tab_id, overlay);
+                promise::spawn::spawn(async move {
+                    let confirmed = match future.await {
+                        Ok(confirmed) => confirmed,
+                        Err(err) => {
+                            log::error!("tab navigator close confirmation failed: {err:#}");
+                            false
+                        }
+                    };
+                    notify_window.notify(TermWindowNotif::Apply(Box::new(move |term_window| {
+                        term_window.finish_navigator_tab_close(tab_id, confirmed);
+                    })));
+                })
+                .detach();
+            }
+        } else {
+            self.record_closed_tab_cwd(&tab);
+            if mux.remove_tab(tab_id).is_some() {
+                self.update_title();
+                self.show_tab_navigator_at(tab_idx);
+            } else {
+                self.show_tab_navigator();
+            }
+        }
+    }
+
+    fn finish_navigator_tab_close(&mut self, tab_id: TabId, confirmed: bool) {
+        let mux = Mux::get();
+        let (tab_count, active_idx, target) = {
+            let mux_window = match mux.get_window(self.mux_window_id) {
+                Some(window) => window,
+                None => return,
+            };
+            let target = mux_window.idx_by_id(tab_id).and_then(|tab_idx| {
+                mux_window
+                    .get_by_idx(tab_idx)
+                    .cloned()
+                    .map(|tab| (tab_idx, tab))
+            });
+            (mux_window.len(), mux_window.get_active_idx(), target)
+        };
+
+        let initial_choice_idx = match target {
+            Some((tab_idx, tab)) if confirmed && tab_count > 1 => {
+                self.record_closed_tab_cwd(&tab);
+                if mux.remove_tab(tab_id).is_some() {
+                    self.update_title();
+                    tab_idx
+                } else {
+                    active_idx
+                }
+            }
+            Some((tab_idx, _)) => tab_idx,
+            None => active_idx,
+        };
+
+        self.show_tab_navigator_at(initial_choice_idx);
+    }
+
     fn close_specific_tab(&mut self, tab_idx: usize, confirm: bool) {
         let mux = Mux::get();
         let mux_window_id = self.mux_window_id;
@@ -5502,17 +5646,21 @@ impl TermWindow {
             }
         } else {
             // No confirmation needed: record cwd and close immediately.
-            if let Some(pane) = tab.get_active_pane() {
-                if let Some(cwd) = pane
-                    .get_current_working_dir(mux::pane::CachePolicy::AllowStale)
-                    .and_then(|url| url.to_file_path().ok())
-                {
-                    if cwd.is_absolute() {
-                        self.push_closed_tab_cwd(cwd);
-                    }
+            self.record_closed_tab_cwd(&tab);
+            mux.remove_tab(tab_id);
+        }
+    }
+
+    fn record_closed_tab_cwd(&mut self, tab: &Arc<Tab>) {
+        if let Some(pane) = tab.get_active_pane() {
+            if let Some(cwd) = pane
+                .get_current_working_dir(mux::pane::CachePolicy::AllowStale)
+                .and_then(|url| url.to_file_path().ok())
+            {
+                if cwd.is_absolute() {
+                    self.push_closed_tab_cwd(cwd);
                 }
             }
-            mux.remove_tab(tab_id);
         }
     }
 
