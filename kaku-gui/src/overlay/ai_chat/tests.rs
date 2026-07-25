@@ -24,6 +24,20 @@ mod markdown_tests {
         }
     }
 
+    fn light_palette() -> ChatPalette {
+        ChatPalette {
+            bg: SrgbaTuple(1.0, 0.99, 0.94, 1.0),
+            fg: SrgbaTuple(0.25, 0.24, 0.23, 1.0),
+            accent: SrgbaTuple(0.0, 1.0, 1.0, 1.0),
+            border: SrgbaTuple(0.45, 0.43, 0.40, 1.0),
+            user_header: SrgbaTuple(0.8, 0.6, 0.0, 1.0),
+            user_text: SrgbaTuple(0.25, 0.24, 0.23, 1.0),
+            ai_text: SrgbaTuple(0.25, 0.24, 0.23, 1.0),
+            selection_fg: SrgbaTuple(1.0, 1.0, 1.0, 1.0),
+            selection_bg: SrgbaTuple(0.2, 0.4, 0.8, 1.0),
+        }
+    }
+
     fn test_context() -> TerminalContext {
         TerminalContext {
             cwd: "/tmp".to_string(),
@@ -170,17 +184,7 @@ mod markdown_tests {
 
     #[test]
     fn light_theme_heading_text_falls_back_to_foreground() {
-        let pal = ChatPalette {
-            bg: SrgbaTuple(1.0, 0.99, 0.94, 1.0),
-            fg: SrgbaTuple(0.25, 0.24, 0.23, 1.0),
-            accent: SrgbaTuple(0.0, 1.0, 1.0, 1.0),
-            border: SrgbaTuple(0.45, 0.43, 0.40, 1.0),
-            user_header: SrgbaTuple(0.8, 0.6, 0.0, 1.0),
-            user_text: SrgbaTuple(0.25, 0.24, 0.23, 1.0),
-            ai_text: SrgbaTuple(0.25, 0.24, 0.23, 1.0),
-            selection_fg: SrgbaTuple(1.0, 1.0, 1.0, 1.0),
-            selection_bg: SrgbaTuple(0.2, 0.4, 0.8, 1.0),
-        };
+        let pal = light_palette();
         assert!(pal.is_light());
         let marker = pal.heading_marker_cell();
         let text = pal.heading_text_cell();
@@ -189,6 +193,38 @@ mod markdown_tests {
             format!("{:?}", text.foreground()),
             "marker and body should use distinct colors"
         );
+    }
+
+    #[test]
+    fn running_chat_applies_latest_palette_and_invalidates_display_cache() {
+        let (palette_tx, palette_rx) = std::sync::mpsc::channel();
+        let mut colors = test_palette();
+        let mut display_lines_dirty = false;
+
+        palette_tx.send(light_palette()).unwrap();
+        assert!(drain_palette_updates(
+            &palette_rx,
+            &mut colors,
+            &mut display_lines_dirty
+        ));
+        assert!(colors.is_light());
+        assert!(display_lines_dirty);
+
+        display_lines_dirty = false;
+        palette_tx.send(light_palette()).unwrap();
+        palette_tx.send(test_palette()).unwrap();
+        assert!(drain_palette_updates(
+            &palette_rx,
+            &mut colors,
+            &mut display_lines_dirty
+        ));
+        assert!(!colors.is_light());
+        assert!(display_lines_dirty);
+        assert!(!drain_palette_updates(
+            &palette_rx,
+            &mut colors,
+            &mut display_lines_dirty
+        ));
     }
 
     #[test]

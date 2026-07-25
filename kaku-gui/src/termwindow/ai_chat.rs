@@ -4,7 +4,7 @@ use mux::pane::{CachePolicy, Pane};
 use std::ops::Range;
 use std::sync::Arc;
 use termwiz::surface::Line;
-use wezterm_term::color::{ColorPalette, SrgbaTuple};
+use wezterm_term::color::ColorPalette;
 use wezterm_term::StableRowIndex;
 
 const VISIBLE_CONTEXT_ROWS: StableRowIndex = 20;
@@ -14,17 +14,18 @@ const FAILED_COMMAND_OUTPUT_ROWS: StableRowIndex = 51;
 
 pub(super) fn toggle_overlay(term: &mut TermWindow, pane: &Arc<dyn Pane>) {
     let pane_id = pane.pane_id();
-    if term.ai_chat_overlay_panes.contains(&pane_id) {
+    if term.ai_chat_overlay_panes.contains_key(&pane_id) {
         term.cancel_overlay_for_pane(pane_id);
         return;
     }
 
     let context = build_terminal_context(term, pane);
+    let (palette_tx, palette_rx) = std::sync::mpsc::channel();
     let (overlay, future) = start_overlay_pane(term, pane, move |pane_id, term| {
-        crate::overlay::ai_chat::ai_chat_overlay(pane_id, term, context)
+        crate::overlay::ai_chat::ai_chat_overlay(pane_id, term, context, palette_rx)
     });
     term.assign_overlay_for_pane(pane_id, overlay);
-    term.ai_chat_overlay_panes.insert(pane_id);
+    term.ai_chat_overlay_panes.insert(pane_id, palette_tx);
 
     // The AI chat overlay uses tighter bottom padding. Re-run layout so the
     // overlay pane gets the extra row(s) immediately.
@@ -153,24 +154,20 @@ fn failed_command_output_range(
     (output_end > output_start).then_some(output_start..output_end)
 }
 
-fn chat_palette(pal: &ColorPalette) -> crate::overlay::ai_chat::ChatPalette {
-    fn srgb(t: SrgbaTuple) -> SrgbaTuple {
-        t
-    }
-
+pub(super) fn chat_palette(pal: &ColorPalette) -> crate::overlay::ai_chat::ChatPalette {
     // colors.0 layout: 0-7 = ANSI, 8-15 = bright ANSI.
     // bright cyan (14) for accent, bright black (8) for border,
     // bright yellow (11) for user header.
     crate::overlay::ai_chat::ChatPalette {
-        bg: srgb(pal.background),
-        fg: srgb(pal.foreground),
-        accent: srgb(pal.colors.0[14]),
-        border: srgb(pal.colors.0[8]),
-        user_header: srgb(pal.colors.0[11]),
-        user_text: srgb(pal.foreground),
-        ai_text: srgb(pal.foreground),
-        selection_fg: srgb(pal.selection_fg),
-        selection_bg: srgb(pal.selection_bg),
+        bg: pal.background,
+        fg: pal.foreground,
+        accent: pal.colors.0[14],
+        border: pal.colors.0[8],
+        user_header: pal.colors.0[11],
+        user_text: pal.foreground,
+        ai_text: pal.foreground,
+        selection_fg: pal.selection_fg,
+        selection_bg: pal.selection_bg,
     }
 }
 

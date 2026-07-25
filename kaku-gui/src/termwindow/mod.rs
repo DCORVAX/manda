@@ -1161,8 +1161,10 @@ pub struct TermWindow {
     selection_copy_disabled_hint_shown: bool,
     last_window_title: String,
 
-    /// Panes that currently have an ai_chat overlay open; used to implement Cmd+L toggle.
-    ai_chat_overlay_panes: std::collections::HashSet<PaneId>,
+    /// Panes that currently have an ai_chat overlay open. The sender keeps each
+    /// running overlay synchronized with config-driven palette changes.
+    ai_chat_overlay_panes:
+        HashMap<PaneId, std::sync::mpsc::Sender<crate::overlay::ai_chat::ChatPalette>>,
 }
 
 impl TermWindow {
@@ -1467,7 +1469,7 @@ impl TermWindow {
             .and_then(|m| m.get_active_tab_for_window(self.mux_window_id))
             .and_then(|tab| tab.get_active_pane().map(|p| p.pane_id()));
         match pane_id {
-            Some(id) => self.ai_chat_overlay_panes.contains(&id),
+            Some(id) => self.ai_chat_overlay_panes.contains_key(&id),
             None => false,
         }
     }
@@ -1813,7 +1815,7 @@ impl TermWindow {
             toast_shaped_width: None,
             selection_copy_disabled_hint_shown: false,
             last_window_title: String::new(),
-            ai_chat_overlay_panes: std::collections::HashSet::new(),
+            ai_chat_overlay_panes: HashMap::new(),
             live_resizing: false,
             pending_screen_change_resize: false,
             pending_pty_flush_after_resize: false,
@@ -3125,6 +3127,9 @@ impl TermWindow {
         };
         self.config = config.clone();
         self.palette.take();
+        let chat_colors = ai_chat::chat_palette(self.palette());
+        self.ai_chat_overlay_panes
+            .retain(|_, sender| sender.send(chat_colors.clone()).is_ok());
 
         let mux = Mux::get();
         let window = match mux.get_window(self.mux_window_id) {
@@ -6234,7 +6239,7 @@ impl TermWindow {
                 Mux::get().remove_pane(overlay.pane.pane_id());
             }
         }
-        let was_chat = self.ai_chat_overlay_panes.remove(&pane_id);
+        let was_chat = self.ai_chat_overlay_panes.remove(&pane_id).is_some();
         if let Some(window) = self.window.as_ref() {
             window.invalidate();
         }
