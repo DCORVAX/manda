@@ -362,6 +362,7 @@ impl crate::TermWindow {
                         &self.config,
                         self.layout_is_effective_fullscreen(),
                         self.show_tab_bar && !self.config.tab_bar_at_bottom,
+                        self.dimensions.dpi as f32,
                     ) > 0
                     {
                         0.0

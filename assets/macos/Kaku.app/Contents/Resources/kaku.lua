@@ -273,9 +273,9 @@ end)()
 
 local function get_default_padding()
   if low_resolution_screen then
-    return { left = '26px', right = '26px', top = '26px', bottom = '0px' }
+    return { left = '26pt', right = '26pt', top = '26pt', bottom = '0px' }
   end
-  return { left = '40px', right = '40px', top = '40px', bottom = '0px' }
+  return { left = '40pt', right = '40pt', top = '40pt', bottom = '0px' }
 end
 
 -- get_fullscreen_padding and get_yazi_fullscreen_padding have been removed.

@@ -1,22 +1,31 @@
 use crate::quad::TripleLayerQuadAllocator;
 use crate::utilsprites::RenderMetrics;
 use ::window::ULength;
-use config::{ConfigHandle, DimensionContext, TabBarColors};
+use config::{ConfigHandle, Dimension, DimensionContext, TabBarColors};
 use window::color::LinearRgba;
 
-const INTEGRATED_BUTTONS_TOP_INSET: usize = 16;
+const INTEGRATED_BUTTONS_TOP_INSET_POINTS: f32 = 16.0;
+
+fn integrated_buttons_top_inset_pixels(dpi: f32) -> usize {
+    Dimension::Points(INTEGRATED_BUTTONS_TOP_INSET_POINTS).evaluate_as_pixels(DimensionContext {
+        dpi,
+        pixel_max: 0.0,
+        pixel_cell: 0.0,
+    }) as usize
+}
 
 pub(crate) fn integrated_buttons_top_inset(
     config: &ConfigHandle,
     is_fullscreen: bool,
     _top_tab_bar_visible: bool,
+    dpi: f32,
 ) -> usize {
     if !is_fullscreen
         && config
             .window_decorations
             .contains(::window::WindowDecorations::INTEGRATED_BUTTONS)
     {
-        INTEGRATED_BUTTONS_TOP_INSET
+        integrated_buttons_top_inset_pixels(dpi)
     } else {
         0
     }
@@ -61,9 +70,13 @@ impl crate::TermWindow {
             let height = self.dimensions.pixel_height as f32;
             let width = self.dimensions.pixel_width as f32;
             let top_tab_bar_visible = self.show_tab_bar && !self.config.tab_bar_at_bottom;
-            let integrated_top_inset =
-                integrated_buttons_top_inset(&self.config, is_fullscreen, top_tab_bar_visible)
-                    .min(border_dimensions.top.get()) as f32;
+            let integrated_top_inset = integrated_buttons_top_inset(
+                &self.config,
+                is_fullscreen,
+                top_tab_bar_visible,
+                self.dimensions.dpi as f32,
+            )
+            .min(border_dimensions.top.get()) as f32;
 
             // In fullscreen, use palette background color for all borders.
             // In windowed mode, use configured border colors if available.
@@ -283,6 +296,7 @@ impl crate::TermWindow {
             &self.config,
             is_fullscreen,
             self.show_tab_bar && !self.config.tab_bar_at_bottom,
+            self.dimensions.dpi as f32,
         );
         if extra_top > 0 {
             border.top += ULength::new(extra_top);
@@ -295,6 +309,24 @@ impl crate::TermWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn integrated_buttons_top_inset_scales_with_dpi() {
+        assert_eq!(integrated_buttons_top_inset_pixels(72.0), 16);
+        assert_eq!(integrated_buttons_top_inset_pixels(110.0), 24);
+        assert_eq!(integrated_buttons_top_inset_pixels(144.0), 32);
+    }
+
+    #[test]
+    fn bundled_padding_uses_display_independent_points() {
+        let bundled_config =
+            include_str!("../../../../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
+
+        assert!(bundled_config
+            .contains("return { left = '26pt', right = '26pt', top = '26pt', bottom = '0px' }"));
+        assert!(bundled_config
+            .contains("return { left = '40pt', right = '40pt', top = '40pt', bottom = '0px' }"));
+    }
 
     #[test]
     fn opaque_non_fancy_top_tab_inset_matches_tab_bar_background() {

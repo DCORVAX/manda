@@ -1649,6 +1649,7 @@ impl TermWindow {
             &config,
             false,
             show_tab_bar && !config.tab_bar_at_bottom,
+            dpi as f32,
         );
         if integrated_top_inset > 0 {
             border.top += ULength::new(integrated_top_inset);
