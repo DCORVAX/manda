@@ -816,9 +816,9 @@ export KAKU_ZSH_DIR="\$HOME/.config/kaku/zsh"
 # Add Kaku managed bin to PATH (kaku wrapper and user tools)
 export PATH="\$KAKU_ZSH_DIR/bin:\$PATH"
 
-# Initialize Starship (Cross-shell prompt)
-# Use system installation managed by Homebrew (or user PATH).
-if command -v starship &> /dev/null; then
+# Initialize Starship only inside Kaku. The managed file is sourced by every
+# zsh so PATH and shared helpers remain available in IDE and system terminals.
+if [[ "\${TERM_PROGRAM:-}" == "Kaku" ]] && command -v starship &> /dev/null; then
     # Cache the full starship init script. Plain \`starship init zsh\` forks
     # starship on every new shell (twice: the stub it prints re-runs
     # \`starship init zsh --print-full-init\`), and that fork+exec is the

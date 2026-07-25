@@ -40,6 +40,44 @@ fi
 
 kaku_fish="$HOME/.config/kaku/fish/kaku.fish"
 [[ -f "$kaku_fish" ]] || fail "managed init file not created at $kaku_fish"
+grep -Fq 'if set -q TERM_PROGRAM; and test "$TERM_PROGRAM" = "Kaku"; and command -q starship' \
+  "$kaku_fish" \
+  || fail "generated kaku.fish did not preserve the runtime Kaku session guard"
+
+if command -v fish >/dev/null 2>&1; then
+  fish_bin="$(command -v fish)"
+  starship_stub_dir="$tmp_dir/starship-bin"
+  starship_marker="$tmp_dir/starship-initialized"
+  mkdir -p "$starship_stub_dir"
+  cp /dev/null "$starship_marker"
+  cat >"$starship_stub_dir/starship" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "init" ]]; then
+  printf 'echo initialized >> "$KAKU_STARSHIP_TEST_MARKER"\n'
+fi
+EOF
+  chmod +x "$starship_stub_dir/starship"
+
+  env \
+    HOME="$HOME" \
+    TERM_PROGRAM="Apple_Terminal" \
+    KAKU_STARSHIP_TEST_MARKER="$starship_marker" \
+    PATH="$starship_stub_dir:/usr/bin:/bin" \
+    "$fish_bin" --no-config "$kaku_fish"
+  [[ ! -s "$starship_marker" ]] \
+    || fail "generated kaku.fish initialized Starship outside Kaku"
+
+  env \
+    HOME="$HOME" \
+    TERM_PROGRAM="Kaku" \
+    KAKU_STARSHIP_TEST_MARKER="$starship_marker" \
+    PATH="$starship_stub_dir:/usr/bin:/bin" \
+    "$fish_bin" --no-config "$kaku_fish"
+  [[ "$(cat "$starship_marker")" == "initialized" ]] \
+    || fail "generated kaku.fish did not initialize Starship inside Kaku"
+else
+  echo "warning: fish not found; skipping runtime Starship guard check" >&2
+fi
 
 function_body="$(
   awk '

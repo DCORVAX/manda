@@ -58,6 +58,9 @@ fi
 if grep -Fq "fg=244" "$tmp_home/.config/kaku/zsh/kaku.zsh"; then
   fail "generated kaku.zsh still contains old comment color fg=244"
 fi
+grep -Fq 'if [[ "${TERM_PROGRAM:-}" == "Kaku" ]] && command -v starship' \
+  "$tmp_home/.config/kaku/zsh/kaku.zsh" \
+  || fail "generated kaku.zsh did not preserve the runtime Kaku session guard"
 
 # The generated file is sourced by the user's real zsh, so it must parse under
 # zsh. A corrupted heredoc (e.g. an unescaped backtick that bash expanded at
@@ -68,6 +71,34 @@ if command -v zsh >/dev/null 2>&1; then
     cat "$tmp_dir/zsh_parse.log" >&2
     fail "generated kaku.zsh failed 'zsh -n' parse check"
   fi
+
+  starship_stub_dir="$tmp_dir/starship-bin"
+  starship_marker="$tmp_dir/starship-initialized"
+  mkdir -p "$starship_stub_dir"
+  cp /dev/null "$starship_marker"
+  cat >"$starship_stub_dir/starship" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "init" ]]; then
+  printf 'print -r -- initialized >> "$KAKU_STARSHIP_TEST_MARKER"\n'
+fi
+EOF
+  chmod +x "$starship_stub_dir/starship"
+
+  HOME="$tmp_home" \
+    TERM_PROGRAM="Apple_Terminal" \
+    KAKU_STARSHIP_TEST_MARKER="$starship_marker" \
+    PATH="$starship_stub_dir:$PATH" \
+    zsh -dfc 'add-zsh-hook() { :; }; source "$HOME/.config/kaku/zsh/kaku.zsh"'
+  [[ ! -s "$starship_marker" ]] \
+    || fail "generated kaku.zsh initialized Starship outside Kaku"
+
+  HOME="$tmp_home" \
+    TERM_PROGRAM="Kaku" \
+    KAKU_STARSHIP_TEST_MARKER="$starship_marker" \
+    PATH="$starship_stub_dir:$PATH" \
+    zsh -dfc 'add-zsh-hook() { :; }; source "$HOME/.config/kaku/zsh/kaku.zsh"'
+  [[ "$(cat "$starship_marker")" == "initialized" ]] \
+    || fail "generated kaku.zsh did not initialize Starship inside Kaku"
 else
   echo "warning: zsh not found; skipping kaku.zsh parse check" >&2
 fi

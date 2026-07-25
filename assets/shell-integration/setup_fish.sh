@@ -741,7 +741,7 @@ cat <<'EOF' >"$KAKU_INIT_FILE"
 fish_add_path "$HOME/.config/kaku/fish/bin"
 
 # === Starship prompt ===
-if command -q starship
+if set -q TERM_PROGRAM; and test "$TERM_PROGRAM" = "Kaku"; and command -q starship
     starship init fish | source
 end
 
