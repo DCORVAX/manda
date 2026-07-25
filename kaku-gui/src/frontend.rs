@@ -135,6 +135,20 @@ pub(crate) fn kaku_cli_program_for_spawn() -> String {
     }
 }
 
+/// The bundled CLI as a single shell-quoted token, for typing into an
+/// interactive shell (menu actions). Spawn paths take the unquoted program
+/// via `kaku_cli_program_for_spawn` instead.
+pub(crate) fn kaku_cli_shell_invocation() -> String {
+    let kaku_bin = kaku_cli_program_for_spawn();
+    shell_quote_program(&kaku_bin)
+}
+
+fn shell_quote_program(program: &str) -> String {
+    shlex::try_quote(program)
+        .map(|q| q.into_owned())
+        .unwrap_or_else(|_| program.to_string())
+}
+
 struct SingletonState {
     window_id: MuxWindowId,
     pending: bool,
@@ -1346,4 +1360,16 @@ pub fn try_new() -> Result<Rc<GuiFrontEnd>, Error> {
         .replace(config_subscription);
 
     Ok(front_end)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shell_quote_program;
+
+    #[test]
+    fn shell_program_with_spaces_round_trips_as_one_token() {
+        let program = "/Applications/Kaku Nightly.app/Contents/MacOS/kaku";
+        let quoted = shell_quote_program(program);
+        assert_eq!(shlex::split(&quoted), Some(vec![program.to_string()]));
+    }
 }

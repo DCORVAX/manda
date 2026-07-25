@@ -4737,10 +4737,12 @@ impl TermWindow {
                 } else if name == "restart-to-update" {
                     crate::frontend::restart_to_update();
                 } else if name == "run-kaku-cli" {
-                    let result = pane.writer().write_all(b"kaku\n");
+                    let command = format!("{}\n", crate::frontend::kaku_cli_shell_invocation());
+                    let result = pane.writer().write_all(command.as_bytes());
                     self.finish_terminal_input(pane, result)?;
                 } else if name == "run-kaku-ai-config" {
-                    let result = pane.writer().write_all(b"kaku ai\n");
+                    let command = format!("{} ai\n", crate::frontend::kaku_cli_shell_invocation());
+                    let result = pane.writer().write_all(command.as_bytes());
                     self.finish_terminal_input(pane, result)?;
                 } else if let Some(msg) = lookup_kaku_toast(name) {
                     self.show_toast(msg.to_string());
