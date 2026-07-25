@@ -275,11 +275,6 @@ uuid = "1.13"
 varbincode = "0.1"
 vtparse = { version="0.7", path="crates/vtparse", default-features=false }
 walkdir = "2"
-wayland-backend = "0.3.5"
-wayland-client = "0.31"
-wayland-egl = "0.32"
-wayland-protocols = "0.32"
-wayland-protocols-plasma = { version="0.3.6", features=["client"] }
 wezterm-bidi = { version="0.2.3", path = "crates/bidi", default-features=false}
 wezterm-blob-leases = { version="0.1.1", path = "crates/wezterm-blob-leases"}
 wezterm-cell = { path = "crates/wezterm-cell"}
