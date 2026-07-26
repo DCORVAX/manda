@@ -4240,6 +4240,12 @@ config.color_schemes['Kaku Dark'] = {
     ['#6d6d6d'] = '#3A3942',  -- ANSI 8 (bright black)
     ['#6E6E6E'] = '#3A3942',  -- Claude Code true color
     ['#8EC3FF'] = '#3A3942',  -- Claude Code blue header background
+    -- ANSI 7/15 resolve to KAKU.WHITE, which is also `foreground`, so any
+    -- app painting default-colored text on a white background renders at
+    -- zero contrast. Claude Code's `dark-ansi` theme does exactly that for
+    -- the hovered user-message block. Keep the slot lighter than the
+    -- `#3A3942` used for ANSI 8 so hover still reads as a state change.
+    [KAKU.WHITE] = '#4A4954',  -- ANSI 7/15 (white) background
   },
 
   -- Hermes and some Rich/prompt_toolkit surfaces emit black truecolor text
@@ -4335,6 +4341,7 @@ config.color_schemes['Kaku Light'] = {
     ['#1C6C66'] = '#F2F0EB',  -- ANSI 6 (cyan bg): branch pill
     ['#536907'] = '#F2F0EB',  -- ANSI 2 (green bg): progress bar blocks
     ['#8E6B02'] = '#F2F0EB',  -- ANSI 3 (yellow bg): agent label background
+    ['#403E3C'] = '#E8E6DB',  -- ANSI 15 (bright white bg): hovered message block
   },
 
   -- Override pale agent text that is readable on dark themes but nearly
