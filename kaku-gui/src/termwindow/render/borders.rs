@@ -317,15 +317,18 @@ mod tests {
         assert_eq!(integrated_buttons_top_inset_pixels(144.0), 32);
     }
 
+    /// The bundled padding is expressed in device pixels on purpose. Switching
+    /// it to points doubles the gutter on a 2x display, which is the display
+    /// the spacing was tuned on.
     #[test]
-    fn bundled_padding_uses_display_independent_points() {
+    fn bundled_padding_stays_in_device_pixels() {
         let bundled_config =
             include_str!("../../../../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
 
         assert!(bundled_config
-            .contains("return { left = '26pt', right = '26pt', top = '26pt', bottom = '0px' }"));
+            .contains("return { left = '26px', right = '26px', top = '26px', bottom = '0px' }"));
         assert!(bundled_config
-            .contains("return { left = '40pt', right = '40pt', top = '40pt', bottom = '0px' }"));
+            .contains("return { left = '40px', right = '40px', top = '40px', bottom = '0px' }"));
     }
 
     #[test]
