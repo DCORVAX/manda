@@ -16,6 +16,7 @@ Kaku is a macOS-native terminal emulator derived from WezTerm and shaped around 
 - `assets/` - app resources, bundled config, shell integration, and vendor assets.
 - `scripts/` - build, release, and validation helpers.
 - `docs/` - user and developer documentation.
+- `.agents/skills/` - the canonical home for project skills, and the only tracked copy: `.claude/` is gitignored here, so `.claude/skills/<name>` are relative symlinks pointing back into `.agents/`. Add a skill under `.agents/skills/` and symlink it, never the reverse, or it ships to nobody.
 - `.github/workflows/checks.yml` - fast correctness gates on pushes to `main` and on pull requests, with `paths-ignore` for `**.md` and assets, so a docs-only change gets no CI at all. Runs fmt, check, tests, and the log/prompt guards; clippy is scoped to the lint-opt-in crates, not the workspace.
 - `.github/workflows/build-validation.yml` - release-shaped universal/bundle builds; runs on build-pipeline changes, daily, or on dispatch. `release.sh` preflight requires its latest run green.
 - `.github/RELEASE_NOTES.md` - source for the GitHub Release title and body.
@@ -48,7 +49,7 @@ make app
 - Do not add instructions for the removed `website/` tree unless that directory exists in the current worktree.
 - The marketing and docs site lives on the `vercel` branch (linked worktree at `~/www/kaku-site`), not on `main`. It follows the design guide at `~/www/kaku-site/DESIGN.md`; verify changes with screenshots at 375px / 1280px and deploy by pushing the `vercel` branch (Vercel serves kaku.fun).
 - Keep private credentials, local keychain paths, and machine-specific release notes out of public repository docs.
-- **Do not propose UI i18n / multi-language menus / a `config.language` setting.** The `rust-i18n` based Chinese UI localization (PR #362, commit `f6cfb4b`) was reverted on 2026-05-18; `language` remains in the config schema as a deprecated field for backward compat only. UI strings (`tab.empty_pane`, menus, confirm dialogs, config TUI copy) stay as English literal strings. New UI surfaces should not introduce translation keys, locale-aware formatting, or "what if a user wants Chinese" abstractions. If a user requests a non-English UI, route to the assistant config / AI chat surface; those already accept non-English content.
+- **Do not propose UI i18n / multi-language menus / a `config.language` setting.** The `rust-i18n` based Chinese UI localization (PR #362, commit `f6cfb4b`) was reverted on 2026-05-18; `language` remains in the config schema as a deprecated field for backward compat only. UI strings (menus, confirm dialogs, config TUI copy) stay as English literal strings. New UI surfaces should not introduce translation keys, locale-aware formatting, or "what if a user wants Chinese" abstractions. If a user requests a non-English UI, route to the assistant config / AI chat surface; those already accept non-English content.
 - **Do not pre-bake provider abstractions in `kaku/src/ai_config/`.** The `mod provider_adapter` trait scaffolding for the 9 AI providers (KakuAssistant, ClaudeCode, Codex, Copilot, Kimi, Antigravity, Gemini, FactoryDroid, OpenClaw) was deleted on 2026-05-26 after sitting at zero implementations for half a year. When provider work is actually needed, start with a single concrete migration (one PR moves KakuAssistant's eight top-level functions out of `tui.rs`, next to the existing provider code in `kaku/src/ai_config/tui/providers/`, not into a new sibling `ai_config/providers/` tree); do not spec out a trait, a `ProviderKind` enum, or stub modules ahead of time. Save Copilot for last because its OAuth flow is the real abstraction stress test.
 
 ## Maintainer Follow-up
@@ -112,6 +113,7 @@ For TUI display corruption after interactive CLIs re-render prompts or selection
 | Config release change | `./scripts/check_config_release_readiness.sh` and `./scripts/check_release_config.sh` |
 | Release note change | `./scripts/check_release_notes.sh` |
 | Release-adjacent change | `make fmt && make check && make test`, then `make app` |
+| `crates/kaku-relay` change | `cargo check --locked --manifest-path crates/kaku-relay/Cargo.toml` (it is in `workspace.exclude`, so `make check` and `make test` never see it; CI's `relay-check` job is the only gate) |
 
 For GUI or rendering issues, read `kaku-gui/AGENTS.md` first and verify with `make app`, not only `make dev`.
 
@@ -133,15 +135,9 @@ Before drafting release notes, read the previous formal release (`gh release vie
 
 ## Pre-release Runtime Smoke
 
-CI gates fmt/check/clippy/tests but cannot see visual layout, native AppKit, render timing, or shell-in-user-env behavior, which is where most post-release reports come from. Before tagging, smoke these runtime-only hotspots by hand in the built `dist/Kaku.app`:
+CI gates fmt/check/clippy/tests but cannot see visual layout, native AppKit, render timing, or shell-in-user-env behavior, which is where most post-release reports come from. The checklist lives in one place: `.agents/skills/release/SKILL.md` «Pre-release smoke checklist», covering macOS window, tab bar, shell setup, AI chat, and render timing, with the issue numbers each item guards and a note on which slices now have automated coverage. Run it by hand in the built `dist/Kaku.app` before tagging, and add the reproduction there when a release fixes a bug outside the list.
 
-- **macOS window** (#408, #414): first-launch title-bar click must not maximize; drag the window while it fills the desktop; flip system light/dark; enter and exit fullscreen.
-- **Tab bar** (#409, #439, #443, #445): both `tab_bar_at_bottom` states; overflow a narrow window and confirm titles truncate but every tab stays clickable; rename a tab, then switch and confirm no position scramble.
-- **Render timing / stale drawable** (#452, #458): on the default WebGpu backend, sleep then wake the Mac and confirm the window repaints instead of freezing on the old frame while keystrokes still reach the shell; connect or disconnect an external display and confirm no frozen frame or geometry jump; open a new window straight into fullscreen and resize it, confirming it fills without a stale first frame.
-- **Shell setup** (#432, #441, #450): from a clean `HOME`, run `kaku init` and confirm z / syntax-highlight / autosuggestions are active in a fresh shell.
-- **AI chat** (#418, #431): run `kaku chat`, quit, then reopen it in the same window.
-
-When a release fixes a bug outside this list, add the reproduction here. The maintainer's local release runbook carries the full step-by-step.
+Releases that touch windowing, titlebar coloring, tab bar layout, or transparency also need the config matrix in `docs/release-checklist.md`, which enumerates the tab position / tab style / opacity / window state combinations to check by hand and names the `update_titlebar_background()` regression guard.
 
 ## Documentation Maintenance
 
