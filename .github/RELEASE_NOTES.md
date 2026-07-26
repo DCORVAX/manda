@@ -1,27 +1,27 @@
-# V0.15.0 Connected
+# V0.16.0 Trusted
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/tw93/Kaku/main/assets/logo.png" alt="Kaku Logo" width="120" height="120" />
-  <h1 style="margin: 12px 0 6px;">Kaku V0.15.0</h1>
+  <h1 style="margin: 12px 0 6px;">Kaku V0.16.0</h1>
   <p><em>A fast, out-of-the-box terminal built for AI coding.</em></p>
 </div>
 
 ### Changelog
 
-1. **Remote Tabs**: Tabs connected over ssh now show a dedicated icon with the host name, split tabs reveal which pane is remote, and mosh, autossh, and et sessions are recognized too.
-2. **AI in SSH Sessions**: AI chat now understands when the current directory lives on a remote host, stops running local commands against it, and answers from the terminal context instead.
-3. **SSH Everywhere**: The fish integration keeps your own ssh function and gains the 1Password fix, env-prefixed ssh aliases work again, and mosh gets the same terminfo fallback as ssh.
-4. **Session Restore**: Restored ssh panes return to their remote working directory, and when a window cannot come back Kaku says how many were kept and retries them on the next launch.
-5. **Fixes**: Text selection clears right after Ctrl+L instead of lingering, Cmd+, focuses the existing settings window instead of stacking new ones, and AI shell commands work for fish users again.
+1. **Inline AI Uses Your Provider**: The `#` prompt and the automatic quick-fix now go through the same transport as Cmd+L, so Codex, Copilot, and API-key setups all just work.
+2. **Authenticated Controls**: Shell control messages now carry a local capability, so terminal output can no longer borrow your configured credentials to fire assistant requests.
+3. **Close Tabs From The Navigator**: Press Backspace on a highlighted tab to close it, with the same confirmation you get everywhere else.
+4. **Display Fixes**: Titlebar spacing follows the display, AI chat picks up a live appearance switch, overlays resize after a pane split, and link underlines survive hover.
+5. **Fixes**: Starship setup stays inside Kaku instead of taking over your other terminals, white backgrounds stay readable, and menu commands run the bundled CLI.
 
 ### 更新日志
 
-1. **远程标签**：通过 ssh 连接的标签会显示专属图标和主机名，分屏里也能看出哪个窗格在远程，mosh、autossh、et 会话同样能识别。
-2. **SSH 里的 AI**：AI 聊天现在能识别当前目录在远程主机上，不再把本地命令跑在远程路径里，而是基于终端上下文直接回答。
-3. **SSH 一致体验**：fish 集成不再覆盖你自定义的 ssh 函数并支持 1Password 修复，带环境变量前缀的 ssh 别名恢复可用，mosh 也获得与 ssh 相同的 terminfo 回退。
-4. **会话恢复**：恢复的 ssh 窗格会回到原来的远程目录，有窗口无法恢复时会说明数量并在下次启动时重试。
-5. **问题修复**：Ctrl+L 清屏后选区高亮立即消失，Cmd+, 会聚焦已有设置窗口而不是不断新开，fish 用户的 AI 命令执行恢复正常。
+1. **内联 AI 走你的模型**：`#` 生成和自动修复现在与 Cmd+L 走同一条链路，Codex、Copilot 和 API key 三种配置都能直接用。
+2. **控制消息需要认证**：Shell 发给终端的控制消息带上了本地凭据，终端里的输出无法再借用你配置的密钥触发助手请求。
+3. **在标签导航里关标签**：选中标签按退格即可关闭，确认提示与别处一致。
+4. **显示修复**：标题栏间距随显示器调整，AI 聊天会跟随系统外观切换，分屏后浮层尺寸正确，链接下划线在悬停时不再丢失。
+5. **问题修复**：Starship 配置只在 Kaku 内生效，不再接管你的其他终端；白色背景上的文字保持可读；菜单命令改用随包分发的 CLI。
 
-Special thanks to @shlroland, @mortalYoung, and @darion-yaphet for their contributions to this release.
+Special thanks to @zwrong and @mortalYoung for their contributions to this release.
 
 > https://github.com/tw93/Kaku

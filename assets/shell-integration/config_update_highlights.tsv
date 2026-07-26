@@ -64,3 +64,5 @@
 29	ssh 包装在 zsh、fish、bash 下行为一致，保留用户自定义的 ssh 函数，mosh 也会获得相同的 TERM 回退
 30	Inline AI shell controls now require a local capability, preventing terminal output from triggering assistant requests with your configured credentials
 30	内联 AI 的 shell 控制消息现在需要本地 capability，终端输出无法再借用已配置凭据触发助手请求
+30	Starship prompt setup now runs only inside Kaku, so your other terminals keep their own prompt
+30	Starship 提示符配置现在只在 Kaku 内生效，其他终端会保留各自原有的提示符
