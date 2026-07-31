@@ -64,6 +64,11 @@ fn create_capability_file(path: &Path, capability: &str) -> Result<()> {
             .with_context(|| format!("create {}", temp_path.display()))?;
         file.write_all(capability.as_bytes())
             .with_context(|| format!("write {}", temp_path.display()))?;
+        // Trailing newline matters: zsh's `read` reports EOF as failure when
+        // the last line is unterminated, which made the shell integration
+        // treat the capability as unreadable (#511). The Rust reader trims.
+        file.write_all(b"\n")
+            .with_context(|| format!("write {}", temp_path.display()))?;
         file.sync_all()
             .with_context(|| format!("sync {}", temp_path.display()))?;
         match std::fs::hard_link(&temp_path, path) {

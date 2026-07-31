@@ -813,15 +813,17 @@ end
 
 # === OSC 1337: User variables (AI fix hooks) ===
 function __kaku_set_user_var
-    # Only emit when inside a Kaku/WezTerm pane
+    # Only emit when inside a Kaku/WezTerm pane.
+    # Guards return 1: a bare return inherits the guard's success status,
+    # which made callers believe the var was emitted (#511).
     if test "$TERM" != kaku; and not set -q WEZTERM_PANE
-        return
+        return 1
     end
     if set -q WEZTERM_SHELL_SKIP_USER_VARS; and test "$WEZTERM_SHELL_SKIP_USER_VARS" = 1
-        return
+        return 1
     end
     if not command -q base64
-        return
+        return 1
     end
     set -l encoded (printf '%s' $argv[2] | base64 | tr -d '\r\n')
     if set -q TMUX
@@ -836,7 +838,9 @@ end
 function __kaku_set_ai_user_var
     set -l capability_file "$HOME/.config/kaku/ai_inline_capability"
     test -r "$capability_file"; or return 1
-    read -l capability < "$capability_file"; or return 1
+    # read reports EOF as failure when the file lacks a trailing newline,
+    # but still fills the variable; accept that case (#511).
+    read -l capability < "$capability_file"; or test -n "$capability"; or return 1
     test -n "$capability"; or return 1
     __kaku_set_user_var $argv[1] "$capability:$argv[2]"
 end
@@ -902,9 +906,11 @@ function __kaku_ai_query_execute
             set -l query (string trim -- $body)
             if test -n "$query"
                 builtin history append -- $cmd
-                set -g __kaku_ai_waiting 1
-                set -g __kaku_ai_waiting_ts (date +%s)
+                # Only flag the waiting state once the request was actually
+                # emitted, so a failed send never blocks Enter (#511).
                 if __kaku_set_ai_user_var kaku_ai_query "[mode:$mode] $query"
+                    set -g __kaku_ai_waiting 1
+                    set -g __kaku_ai_waiting_ts (date +%s)
                     # Clear the submitted comment immediately so generated commands
                     # cannot append after the stale "# query" buffer.
                     commandline -r ""
