@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Thin entrypoint: delegate to `kaku init` whenever possible.
 if [[ "${KAKU_INIT_INTERNAL:-0}" != "1" ]]; then
 	if [[ -n "${KAKU_BIN:-}" && -x "${KAKU_BIN}" ]]; then
-		exec "${KAKU_BIN}" init "$@"
+		exec "${KAKU_BIN}" init --shell fish "$@"
 	fi
 
 	for candidate in \
@@ -36,7 +36,7 @@ if [[ "${KAKU_INIT_INTERNAL:-0}" != "1" ]]; then
 		"/Applications/Kaku.app/Contents/MacOS/kaku" \
 		"$HOME/Applications/Kaku.app/Contents/MacOS/kaku"; do
 		if [[ -x "$candidate" ]]; then
-			exec "$candidate" init "$@"
+			exec "$candidate" init --shell fish "$@"
 		fi
 	done
 fi

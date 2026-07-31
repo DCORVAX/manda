@@ -10,11 +10,15 @@ pub struct ResetCommand {
     /// Skip confirmation prompt
     #[arg(long, short = 'y')]
     pub yes: bool,
+
+    /// Shell to restart after reset
+    #[arg(long, value_enum)]
+    pub shell: Option<crate::shell::ManagedShell>,
 }
 
 impl ResetCommand {
     pub fn run(&self) -> anyhow::Result<()> {
-        imp::run(self.yes)
+        imp::run(self.yes, self.shell)
     }
 }
 
@@ -22,7 +26,7 @@ impl ResetCommand {
 mod imp {
     use anyhow::bail;
 
-    pub fn run(_yes: bool) -> anyhow::Result<()> {
+    pub fn run(_yes: bool, _shell: Option<crate::shell::ManagedShell>) -> anyhow::Result<()> {
         bail!("`kaku reset` is currently supported on macOS only")
     }
 }
@@ -30,6 +34,7 @@ mod imp {
 #[cfg(target_os = "macos")]
 mod imp {
     use super::*;
+    use crate::shell::{detect_shell_kind, find_shell_executable, ManagedShell};
 
     const KAKU_SOURCE_PATTERN: &str = "kaku/zsh/kaku.zsh";
     const KAKU_PATH_MARKER: &str = "# Kaku PATH Integration";
@@ -237,7 +242,7 @@ mod imp {
         }
     }
 
-    pub fn run(yes: bool) -> anyhow::Result<()> {
+    pub fn run(yes: bool, shell: Option<ManagedShell>) -> anyhow::Result<()> {
         confirm_reset(yes)?;
 
         let mut report = ResetReport::default();
@@ -297,12 +302,12 @@ mod imp {
 
         report.print();
 
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-        let is_fish = std::path::Path::new(&shell)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map(|n| n == "fish")
-            .unwrap_or(false);
+        let selected_shell = shell
+            .or_else(|| detect_shell_kind().managed())
+            .unwrap_or(ManagedShell::Zsh);
+        let shell_executable = find_shell_executable(selected_shell)
+            .unwrap_or_else(|| PathBuf::from(selected_shell.name()));
+        let is_fish = selected_shell == ManagedShell::Fish;
 
         let tools_dir = if is_fish {
             "~/.config/kaku/fish/"
@@ -314,6 +319,7 @@ mod imp {
         } else {
             "exec zsh -l"
         };
+        let restore_cmd = format!("kaku init --shell {}", selected_shell.name());
 
         println!("\nShell restart required.");
         println!("Tools preserved in {}\n", tools_dir);
@@ -330,17 +336,22 @@ mod imp {
             let answer = input.trim().to_ascii_lowercase();
             if answer.is_empty() || answer == "y" || answer == "yes" {
                 println!("\nRestarting shell...");
-                println!("Tip: Run 'kaku init' to restore integration");
-                let err = std::process::Command::new(&shell).arg("-l").exec();
+                println!("Tip: Run '{}' to restore integration", restore_cmd);
+                let err = std::process::Command::new(&shell_executable)
+                    .arg("-l")
+                    .exec();
                 bail!("failed to restart shell: {}", err);
             } else {
                 println!(
-                    "\nRun '{}' when ready. Restore with 'kaku init'",
-                    restart_cmd
+                    "\nRun '{}' when ready. Restore with '{}'",
+                    restart_cmd, restore_cmd
                 );
             }
         } else {
-            println!("Run '{}' to restart. Restore with 'kaku init'", restart_cmd);
+            println!(
+                "Run '{}' to restart. Restore with '{}'",
+                restart_cmd, restore_cmd
+            );
         }
 
         Ok(())

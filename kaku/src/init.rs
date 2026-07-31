@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Context};
 use clap::Parser;
 use std::fs;
-use std::io::Write;
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -10,11 +10,15 @@ pub struct InitCommand {
     /// Refresh shell integration without interactive prompts
     #[arg(long)]
     pub update_only: bool,
+
+    /// Shell integration to configure
+    #[arg(long, value_enum)]
+    pub shell: Option<crate::shell::ManagedShell>,
 }
 
 impl InitCommand {
     pub fn run(&self) -> anyhow::Result<()> {
-        imp::run(self.update_only)
+        imp::run(self.update_only, self.shell)
     }
 }
 
@@ -22,7 +26,10 @@ impl InitCommand {
 mod imp {
     use anyhow::bail;
 
-    pub fn run(_update_only: bool) -> anyhow::Result<()> {
+    pub fn run(
+        _update_only: bool,
+        _shell: Option<crate::shell::ManagedShell>,
+    ) -> anyhow::Result<()> {
         bail!("`kaku init` is currently supported on macOS only")
     }
 }
@@ -30,25 +37,27 @@ mod imp {
 #[cfg(target_os = "macos")]
 mod imp {
     use super::*;
-    use crate::shell::{detect_shell_kind, ShellKind};
+    use crate::shell::{find_shell_executable, preferred_managed_shell, ManagedShell};
     use std::os::unix::fs::PermissionsExt;
 
-    pub fn run(update_only: bool) -> anyhow::Result<()> {
+    pub fn run(update_only: bool, shell: Option<ManagedShell>) -> anyhow::Result<()> {
+        let shell = select_shell(update_only, shell)?;
         ensure_user_config().context("ensure user config exists")?;
 
-        install_kaku_wrapper().context("install kaku wrapper")?;
-        install_k_wrapper().context("install k wrapper")?;
+        install_kaku_wrapper(shell).context("install kaku wrapper")?;
+        install_k_wrapper(shell).context("install k wrapper")?;
 
-        let shell = detect_shell_kind();
         let script_name = match shell {
-            ShellKind::Fish => "setup_fish.sh",
-            _ => "setup_zsh.sh",
+            ManagedShell::Fish => "setup_fish.sh",
+            ManagedShell::Zsh => "setup_zsh.sh",
         };
         let script = resolve_setup_script(script_name)
             .ok_or_else(|| anyhow!("failed to locate {} for Kaku initialization", script_name))?;
 
         let mut cmd = Command::new("/bin/bash");
-        cmd.arg(&script).env("KAKU_INIT_INTERNAL", "1");
+        cmd.arg(&script)
+            .env("KAKU_INIT_INTERNAL", "1")
+            .env("KAKU_TARGET_SHELL", shell.name());
         if update_only {
             cmd.arg("--update-only");
         }
@@ -63,8 +72,90 @@ mod imp {
         bail!("kaku init failed with status {}", status);
     }
 
-    fn install_kaku_wrapper() -> anyhow::Result<()> {
-        let wrapper_path = wrapper_path();
+    fn select_shell(
+        update_only: bool,
+        selected: Option<ManagedShell>,
+    ) -> anyhow::Result<ManagedShell> {
+        if let Some(shell) = selected {
+            return Ok(shell);
+        }
+
+        let default = preferred_managed_shell();
+        if update_only || !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+            return Ok(default);
+        }
+
+        let Some(zsh_path) = find_shell_executable(ManagedShell::Zsh) else {
+            return Ok(default);
+        };
+        let Some(fish_path) = find_shell_executable(ManagedShell::Fish) else {
+            return Ok(default);
+        };
+
+        prompt_for_shell(default, &zsh_path, &fish_path)
+    }
+
+    fn prompt_for_shell(
+        default: ManagedShell,
+        zsh_path: &Path,
+        fish_path: &Path,
+    ) -> anyhow::Result<ManagedShell> {
+        println!("Which shell should Kaku configure?");
+        println!(
+            "  1) zsh  ({}){}",
+            zsh_path.display(),
+            shell_default_label(default, ManagedShell::Zsh)
+        );
+        println!(
+            "  2) fish ({}){}",
+            fish_path.display(),
+            shell_default_label(default, ManagedShell::Fish)
+        );
+
+        loop {
+            print!("Select [{}]: ", shell_number(default));
+            io::stdout().flush().context("flush shell prompt")?;
+
+            let mut input = String::new();
+            let bytes = io::stdin()
+                .read_line(&mut input)
+                .context("read shell selection")?;
+            if bytes == 0 {
+                return Ok(default);
+            }
+            if let Some(shell) = parse_shell_selection(&input, default) {
+                return Ok(shell);
+            }
+            eprintln!("Choose 1 for zsh or 2 for fish.");
+        }
+    }
+
+    fn shell_default_label(default: ManagedShell, shell: ManagedShell) -> &'static str {
+        if default == shell {
+            " (detected login shell)"
+        } else {
+            ""
+        }
+    }
+
+    fn shell_number(shell: ManagedShell) -> u8 {
+        match shell {
+            ManagedShell::Zsh => 1,
+            ManagedShell::Fish => 2,
+        }
+    }
+
+    fn parse_shell_selection(input: &str, default: ManagedShell) -> Option<ManagedShell> {
+        match input.trim().to_ascii_lowercase().as_str() {
+            "" => Some(default),
+            "1" | "zsh" => Some(ManagedShell::Zsh),
+            "2" | "fish" => Some(ManagedShell::Fish),
+            _ => None,
+        }
+    }
+
+    fn install_kaku_wrapper(shell: ManagedShell) -> anyhow::Result<()> {
+        let wrapper_path = wrapper_path(shell);
         let wrapper_dir = wrapper_path
             .parent()
             .ok_or_else(|| anyhow!("invalid wrapper path"))?;
@@ -114,8 +205,8 @@ exit 127
         Ok(())
     }
 
-    fn install_k_wrapper() -> anyhow::Result<()> {
-        let k_path = k_wrapper_path();
+    fn install_k_wrapper(shell: ManagedShell) -> anyhow::Result<()> {
+        let k_path = k_wrapper_path(shell);
         let k_dir = k_path
             .parent()
             .ok_or_else(|| anyhow!("invalid k wrapper path"))?;
@@ -171,10 +262,10 @@ exit 127
         Ok(())
     }
 
-    fn k_wrapper_path() -> PathBuf {
-        let dir = match detect_shell_kind() {
-            ShellKind::Fish => "fish",
-            _ => "zsh",
+    fn k_wrapper_path(shell: ManagedShell) -> PathBuf {
+        let dir = match shell {
+            ManagedShell::Fish => "fish",
+            ManagedShell::Zsh => "zsh",
         };
         config::HOME_DIR
             .join(".config")
@@ -208,10 +299,10 @@ exit 127
         None
     }
 
-    fn wrapper_path() -> PathBuf {
-        let dir = match detect_shell_kind() {
-            ShellKind::Fish => "fish",
-            _ => "zsh",
+    fn wrapper_path(shell: ManagedShell) -> PathBuf {
+        let dir = match shell {
+            ManagedShell::Fish => "fish",
+            ManagedShell::Zsh => "zsh",
         };
         config::HOME_DIR
             .join(".config")
@@ -308,5 +399,27 @@ exit 127
     fn ensure_user_config() -> anyhow::Result<()> {
         config::ensure_user_config_exists().context("ensure user config exists")?;
         Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn shell_prompt_accepts_numbers_names_and_default() {
+            assert_eq!(
+                parse_shell_selection("", ManagedShell::Fish),
+                Some(ManagedShell::Fish)
+            );
+            assert_eq!(
+                parse_shell_selection("1", ManagedShell::Fish),
+                Some(ManagedShell::Zsh)
+            );
+            assert_eq!(
+                parse_shell_selection("fish", ManagedShell::Zsh),
+                Some(ManagedShell::Fish)
+            );
+            assert_eq!(parse_shell_selection("bash", ManagedShell::Zsh), None);
+        }
     }
 }
