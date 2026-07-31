@@ -886,7 +886,7 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai_client::AssistantConfig;
+    use crate::ai_client::{ApiMode, AssistantConfig};
 
     fn test_client() -> AiClient {
         AiClient::new(AssistantConfig {
@@ -896,8 +896,10 @@ mod tests {
             base_url: "https://example.com/v1".to_string(),
             custom_headers: vec![],
             provider: "Custom".to_string(),
+            api_mode: ApiMode::ChatCompletions,
             auth_type: "api_key".to_string(),
             chat_tools_enabled: true,
+            native_web_search: false,
             web_search_provider: None,
             web_search_api_key: None,
             web_fetch_script: None,

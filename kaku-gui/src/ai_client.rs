@@ -1,7 +1,8 @@
 //! AI client for Kaku's built-in chat overlay.
 //!
 //! Reads API config from `~/.config/kaku/assistant.toml` and provides
-//! a synchronous streaming chat completion client (OpenAI-compatible API).
+//! synchronous streaming clients for OpenAI-compatible Chat Completions and
+//! Responses APIs.
 //! Supports function/tool calling for agentic workflows.
 //!
 //! Runs on a plain OS thread (inside overlay), so blocking I/O is fine.
@@ -14,13 +15,38 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::ai_auth;
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE};
 
 const DEFAULT_MODEL: &str = "gpt-5.4-mini";
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 /// Codex (ChatGPT subscription) Responses backend. ChatGPT-login OAuth tokens
 /// are only accepted here, not on /chat/completions.
 const CODEX_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ApiMode {
+    ChatCompletions,
+    Responses,
+}
+
+impl ApiMode {
+    fn from_config(value: Option<&str>) -> Result<Self> {
+        match value.unwrap_or("chat_completions") {
+            "chat_completions" => Ok(Self::ChatCompletions),
+            "responses" => Ok(Self::Responses),
+            other => anyhow::bail!(
+                "Invalid api_mode `{other}` in assistant.toml; expected `chat_completions` or `responses`"
+            ),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ChatCompletions => "chat_completions",
+            Self::Responses => "responses",
+        }
+    }
+}
 
 /// Configuration loaded from `assistant.toml`.
 #[derive(Clone)]
@@ -37,6 +63,9 @@ pub struct AssistantConfig {
     pub custom_headers: Vec<(String, String)>,
     /// Provider name derived from base_url and auth_type (e.g. "OpenAI", "Copilot").
     pub provider: String,
+    /// API wire format for API-key/custom endpoints. Chat Completions remains
+    /// the compatibility default; Codex auth always uses its fixed Responses backend.
+    pub api_mode: ApiMode,
     /// Auth mechanism: "api_key" (default), "copilot", or "codex".
     /// Legacy "gemini_key" values are recognized only to surface a friendly
     /// error at load time; the Gemini provider was removed in V0.10.0.
@@ -45,6 +74,9 @@ pub struct AssistantConfig {
     /// Set `chat_tools_enabled = false` in assistant.toml for providers that do not
     /// support function calling (e.g. some Kimi or local-model variants).
     pub chat_tools_enabled: bool,
+    /// Enable the provider-hosted Responses `web_search` tool. This does not
+    /// require `web_search_provider` or `web_search_api_key`.
+    pub native_web_search: bool,
     /// Web search provider: "brave", "pipellm", or "tavily". None = disabled.
     pub web_search_provider: Option<String>,
     /// API key for web_search_provider. None = search tool not registered.
@@ -79,6 +111,8 @@ impl AssistantConfig {
             .and_then(|v| v.as_str())
             .unwrap_or("api_key")
             .to_string();
+
+        let api_mode = ApiMode::from_config(parsed.get("api_mode").and_then(|v| v.as_str()))?;
 
         // The Gemini provider was removed in V0.10.0. Surface a clear migration
         // path instead of letting the OpenAI-compatible code path silently
@@ -156,6 +190,11 @@ impl AssistantConfig {
             // setting `chat_tools_enabled = false` in assistant.toml.
             .unwrap_or(true);
 
+        let native_web_search = parsed
+            .get("native_web_search")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         let web_search_provider = parsed
             .get("web_search_provider")
             .and_then(|v| v.as_str())
@@ -189,8 +228,10 @@ impl AssistantConfig {
             base_url,
             custom_headers,
             provider,
+            api_mode,
             auth_type,
             chat_tools_enabled,
+            native_web_search,
             web_search_provider,
             web_search_api_key,
             web_fetch_script,
@@ -199,9 +240,16 @@ impl AssistantConfig {
         })
     }
 
-    /// Returns true when a web_search provider and its API key are both configured.
+    /// Returns true when the third-party web_search function is configured and
+    /// native Responses web search is not taking its place.
     pub fn web_search_ready(&self) -> bool {
-        self.web_search_provider.is_some() && self.web_search_api_key.is_some()
+        !self.native_web_search_ready()
+            && self.web_search_provider.is_some()
+            && self.web_search_api_key.is_some()
+    }
+
+    pub fn native_web_search_ready(&self) -> bool {
+        self.api_mode == ApiMode::Responses && self.native_web_search && self.chat_tools_enabled
     }
 }
 
@@ -620,6 +668,16 @@ impl AiClient {
         if self.config.auth_type == "codex" {
             return self.chat_step_codex(model, messages, tools, cancelled, on_token, on_reasoning);
         }
+        if self.config.api_mode == ApiMode::Responses {
+            return self.chat_step_responses(
+                model,
+                messages,
+                tools,
+                cancelled,
+                on_token,
+                on_reasoning,
+            );
+        }
 
         let url = format!("{}/chat/completions", self.config.base_url);
 
@@ -750,6 +808,53 @@ impl AiClient {
         }
     }
 
+    fn chat_step_responses(
+        &self,
+        model: &str,
+        messages: &[ApiMessage],
+        tools: &[serde_json::Value],
+        cancelled: &AtomicBool,
+        on_token: &mut dyn FnMut(&str),
+        on_reasoning: &mut dyn FnMut(&str),
+    ) -> Result<Vec<ToolCall>> {
+        use serde_json::{json, Value};
+
+        let url = format!("{}/responses", self.config.base_url);
+        let (instructions, input) = translate_responses_messages(messages);
+        let responses_tools = translate_responses_tools(
+            tools,
+            self.config.chat_tools_enabled,
+            self.config.native_web_search_ready(),
+        );
+
+        let mut body = json!({
+            "model": model,
+            "input": input,
+            "stream": true,
+            "store": false,
+        });
+        if !instructions.is_empty() {
+            body["instructions"] = Value::String(instructions);
+        }
+        if !responses_tools.is_empty() {
+            body["tools"] = Value::Array(responses_tools);
+            body["tool_choice"] = Value::String("auto".to_string());
+        }
+
+        let req = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("Accept", "text/event-stream, application/json")
+            .header("Cache-Control", "no-cache")
+            .header("Accept-Encoding", "identity")
+            .json(&body);
+        let req = self.apply_auth_headers(req)?;
+        let response = send_with_retry(req, "Responses API", cancelled, self.max_request_attempts)?;
+
+        parse_responses_http(response, cancelled, on_token, on_reasoning, "Responses API")
+    }
+
     /// Codex (ChatGPT subscription) chat step over the Responses backend.
     ///
     /// Translates chat-format messages and tools into the Responses request
@@ -768,94 +873,9 @@ impl AiClient {
 
         let mut auth = self.codex_auth()?;
 
-        // Translate chat messages -> Responses `input`. System text becomes
-        // `instructions`; assistant tool-call turns and tool results become
-        // `function_call` / `function_call_output` items (NOT plain messages, or
-        // the backend rejects them); everything else is a typed message item.
-        let mut instructions = String::new();
-        let mut input: Vec<Value> = Vec::new();
-        for ApiMessage(m) in messages {
-            let role = m["role"].as_str().unwrap_or("user");
-
-            if role == "tool" {
-                input.push(json!({
-                    "type": "function_call_output",
-                    "call_id": m["tool_call_id"].as_str().unwrap_or(""),
-                    "output": m["content"].as_str().unwrap_or(""),
-                }));
-                continue;
-            }
-
-            if role == "assistant" {
-                if let Some(tool_calls) = m["tool_calls"].as_array() {
-                    for tc in tool_calls {
-                        input.push(json!({
-                            "type": "function_call",
-                            "call_id": tc["id"].as_str().unwrap_or(""),
-                            "name": tc["function"]["name"].as_str().unwrap_or(""),
-                            "arguments": tc["function"]["arguments"].as_str().unwrap_or("{}"),
-                        }));
-                    }
-                    continue;
-                }
-            }
-
-            let content = m["content"].as_str().unwrap_or("");
-            if content.is_empty() {
-                continue;
-            }
-            if role == "system" {
-                if !instructions.is_empty() {
-                    instructions.push_str("\n\n");
-                }
-                instructions.push_str(content);
-                continue;
-            }
-            let content_type = if role == "assistant" {
-                "output_text"
-            } else {
-                "input_text"
-            };
-            input.push(json!({
-                "type": "message",
-                "role": role,
-                "content": [{ "type": content_type, "text": content }],
-            }));
-        }
-
-        // The Responses backend rejects an empty `input` (it returns 400
-        // "input ... must be provided"). One-shot helper calls (web-summary,
-        // /suggest, memory curation) pass a lone system message, which would
-        // otherwise leave input empty; promote it to a user message.
-        if input.is_empty() && !instructions.is_empty() {
-            input.push(json!({
-                "type": "message",
-                "role": "user",
-                "content": [{ "type": "input_text", "text": std::mem::take(&mut instructions) }],
-            }));
-        }
-
-        // Chat-format tools `{type:function, function:{...}}` -> Responses flat
-        // `{type:function, name, description, parameters}`.
-        let responses_tools: Vec<Value> = if self.config.chat_tools_enabled {
-            tools
-                .iter()
-                .filter_map(|t| {
-                    let f = t.get("function")?;
-                    Some(json!({
-                        "type": "function",
-                        "name": f.get("name")?,
-                        "description": f.get("description").cloned().unwrap_or(Value::Null),
-                        "parameters": f
-                            .get("parameters")
-                            .cloned()
-                            .unwrap_or_else(|| json!({ "type": "object", "properties": {} })),
-                    }))
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let (instructions, input) = translate_responses_messages(messages);
+        let responses_tools =
+            translate_responses_tools(tools, self.config.chat_tools_enabled, false);
 
         let mut body = json!({
             "model": model,
@@ -911,92 +931,409 @@ impl AiClient {
             anyhow::bail!("Codex responses error {status}: {preview}");
         }
 
-        let reader = BufReader::new(response);
-        // Streamed function calls, keyed by the response item id so argument
-        // deltas land on the right call; Vec preserves emission order.
-        let mut calls: Vec<(String, ToolCallBuf)> = Vec::new();
-        for line in reader.lines() {
-            if cancelled.load(Ordering::Relaxed) {
-                break;
-            }
-            let line = line.context("read Codex SSE line")?;
-            let Some(data) = sse_data_payload(&line) else {
+        parse_responses_http(
+            response,
+            cancelled,
+            on_token,
+            on_reasoning,
+            "Codex responses",
+        )
+    }
+}
+
+fn translate_responses_messages(messages: &[ApiMessage]) -> (String, Vec<serde_json::Value>) {
+    use serde_json::json;
+
+    let mut instructions = String::new();
+    let mut input = Vec::new();
+    for ApiMessage(message) in messages {
+        let role = message["role"].as_str().unwrap_or("user");
+
+        if role == "tool" {
+            input.push(json!({
+                "type": "function_call_output",
+                "call_id": message["tool_call_id"].as_str().unwrap_or(""),
+                "output": message["content"].as_str().unwrap_or(""),
+            }));
+            continue;
+        }
+
+        if role == "assistant" {
+            if let Some(tool_calls) = message["tool_calls"].as_array() {
+                for call in tool_calls {
+                    input.push(json!({
+                        "type": "function_call",
+                        "call_id": call["id"].as_str().unwrap_or(""),
+                        "name": call["function"]["name"].as_str().unwrap_or(""),
+                        "arguments": call["function"]["arguments"].as_str().unwrap_or("{}"),
+                    }));
+                }
                 continue;
-            };
-            if data.trim() == "[DONE]" {
+            }
+        }
+
+        let content = message["content"].as_str().unwrap_or("");
+        if content.is_empty() {
+            continue;
+        }
+        if role == "system" {
+            if !instructions.is_empty() {
+                instructions.push_str("\n\n");
+            }
+            instructions.push_str(content);
+            continue;
+        }
+        let content_type = if role == "assistant" {
+            "output_text"
+        } else {
+            "input_text"
+        };
+        input.push(json!({
+            "type": "message",
+            "role": role,
+            "content": [{ "type": content_type, "text": content }],
+        }));
+    }
+
+    // Responses rejects empty input. One-shot helpers sometimes supply only a
+    // system message, so promote that text to input instead of sending an
+    // instructions-only request.
+    if input.is_empty() && !instructions.is_empty() {
+        input.push(json!({
+            "type": "message",
+            "role": "user",
+            "content": [{ "type": "input_text", "text": std::mem::take(&mut instructions) }],
+        }));
+    }
+
+    (instructions, input)
+}
+
+fn translate_responses_tools(
+    tools: &[serde_json::Value],
+    tools_enabled: bool,
+    native_web_search: bool,
+) -> Vec<serde_json::Value> {
+    use serde_json::{json, Value};
+
+    if !tools_enabled {
+        return Vec::new();
+    }
+
+    let mut translated = tools
+        .iter()
+        .filter_map(|tool| {
+            let function = tool.get("function")?;
+            let mut translated = json!({
+                "type": "function",
+                "name": function.get("name")?,
+                "description": function.get("description").cloned().unwrap_or(Value::Null),
+                "parameters": function
+                    .get("parameters")
+                    .cloned()
+                    .unwrap_or_else(|| json!({ "type": "object", "properties": {} })),
+            });
+            if let Some(strict) = function.get("strict").and_then(Value::as_bool) {
+                translated["strict"] = Value::Bool(strict);
+            }
+            Some(translated)
+        })
+        .collect::<Vec<_>>();
+
+    if native_web_search {
+        translated.push(json!({ "type": "web_search" }));
+    }
+    translated
+}
+
+fn parse_responses_http(
+    response: reqwest::blocking::Response,
+    cancelled: &AtomicBool,
+    on_token: &mut dyn FnMut(&str),
+    on_reasoning: &mut dyn FnMut(&str),
+    provider_label: &str,
+) -> Result<Vec<ToolCall>> {
+    let is_json = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.to_ascii_lowercase().contains("application/json"));
+
+    if is_json {
+        let value = response
+            .json::<serde_json::Value>()
+            .with_context(|| format!("parse {provider_label} JSON response"))?;
+        return parse_responses_value(&value, on_token, on_reasoning, provider_label);
+    }
+
+    parse_responses_sse(
+        BufReader::new(response),
+        cancelled,
+        on_token,
+        on_reasoning,
+        provider_label,
+    )
+}
+
+fn parse_responses_sse<R: BufRead>(
+    reader: R,
+    cancelled: &AtomicBool,
+    on_token: &mut dyn FnMut(&str),
+    on_reasoning: &mut dyn FnMut(&str),
+    provider_label: &str,
+) -> Result<Vec<ToolCall>> {
+    let mut calls: Vec<(String, ToolCallBuf)> = Vec::new();
+    let mut citations = Vec::new();
+    let mut saw_text_delta = false;
+
+    for line in reader.lines() {
+        if cancelled.load(Ordering::Relaxed) {
+            break;
+        }
+        let line = line.with_context(|| format!("read {provider_label} SSE line"))?;
+        let Some(data) = sse_data_payload(&line) else {
+            continue;
+        };
+        if data.trim() == "[DONE]" {
+            break;
+        }
+        let event = match serde_json::from_str::<serde_json::Value>(data) {
+            Ok(value) => value,
+            Err(error) => {
+                log::warn!("Failed to parse {provider_label} SSE event: {error}");
+                continue;
+            }
+        };
+
+        match event["type"].as_str() {
+            Some("response.output_text.delta") => {
+                if let Some(delta) = event["delta"].as_str() {
+                    saw_text_delta = true;
+                    on_token(delta);
+                }
+            }
+            Some("response.reasoning_summary_text.delta")
+            | Some("response.reasoning_text.delta") => {
+                if let Some(delta) = event["delta"].as_str() {
+                    on_reasoning(delta);
+                }
+            }
+            Some("response.output_text.annotation.added") => {
+                collect_response_annotation(&event["annotation"], &mut citations);
+            }
+            Some("response.output_item.added") | Some("response.output_item.done") => {
+                let item = &event["item"];
+                if item["type"] == "function_call" {
+                    upsert_response_call(&mut calls, item);
+                } else if item["type"] == "message" {
+                    collect_response_citations(item, &mut citations);
+                }
+            }
+            Some("response.function_call_arguments.delta") => {
+                if let Some(buffer) =
+                    upsert_call(&mut calls, event["item_id"].as_str().unwrap_or(""))
+                {
+                    if let Some(delta) = event["delta"].as_str() {
+                        if buffer.arguments.len() < 65_536 {
+                            buffer.arguments.push_str(delta);
+                        }
+                    }
+                }
+            }
+            Some("response.function_call_arguments.done") => {
+                if let Some(buffer) =
+                    upsert_call(&mut calls, event["item_id"].as_str().unwrap_or(""))
+                {
+                    if let Some(arguments) = event["arguments"].as_str() {
+                        buffer.arguments = arguments.to_string();
+                    }
+                }
+            }
+            Some("response.completed") => {
+                let completed = &event["response"];
+                if !saw_text_delta && calls.is_empty() {
+                    return parse_responses_value(
+                        completed,
+                        on_token,
+                        on_reasoning,
+                        provider_label,
+                    );
+                }
+                collect_response_citations(completed, &mut citations);
+                if calls.is_empty() {
+                    calls = response_calls(completed);
+                }
                 break;
             }
-            let ev = match serde_json::from_str::<serde_json::Value>(data) {
-                Ok(v) => v,
-                Err(e) => {
-                    log::warn!("Failed to parse Codex SSE event: {e}");
-                    continue;
-                }
-            };
-            match ev["type"].as_str() {
-                Some("response.output_text.delta") => {
-                    if let Some(d) = ev["delta"].as_str() {
-                        on_token(d);
-                    }
-                }
-                Some("response.reasoning_summary_text.delta")
-                | Some("response.reasoning_text.delta") => {
-                    if let Some(d) = ev["delta"].as_str() {
-                        on_reasoning(d);
-                    }
-                }
-                // A tool call appears as a function_call output item; its
-                // arguments may arrive whole here or stream via delta events.
-                Some("response.output_item.added") | Some("response.output_item.done") => {
-                    let item = &ev["item"];
-                    if item["type"] == "function_call" {
-                        if let Some(buf) =
-                            upsert_call(&mut calls, item["id"].as_str().unwrap_or(""))
-                        {
-                            if let Some(c) = item["call_id"].as_str().filter(|c| !c.is_empty()) {
-                                buf.id = c.to_string();
-                            }
-                            if let Some(n) = item["name"].as_str().filter(|n| !n.is_empty()) {
-                                buf.name = n.to_string();
-                            }
-                            if let Some(a) = item["arguments"].as_str().filter(|a| !a.is_empty()) {
-                                buf.arguments = a.to_string();
-                            }
-                        }
-                    }
-                }
-                Some("response.function_call_arguments.delta") => {
-                    if let Some(buf) = upsert_call(&mut calls, ev["item_id"].as_str().unwrap_or(""))
-                    {
-                        if let Some(d) = ev["delta"].as_str() {
-                            if buf.arguments.len() < 65_536 {
-                                buf.arguments.push_str(d);
+            Some("response.failed") | Some("response.incomplete") => {
+                let message = response_error_message(&event)
+                    .or_else(|| response_error_message(&event["response"]))
+                    .unwrap_or("unknown error");
+                anyhow::bail!("{provider_label} failed: {message}");
+            }
+            Some("error") => {
+                let message = response_error_message(&event).unwrap_or("unknown error");
+                anyhow::bail!("{provider_label} failed: {message}");
+            }
+            _ => {}
+        }
+    }
+
+    emit_response_citations(&citations, on_token);
+    Ok(tool_calls_from_buffers(calls))
+}
+
+fn parse_responses_value(
+    response: &serde_json::Value,
+    on_token: &mut dyn FnMut(&str),
+    on_reasoning: &mut dyn FnMut(&str),
+    provider_label: &str,
+) -> Result<Vec<ToolCall>> {
+    if matches!(response["status"].as_str(), Some("failed" | "incomplete")) {
+        let message = response_error_message(response).unwrap_or("unknown error");
+        anyhow::bail!("{provider_label} failed: {message}");
+    }
+
+    let mut citations = Vec::new();
+    let mut emitted_text = false;
+    if let Some(output) = response["output"].as_array() {
+        for item in output {
+            match item["type"].as_str() {
+                Some("message") => {
+                    if let Some(content) = item["content"].as_array() {
+                        for part in content {
+                            if let Some(text) =
+                                part["text"].as_str().or_else(|| part["refusal"].as_str())
+                            {
+                                emitted_text = true;
+                                on_token(text);
                             }
                         }
                     }
+                    collect_response_citations(item, &mut citations);
                 }
-                Some("response.completed") => break,
-                Some("response.failed") => {
-                    let msg = ev["response"]["error"]["message"]
-                        .as_str()
-                        .or_else(|| ev["error"]["message"].as_str())
-                        .unwrap_or("unknown error");
-                    anyhow::bail!("Codex responses failed: {msg}");
+                Some("reasoning") => {
+                    if let Some(summary) = item["summary"].as_array() {
+                        for part in summary {
+                            if let Some(text) = part["text"].as_str() {
+                                on_reasoning(text);
+                            }
+                        }
+                    }
                 }
                 _ => {}
             }
         }
+    }
+    if !emitted_text {
+        if let Some(text) = response["output_text"].as_str() {
+            on_token(text);
+        }
+    }
 
-        Ok(calls
-            .into_iter()
-            .map(|(_, b)| b)
-            .filter(|b| !b.name.is_empty())
-            .map(|b| ToolCall {
-                id: b.id,
-                name: b.name,
-                arguments: b.arguments,
-            })
-            .collect())
+    emit_response_citations(&citations, on_token);
+    Ok(tool_calls_from_buffers(response_calls(response)))
+}
+
+fn response_calls(response: &serde_json::Value) -> Vec<(String, ToolCallBuf)> {
+    let mut calls = Vec::new();
+    if let Some(output) = response["output"].as_array() {
+        for item in output {
+            if item["type"] == "function_call" {
+                upsert_response_call(&mut calls, item);
+            }
+        }
+    }
+    calls
+}
+
+fn upsert_response_call(calls: &mut Vec<(String, ToolCallBuf)>, item: &serde_json::Value) {
+    let item_id = item["id"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .or_else(|| item["call_id"].as_str())
+        .unwrap_or("");
+    if let Some(buffer) = upsert_call(calls, item_id) {
+        if let Some(call_id) = item["call_id"].as_str().filter(|value| !value.is_empty()) {
+            buffer.id = call_id.to_string();
+        }
+        if let Some(name) = item["name"].as_str().filter(|value| !value.is_empty()) {
+            buffer.name = name.to_string();
+        }
+        if let Some(arguments) = item["arguments"].as_str().filter(|value| !value.is_empty()) {
+            buffer.arguments = arguments.to_string();
+        }
+    }
+}
+
+fn tool_calls_from_buffers(calls: Vec<(String, ToolCallBuf)>) -> Vec<ToolCall> {
+    calls
+        .into_iter()
+        .map(|(_, buffer)| buffer)
+        .filter(|buffer| !buffer.name.is_empty())
+        .map(|buffer| ToolCall {
+            id: buffer.id,
+            name: buffer.name,
+            arguments: buffer.arguments,
+        })
+        .collect()
+}
+
+fn response_error_message(value: &serde_json::Value) -> Option<&str> {
+    value["error"]["message"]
+        .as_str()
+        .or_else(|| value["message"].as_str())
+        .or_else(|| value["incomplete_details"]["reason"].as_str())
+}
+
+fn collect_response_citations(value: &serde_json::Value, citations: &mut Vec<(String, String)>) {
+    if let Some(content) = value["content"].as_array() {
+        for part in content {
+            if let Some(annotations) = part["annotations"].as_array() {
+                for annotation in annotations {
+                    collect_response_annotation(annotation, citations);
+                }
+            }
+        }
+    }
+    if let Some(output) = value["output"].as_array() {
+        for item in output {
+            collect_response_citations(item, citations);
+        }
+    }
+}
+
+fn collect_response_annotation(
+    annotation: &serde_json::Value,
+    citations: &mut Vec<(String, String)>,
+) {
+    if annotation["type"] != "url_citation" {
+        return;
+    }
+    let Some(url) = annotation["url"].as_str().filter(|url| !url.is_empty()) else {
+        return;
+    };
+    if citations.iter().any(|(_, existing)| existing == url) {
+        return;
+    }
+    let title = annotation["title"]
+        .as_str()
+        .filter(|title| !title.is_empty())
+        .unwrap_or(url)
+        .replace('\n', " ")
+        .replace('\r', " ");
+    citations.push((title, url.to_string()));
+}
+
+fn emit_response_citations(citations: &[(String, String)], on_token: &mut dyn FnMut(&str)) {
+    if citations.is_empty() {
+        return;
+    }
+    on_token("\n\nSources:\n");
+    for (title, url) in citations {
+        // Kaku's compact Markdown renderer intentionally drops link targets,
+        // so keep the URL visible for copying and terminal link detection.
+        on_token(&format!("- {title}: {url}\n"));
     }
 }
 
@@ -1346,11 +1683,16 @@ fn detect_provider_with_auth(base_url: &str, auth_type: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_no_proxy_list, detect_provider_with_auth, parse_custom_headers, reasoning_delta_text,
-        should_roundtrip_reasoning_content, sse_data_payload, AiClient, ApiMessage,
-        AssistantConfig, InlineThinkFilter, ThinkSegment,
+        build_no_proxy_list, detect_provider_with_auth, parse_custom_headers, parse_responses_sse,
+        parse_responses_value, reasoning_delta_text, should_roundtrip_reasoning_content,
+        sse_data_payload, translate_responses_messages, translate_responses_tools, AiClient,
+        ApiMessage, ApiMode, AssistantConfig, InlineThinkFilter, ThinkSegment,
     };
     use reqwest::header::{AUTHORIZATION, USER_AGENT};
+    use std::io::{Cursor, Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::mpsc;
 
     fn collect_segments(segs: Vec<ThinkSegment>) -> (String, String) {
         let mut tokens = String::new();
@@ -1503,6 +1845,232 @@ mod tests {
     }
 
     #[test]
+    fn responses_translation_flattens_functions_and_adds_native_search() {
+        let messages = vec![
+            ApiMessage::system("Be concise"),
+            ApiMessage::user("Search this"),
+            ApiMessage::assistant_tool_calls(serde_json::json!([{
+                "id": "call_1",
+                "type": "function",
+                "function": { "name": "pwd", "arguments": "{}" }
+            }])),
+            ApiMessage::tool_result("call_1", "pwd", "/tmp"),
+        ];
+        let (instructions, input) = translate_responses_messages(&messages);
+        assert_eq!(instructions, "Be concise");
+        assert_eq!(input[0]["content"][0]["type"], "input_text");
+        assert_eq!(input[1]["type"], "function_call");
+        assert_eq!(input[2]["type"], "function_call_output");
+
+        let tools = vec![serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "pwd",
+                "description": "Print cwd",
+                "parameters": { "type": "object", "properties": {} },
+                "strict": true
+            }
+        })];
+        let translated = translate_responses_tools(&tools, true, true);
+        assert_eq!(translated[0]["name"], "pwd");
+        assert_eq!(translated[0]["strict"], true);
+        assert_eq!(translated[1], serde_json::json!({ "type": "web_search" }));
+        assert!(translate_responses_tools(&tools, false, true).is_empty());
+    }
+
+    #[test]
+    fn custom_responses_mode_posts_expected_wire_shape() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock responses server");
+        let address = listener.local_addr().expect("mock server address");
+        let (request_tx, request_rx) = mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept responses request");
+            let mut request = Vec::new();
+            let header_end = loop {
+                let mut chunk = [0_u8; 4096];
+                let count = stream.read(&mut chunk).expect("read request headers");
+                assert!(count > 0, "connection closed before request headers");
+                request.extend_from_slice(&chunk[..count]);
+                if let Some(pos) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                    break pos + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..header_end]);
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().ok())
+                        .flatten()
+                })
+                .expect("content-length header");
+            while request.len() < header_end + content_length {
+                let mut chunk = [0_u8; 4096];
+                let count = stream.read(&mut chunk).expect("read request body");
+                assert!(count > 0, "connection closed before request body");
+                request.extend_from_slice(&chunk[..count]);
+            }
+            request_tx.send(request).expect("capture request");
+
+            let body = concat!(
+                "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n",
+                "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n"
+            );
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .expect("write responses stream");
+        });
+
+        let config = AssistantConfig {
+            api_key: "test-token".to_string(),
+            chat_model: "gpt-test".to_string(),
+            chat_model_choices: Vec::new(),
+            base_url: format!("http://{address}"),
+            custom_headers: Vec::new(),
+            provider: "Custom".to_string(),
+            api_mode: ApiMode::Responses,
+            auth_type: "api_key".to_string(),
+            chat_tools_enabled: true,
+            native_web_search: true,
+            web_search_provider: None,
+            web_search_api_key: None,
+            web_fetch_script: None,
+            fast_model: None,
+            memory_curator_model: None,
+        };
+        let client = AiClient::new_with_timeout(config, std::time::Duration::from_secs(5));
+        let tools = vec![serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "pwd",
+                "description": "Print cwd",
+                "parameters": { "type": "object", "properties": {} }
+            }
+        })];
+        let mut text = String::new();
+        let calls = client
+            .chat_step(
+                "gpt-test",
+                &[ApiMessage::user("hello")],
+                &tools,
+                &AtomicBool::new(false),
+                &mut |token| text.push_str(token),
+                &mut |_| {},
+            )
+            .expect("responses request");
+        assert_eq!(text, "ok");
+        assert!(calls.is_empty());
+
+        server.join().expect("mock responses server");
+        let request = request_rx.recv().expect("captured request");
+        let header_end = request
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .expect("request separator")
+            + 4;
+        let headers = String::from_utf8_lossy(&request[..header_end]).to_ascii_lowercase();
+        assert!(headers.starts_with("post /responses http/1.1"));
+        assert!(headers.contains("authorization: bearer test-token"));
+        let body: serde_json::Value =
+            serde_json::from_slice(&request[header_end..]).expect("request JSON");
+        assert!(body.get("messages").is_none());
+        assert_eq!(body["input"][0]["content"][0]["type"], "input_text");
+        assert!(body["tools"]
+            .as_array()
+            .expect("responses tools")
+            .iter()
+            .any(|tool| tool == &serde_json::json!({ "type": "web_search" })));
+        assert!(body["tools"]
+            .as_array()
+            .expect("responses tools")
+            .iter()
+            .any(|tool| tool["type"] == "function" && tool["name"] == "pwd"));
+    }
+
+    #[test]
+    fn responses_json_parses_text_citations_reasoning_and_function_calls() {
+        let response = serde_json::json!({
+            "status": "completed",
+            "output": [
+                {
+                    "type": "reasoning",
+                    "summary": [{ "type": "summary_text", "text": "Checking sources" }]
+                },
+                {
+                    "type": "message",
+                    "content": [{
+                        "type": "output_text",
+                        "text": "Current answer",
+                        "annotations": [{
+                            "type": "url_citation",
+                            "url": "https://example.com/source",
+                            "title": "Example source"
+                        }]
+                    }]
+                },
+                {
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_1",
+                    "name": "pwd",
+                    "arguments": "{}"
+                }
+            ]
+        });
+        let mut text = String::new();
+        let mut reasoning = String::new();
+        let calls = parse_responses_value(
+            &response,
+            &mut |token| text.push_str(token),
+            &mut |token| reasoning.push_str(token),
+            "test",
+        )
+        .unwrap();
+
+        assert_eq!(reasoning, "Checking sources");
+        assert!(text.starts_with("Current answer"));
+        assert!(text.contains("Example source: https://example.com/source"));
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id, "call_1");
+        assert_eq!(calls[0].name, "pwd");
+        assert_eq!(calls[0].arguments, "{}");
+    }
+
+    #[test]
+    fn responses_sse_parses_streamed_text_citations_and_function_calls() {
+        let stream = concat!(
+            "data: {\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"Thinking\"}\n\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Answer\"}\n\n",
+            "data: {\"type\":\"response.output_text.annotation.added\",\"annotation\":{\"type\":\"url_citation\",\"url\":\"https://example.com\",\"title\":\"Example\"}}\n\n",
+            "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"pwd\",\"arguments\":\"\"}}\n\n",
+            "data: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"fc_1\",\"delta\":\"{}\"}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n"
+        );
+        let mut text = String::new();
+        let mut reasoning = String::new();
+        let calls = parse_responses_sse(
+            Cursor::new(stream),
+            &AtomicBool::new(false),
+            &mut |token| text.push_str(token),
+            &mut |token| reasoning.push_str(token),
+            "test",
+        )
+        .unwrap();
+
+        assert_eq!(reasoning, "Thinking");
+        assert!(text.starts_with("Answer"));
+        assert!(text.contains("Example: https://example.com"));
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id, "call_1");
+        assert_eq!(calls[0].arguments, "{}");
+    }
+
+    #[test]
     fn mock_sse_routes_fireworks_reasoning_content_before_visible_content() {
         let (tokens, reasoning) = route_mock_sse_lines(&[
             r#"data: {"choices":[{"delta":{"reasoning_content":"hidden "},"finish_reason":null}]}"#,
@@ -1575,8 +2143,10 @@ mod tests {
                 ("X-Customer-ID".to_string(), "acme".to_string()),
             ],
             provider: "Custom".to_string(),
+            api_mode: ApiMode::ChatCompletions,
             auth_type: "api_key".to_string(),
             chat_tools_enabled: true,
+            native_web_search: false,
             web_search_provider: None,
             web_search_api_key: None,
             web_fetch_script: None,
@@ -1613,8 +2183,10 @@ mod tests {
             base_url: "https://example.test/v1".to_string(),
             custom_headers: Vec::new(),
             provider: "Custom".to_string(),
+            api_mode: ApiMode::ChatCompletions,
             auth_type: "api_key".to_string(),
             chat_tools_enabled: true,
+            native_web_search: false,
             web_search_provider: None,
             web_search_api_key: None,
             web_fetch_script: None,

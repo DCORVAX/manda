@@ -1944,9 +1944,14 @@ impl App {
             cfg.chat_model_choices.join(", ")
         };
         let simple = cfg.fast_model.as_deref().unwrap_or(&cfg.chat_model);
-        let web_search = cfg.web_search_provider.as_deref().unwrap_or("disabled");
+        let web_search = if cfg.native_web_search_ready() {
+            "native"
+        } else {
+            cfg.web_search_provider.as_deref().unwrap_or("disabled")
+        };
         let text = format!(
             "provider          {provider}\n\
+             api_mode          {api_mode}\n\
              simple_model      {simple}\n\
              deep_model        {model}\n\
              chat_model_choices {choices}\n\
@@ -1954,6 +1959,7 @@ impl App {
              chat_tools_enabled {tools}\n\
              web_search        {ws}",
             provider = cfg.provider,
+            api_mode = cfg.api_mode.as_str(),
             model = cfg.chat_model,
             simple = simple,
             choices = model_list,

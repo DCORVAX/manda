@@ -68,6 +68,8 @@ The config lives at `~/.config/kaku/assistant.toml`:
 | `chat_model_choices` | Optional curated list of chat models for the overlay picker |
 | `auto_fix_ignored_exit_codes` | Optional exit codes that should not trigger automatic command-fix suggestions, e.g. `[2]` |
 | `base_url` | OpenAI-compatible API root URL |
+| `api_mode` | `chat_completions` (default) or `responses` |
+| `native_web_search` | Add the provider-hosted `web_search` tool in Responses mode, with no separate search API key |
 | `custom_headers` | Extra HTTP headers for enterprise proxies, e.g. `["X-Customer-ID: your-id"]` |
 | `web_search_provider` | Optional search backend: `brave`, `pipellm`, or `tavily` |
 | `web_search_api_key` | API key for the selected search backend |
@@ -78,6 +80,20 @@ The config lives at `~/.config/kaku/assistant.toml`:
 
 Older configs may still contain `fast_model`; Kaku treats it as the Simple Model
 and folds it back into `model` the next time the assistant settings are saved.
+
+For a Responses-compatible endpoint, select `responses` under **API Mode** in
+`kaku ai`, or configure it directly:
+
+```toml
+base_url = "https://api.openai.com/v1"
+api_mode = "responses"
+native_web_search = true
+```
+
+Kaku sends these requests to `{base_url}/responses`. Native web search runs at
+the model provider, so `web_search_provider` and `web_search_api_key` are not
+needed. Keep `chat_completions` for providers that only implement
+`/chat/completions`.
 
 ---
 
