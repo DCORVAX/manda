@@ -68,3 +68,5 @@
 30	Starship 提示符配置现在只在 Kaku 内生效，其他终端会保留各自原有的提示符
 31	Inline AI (# requests and error fixes) now works reliably in zsh, and # comments never block Enter outside Kaku
 31	行内 AI（# 请求与报错修复）在 zsh 下恢复可靠工作，Kaku 之外的 # 注释不再卡住回车
+31	File links can now open in your chosen editor with config.file_link_editor
+31	文件链接现在可通过 config.file_link_editor 使用你指定的编辑器打开

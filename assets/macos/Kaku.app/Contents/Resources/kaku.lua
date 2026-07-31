@@ -4104,6 +4104,9 @@ config.cursor_blink_ease_out = 'Constant'
 -- ===== Scrollback =====
 config.scrollback_lines = 10000
 
+-- Optional editor for local file links. Kaku appends path[:line[:column]].
+-- config.file_link_editor = 'zed'
+
 -- ===== Text Selection =====
 config.selection_word_boundary = ' \t\n{}[]()"\'-'  -- Smart selection boundaries
 

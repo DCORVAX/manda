@@ -293,6 +293,10 @@ pub struct Config {
     #[dynamic(default = "default_hyperlink_rules")]
     pub hyperlink_rules: Vec<hyperlink::Rule>,
 
+    /// Optional command used to open local file links. Kaku appends the
+    /// resolved path and, when present, its line and column.
+    pub file_link_editor: Option<String>,
+
     /// What to set the TERM variable to
     #[dynamic(default = "default_term")]
     pub term: String,

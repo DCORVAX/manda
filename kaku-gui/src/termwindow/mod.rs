@@ -5171,6 +5171,7 @@ impl TermWindow {
             } else {
                 None
             };
+            let file_link_editor = self.config.file_link_editor.clone();
 
             let window = GuiWin::new(self);
             let pane = MuxPane(pane.pane_id());
@@ -5182,6 +5183,7 @@ impl TermWindow {
                 link: String,
                 resolved_target: Option<FileLinkTarget>,
                 explicit_file_link: bool,
+                file_link_editor: Option<String>,
             ) -> anyhow::Result<()> {
                 let default_click = match lua {
                     Some(lua) => {
@@ -5218,6 +5220,7 @@ impl TermWindow {
                                     &target,
                                     explicit_file_link,
                                     use_default_app,
+                                    file_link_editor.as_deref(),
                                 ) {
                                     log::warn!(
                                         "Failed to open file link target {:?}: {err:#}",
@@ -5244,6 +5247,7 @@ impl TermWindow {
                     uri,
                     resolved_target,
                     is_explicit_file_link,
+                    file_link_editor,
                 )
             }))
             .detach();
@@ -5278,6 +5282,7 @@ impl TermWindow {
         target: &FileLinkTarget,
         explicit: bool,
         use_default_app: bool,
+        configured_editor: Option<&str>,
     ) -> anyhow::Result<()> {
         #[cfg(target_os = "macos")]
         if explicit && Self::try_open_path_with_default_app(&target.path)? {
@@ -5286,6 +5291,11 @@ impl TermWindow {
 
         #[cfg(target_os = "macos")]
         if use_default_app && Self::try_open_path_with_default_app(&target.path)? {
+            return Ok(());
+        }
+
+        if let Some(editor) = configured_editor {
+            Self::try_open_configured_editor(editor, target)?;
             return Ok(());
         }
 
@@ -5345,6 +5355,28 @@ impl TermWindow {
         }
 
         Ok(false)
+    }
+
+    fn try_open_configured_editor(raw: &str, target: &FileLinkTarget) -> anyhow::Result<()> {
+        let (program, args) =
+            Self::parse_editor_command(raw.trim()).context("parse config.file_link_editor")?;
+        let location = Self::file_link_location(target);
+
+        Self::run_path_command(&program, &args, Path::new(&location))
+            .with_context(|| format!("launch config.file_link_editor `{program}`"))
+    }
+
+    fn file_link_location(target: &FileLinkTarget) -> String {
+        let mut location = target.path.display().to_string();
+        if let Some(line) = target.line {
+            location.push(':');
+            location.push_str(&line.to_string());
+            if let Some(col) = target.col {
+                location.push(':');
+                location.push_str(&col.to_string());
+            }
+        }
+        location
     }
 
     fn try_open_in_configured_editor(path: &Path) -> anyhow::Result<bool> {
@@ -6525,11 +6557,12 @@ impl Drop for TermWindow {
 #[cfg(test)]
 mod tests {
     use super::{
-        bell_notification_message, InputBroadcastMode, MouseCapture, RenderableDimensions,
-        TermWindow,
+        bell_notification_message, FileLinkTarget, InputBroadcastMode, MouseCapture,
+        RenderableDimensions, TermWindow,
     };
     use mux::pane::PaneId;
     use mux::tab::TabId;
+    use std::path::PathBuf;
     use wezterm_term::StableRowIndex;
 
     #[test]
@@ -6568,6 +6601,26 @@ mod tests {
     fn parse_editor_command_rejects_empty_value() {
         let err = TermWindow::parse_editor_command("   ").unwrap_err();
         assert!(err.to_string().contains("editor command is empty"));
+    }
+
+    #[test]
+    fn configured_editor_location_preserves_line_and_column() {
+        let target = FileLinkTarget {
+            path: PathBuf::from("/tmp/demo.rs"),
+            line: Some(12),
+            col: Some(3),
+        };
+        assert_eq!(TermWindow::file_link_location(&target), "/tmp/demo.rs:12:3");
+    }
+
+    #[test]
+    fn configured_editor_location_uses_plain_path_without_line() {
+        let target = FileLinkTarget {
+            path: PathBuf::from("/tmp/demo.rs"),
+            line: None,
+            col: Some(3),
+        };
+        assert_eq!(TermWindow::file_link_location(&target), "/tmp/demo.rs");
     }
 
     #[test]
