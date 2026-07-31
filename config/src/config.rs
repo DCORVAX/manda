@@ -2427,7 +2427,10 @@ mod tests {
         };
 
         assert_eq!(uri("visit kaku.fun."), Some("https://kaku.fun".to_string()));
-        assert_eq!(uri("\u{53BB} kaku.fun\u{3002}"), Some("https://kaku.fun".to_string()));
+        assert_eq!(
+            uri("\u{53BB} kaku.fun\u{3002}"),
+            Some("https://kaku.fun".to_string())
+        );
         assert_eq!(
             uri("www.example.org rocks"),
             Some("https://www.example.org".to_string())
