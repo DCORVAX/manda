@@ -5807,38 +5807,47 @@ impl TermWindow {
         }
     }
 
-    /// Viewport normalization used while a mouse selection drag is actively
-    /// driving the viewport (cursor held above/below the pane auto-scrolls).
-    ///
-    /// Unlike [`Self::normalize_viewport`], a position pruned from scrollback
-    /// pins to the oldest remaining row instead of snapping to the bottom.
-    /// The snap would teleport the view back to the bottom mid-drag — the
-    /// "content returns to its original position" fight — and the next drag
-    /// event would start climbing from the bottom again, so the dragged
-    /// content never stays put. If nothing remains in scrollback to pin to,
-    /// following live output is the only sane fallback.
-    fn drag_normalize_viewport(
+    /// Normalize an explicit user-driven scroll request. Unlike passive
+    /// scrollback pruning, an interactive request that overshoots the oldest
+    /// row should stop there instead of snapping to the bottom.
+    fn normalize_interactive_viewport(
         position: Option<StableRowIndex>,
         dims: RenderableDimensions,
     ) -> Option<StableRowIndex> {
         match position {
             Some(pos) if pos >= dims.physical_top => None,
-            Some(pos) if pos < dims.scrollback_top => {
-                (dims.scrollback_top < dims.physical_top).then_some(dims.scrollback_top)
+            Some(pos) => {
+                let clamped = pos.max(dims.scrollback_top);
+                (clamped < dims.physical_top).then_some(clamped)
             }
-            Some(pos) => Some(pos),
             None => None,
         }
+    }
+
+    fn selection_drag_controls_pane(
+        selection_drag_active: bool,
+        current_mouse_capture: Option<&MouseCapture>,
+        pane_id: PaneId,
+    ) -> bool {
+        selection_drag_active
+            && matches!(
+                current_mouse_capture,
+                Some(MouseCapture::TerminalPane(captured_pane_id))
+                    if *captured_pane_id == pane_id
+            )
     }
 
     fn reconcile_viewport(
         position: Option<StableRowIndex>,
         was_primary_peek: bool,
         is_primary_peek: bool,
+        pin_pruned_viewport: bool,
         dims: RenderableDimensions,
     ) -> Option<StableRowIndex> {
         if was_primary_peek && !is_primary_peek {
             None
+        } else if pin_pruned_viewport {
+            Self::normalize_interactive_viewport(position, dims)
         } else {
             Self::normalize_viewport(position, dims)
         }
@@ -5851,15 +5860,18 @@ impl TermWindow {
         let mut state = self.pane_state(pane_id);
         let viewport = state.viewport;
         let was_primary_peek = state.was_primary_peek;
-        let next_viewport = if self.selection_drag_active {
-            // The drag is under the user's control: pin a pruned viewport to
-            // the oldest remaining row rather than snapping to the bottom,
-            // which would yank the view (and the selection target) back to
-            // the "original position" between drag events.
-            Self::drag_normalize_viewport(viewport, dims)
-        } else {
-            Self::reconcile_viewport(viewport, was_primary_peek, is_primary_peek, dims)
-        };
+        let pin_pruned_viewport = Self::selection_drag_controls_pane(
+            self.selection_drag_active,
+            self.current_mouse_capture.as_ref(),
+            pane_id,
+        );
+        let next_viewport = Self::reconcile_viewport(
+            viewport,
+            was_primary_peek,
+            is_primary_peek,
+            pin_pruned_viewport,
+            dims,
+        );
 
         if next_viewport != viewport {
             if was_primary_peek && !is_primary_peek {
@@ -5897,7 +5909,7 @@ impl TermWindow {
             dims.physical_top,
             dims.scrollback_top,
         );
-        let pos = Self::normalize_viewport(position, dims);
+        let pos = Self::normalize_interactive_viewport(position, dims);
 
         let mut state = self.pane_state(pane_id);
         if pos != state.viewport {
@@ -6512,7 +6524,11 @@ impl Drop for TermWindow {
 
 #[cfg(test)]
 mod tests {
-    use super::{bell_notification_message, InputBroadcastMode, RenderableDimensions, TermWindow};
+    use super::{
+        bell_notification_message, InputBroadcastMode, MouseCapture, RenderableDimensions,
+        TermWindow,
+    };
+    use mux::pane::PaneId;
     use mux::tab::TabId;
     use wezterm_term::StableRowIndex;
 
@@ -6652,45 +6668,75 @@ mod tests {
     #[test]
     fn reconcile_viewport_clears_stale_peek_viewport_on_exit() {
         assert_eq!(
-            TermWindow::reconcile_viewport(Some(120), true, false, dims(40, 0)),
+            TermWindow::reconcile_viewport(Some(20), true, false, false, dims(40, 0)),
+            None
+        );
+        // A peek exit remains authoritative while a selection drag is active.
+        assert_eq!(
+            TermWindow::reconcile_viewport(Some(20), true, false, true, dims(40, 0)),
             None
         );
     }
 
     #[test]
-    fn drag_normalize_viewport_pins_pruned_viewport_at_scrollback_top() {
-        // During an active selection drag the viewport is under the user's
-        // control: a position pruned from scrollback pins to the oldest
-        // remaining row instead of snapping to the bottom (#448), which would
-        // teleport the view mid-drag and restart the climb from the bottom.
+    fn interactive_viewport_clamps_page_up_past_scrollback_top() {
+        let page_up_target = 110isize.saturating_sub(24);
         assert_eq!(
-            TermWindow::drag_normalize_viewport(Some(90), dims(150, 100)),
+            TermWindow::normalize_interactive_viewport(Some(page_up_target), dims(150, 100)),
             Some(100)
         );
         // Positions still inside scrollback are preserved.
         assert_eq!(
-            TermWindow::drag_normalize_viewport(Some(120), dims(150, 100)),
+            TermWindow::normalize_interactive_viewport(Some(120), dims(150, 100)),
             Some(120)
         );
     }
 
     #[test]
-    fn drag_normalize_viewport_follows_bottom_when_nothing_left_to_pin() {
+    fn interactive_viewport_follows_bottom_when_nothing_left_to_pin() {
         // No scrollback remains (scrollback_top == physical_top): follow live
         // output.
         assert_eq!(
-            TermWindow::drag_normalize_viewport(Some(90), dims(150, 150)),
+            TermWindow::normalize_interactive_viewport(Some(90), dims(150, 150)),
             None
         );
         // Bottom-follow position stays bottom-follow.
         assert_eq!(
-            TermWindow::drag_normalize_viewport(Some(150), dims(150, 100)),
+            TermWindow::normalize_interactive_viewport(Some(150), dims(150, 100)),
             None
         );
         assert_eq!(
-            TermWindow::drag_normalize_viewport(None, dims(150, 100)),
+            TermWindow::normalize_interactive_viewport(None, dims(150, 100)),
             None
         );
+    }
+
+    #[test]
+    fn selection_drag_only_controls_the_captured_pane() {
+        let captured_pane = PaneId::new(1);
+        let sibling_pane = PaneId::new(2);
+        let capture = MouseCapture::TerminalPane(captured_pane);
+
+        assert!(TermWindow::selection_drag_controls_pane(
+            true,
+            Some(&capture),
+            captured_pane
+        ));
+        assert!(!TermWindow::selection_drag_controls_pane(
+            true,
+            Some(&capture),
+            sibling_pane
+        ));
+        assert!(!TermWindow::selection_drag_controls_pane(
+            false,
+            Some(&capture),
+            captured_pane
+        ));
+        assert!(!TermWindow::selection_drag_controls_pane(
+            true,
+            Some(&MouseCapture::UI),
+            captured_pane
+        ));
     }
 
     #[test]

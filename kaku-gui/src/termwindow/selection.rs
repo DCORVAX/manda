@@ -313,17 +313,7 @@ impl super::TermWindow {
 
         // Scroll viewport when mouse mouves out of its vertical bounds
         if position.row == 0 && position.y_pixel_offset < 0 {
-            // Clamp to scrollback_top: set_viewport's normalization maps a
-            // position below scrollback_top to None (snap to the bottom,
-            // #448). Without the clamp, dragging past the top of scrollback
-            // teleports the view back to the bottom, and the next drag event
-            // starts climbing again from the bottom — the content never stays
-            // scrolled ("infinite return to the original position").
-            self.set_viewport(
-                pane.pane_id(),
-                Some(y.saturating_sub(1).max(dims.scrollback_top)),
-                dims,
-            );
+            self.set_viewport(pane.pane_id(), Some(y.saturating_sub(1)), dims);
         } else if position.row >= dims.viewport_rows as i64 {
             let top = self.effective_viewport(pane).unwrap_or(dims.physical_top);
             self.set_viewport(pane.pane_id(), Some(top + 1), dims);

@@ -173,7 +173,7 @@ enum SelectionDragWheelAction {
 /// terminal selection drag, and if so return the action that the configured
 /// [`SelectionWheelScrollBehavior`] resolves to.
 ///
-/// Returning `None` is the "not in a selection drag" signal — callers should
+/// Returning `None` is the "not in a selection drag" signal; callers should
 /// continue through the normal wheel routing path.
 ///
 /// `selection_drag_active` must come from the binding lookup: a left press in
@@ -687,7 +687,7 @@ impl super::TermWindow {
                     // drag-protection so follow-up motion/wheel isn't routed
                     // into terminal selection/scroll. Use terminal_origin_y
                     // rather than first_line_offset so the band of top
-                    // padding above row 0 isn't claimed as draggable — that
+                    // padding above row 0 isn't claimed as draggable; that
                     // band is part of the terminal pane (#356, 3-finger drag).
                     self.current_mouse_capture = Some(MouseCapture::UI);
                     self.window_drag.is_window_dragging = true;
@@ -1282,11 +1282,7 @@ impl super::TermWindow {
                 Some(
                     current_viewport
                         .unwrap_or(dims.physical_top)
-                        .saturating_sub(self.terminal_size.rows.try_into().unwrap())
-                        // Clamp like the wheel path: a page-up past scrollback_top
-                        // must pin to the top, not snap to the bottom (#448
-                        // normalization would otherwise teleport the view).
-                        .max(dims.scrollback_top),
+                        .saturating_sub(self.terminal_size.rows.try_into().unwrap()),
                 ),
                 dims,
             );
