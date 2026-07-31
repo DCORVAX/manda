@@ -3872,6 +3872,7 @@ local function build_font_config(is_light)
   local font = wezterm.font_with_fallback({
     { family = 'JetBrains Mono', weight = base_weight },
     { family = 'PingFang SC', weight = base_weight },
+    'Apple Symbols',
     'Apple Color Emoji',
   })
 
@@ -3882,6 +3883,7 @@ local function build_font_config(is_light)
       font = wezterm.font_with_fallback({
         { family = 'JetBrains Mono', weight = base_weight },
         { family = 'PingFang SC', weight = base_weight },
+        'Apple Symbols',
         'Apple Color Emoji',
       }),
     },
@@ -3892,6 +3894,7 @@ local function build_font_config(is_light)
       font = wezterm.font_with_fallback({
         { family = 'JetBrains Mono', weight = base_weight, italic = false },
         { family = 'PingFang SC', weight = base_weight },
+        'Apple Symbols',
         'Apple Color Emoji',
       }),
     },
@@ -3901,6 +3904,7 @@ local function build_font_config(is_light)
       font = wezterm.font_with_fallback({
         { family = 'JetBrains Mono', weight = bold_weight },
         { family = 'PingFang SC', weight = bold_weight },
+        'Apple Symbols',
         'Apple Color Emoji',
       }),
     },
