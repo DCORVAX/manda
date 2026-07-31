@@ -145,6 +145,53 @@ fn apply_hyperlink_rules_wrapped_lines() {
 }
 
 #[test]
+fn apply_hyperlink_rules_tui_wrapped_lines_with_indent() {
+    // A TUI renderer hard-broke a long URL at the terminal width without
+    // setting the wrap attribute, and indented the continuation row. The
+    // indent must not split the URL, and must survive the rebuild.
+    let url_part1 = "https://accounts.example.com/o";
+    let url_part2 = "/oauth2?code=abc123&state=xyz";
+    let indent = "  ";
+
+    let rules = vec![Rule::new(r"\b\w+://\S+[_/a-zA-Z0-9-]", "$0").unwrap()];
+
+    let mut line1: Line = url_part1.into();
+    let mut line2: Line = format!("{indent}{url_part2}").as_str().into();
+
+    let mut lines: [&mut Line; 2] = [&mut line1, &mut line2];
+    Line::apply_hyperlink_rules(&rules, &mut lines);
+
+    let full_url = format!("{}{}", url_part1, url_part2);
+    let expected_link = Arc::new(Hyperlink::new_implicit(&full_url));
+
+    assert_eq!(
+        line1.get_cell(0).unwrap().attrs().hyperlink().cloned(),
+        Some(expected_link.clone()),
+        "line1 carries the full URL"
+    );
+    assert_eq!(
+        line2.get_cell(0).unwrap().attrs().hyperlink().cloned(),
+        None,
+        "indent cell stays unlinked"
+    );
+    assert_eq!(
+        line2
+            .get_cell(indent.len())
+            .unwrap()
+            .attrs()
+            .hyperlink()
+            .cloned(),
+        Some(expected_link),
+        "continuation content carries the full URL"
+    );
+    assert_eq!(
+        line2.len(),
+        indent.len() + url_part2.len(),
+        "indent cells are restored after the rebuild"
+    );
+}
+
+#[test]
 fn double_click_range_bounds() {
     let line: Line = "hello".into();
     let r = line.compute_double_click_range(200, |_| true);

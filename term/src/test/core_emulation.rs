@@ -203,3 +203,29 @@ fn multiple_tabs_hit_successive_stops() {
     term.print("\t\t");
     term.assert_cursor_pos(16, 0, Some("two tabs land at col 16"), None);
 }
+
+// ─── Logical line joining ─────────────────────────────────────────────────────
+
+#[test]
+fn logical_line_walker_joins_full_width_rows_without_wrap_attr() {
+    let mut term = TestTerm::new(4, 10, 0);
+    // A TUI renderer hard-breaks a long token at the terminal width and
+    // moves on with an explicit newline: the wrap attribute is never set.
+    // Row 0 is full width, row 1 is its indented continuation, row 2 is
+    // unrelated (not full width).
+    term.print("ABCDEFGHIJ\r\n  KLMNO\r\nxyz\r\n");
+
+    let mut groups: Vec<usize> = vec![];
+    term.term
+        .screen_mut()
+        .for_each_logical_line_in_stable_range_mut(0..3, |_range, lines| {
+            groups.push(lines.len());
+            true
+        });
+
+    assert_eq!(
+        groups,
+        vec![2, 1],
+        "full-width row joins its continuation; the short row stands alone"
+    );
+}
