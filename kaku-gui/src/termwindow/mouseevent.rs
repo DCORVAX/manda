@@ -1798,66 +1798,150 @@ impl super::TermWindow {
                     self.scroll_to_bottom(&pane);
                 }
 
-                // Option+Click: move cursor to the clicked column on the same line.
-                // Only fires when the shell owns the prompt (no mouse grab, no alt screen).
+                // Option+Click: move the terminal cursor to the clicked cell by
+                // synthesizing arrow keypresses, like iTerm2.
+                // Only fires when the shell owns the prompt (no mouse grab, no
+                // alt screen) and only for a clean click: the press falls
+                // through to start a block selection, so if the user dragged,
+                // a selection range exists by release time and we leave the
+                // event to the selection bindings instead.
                 if !pane.is_mouse_grabbed()
                     && !pane.is_alt_screen_active()
-                    && matches!(event.kind, WMEK::Press(MousePress::Left))
+                    && matches!(event.kind, WMEK::Release(MousePress::Left))
                     && modifiers.contains(window::Modifiers::ALT)
+                    && !modifiers.contains(window::Modifiers::SHIFT)
+                    && stable_row >= dims.physical_top
+                    && self.selection(pane.pane_id()).range.is_none()
                 {
                     let cursor = pane.get_cursor_position();
-                    if stable_row == cursor.y {
-                        let (from_col, to_col) = if column > cursor.x {
-                            (cursor.x, column)
-                        } else {
-                            (column, cursor.x)
-                        };
+                    let top = stable_row.min(cursor.y);
+                    let bottom = stable_row.max(cursor.y);
 
-                        // Count logical characters (not cells) between the two columns.
-                        // Wide chars (CJK etc.) occupy 2 cells but advance the cursor by 1 keypress.
-                        struct CountArrows {
-                            from_col: usize,
-                            to_col: usize,
-                            count: usize,
+                    #[derive(Default)]
+                    struct RowInfo {
+                        wrapped: bool,
+                        cells: Vec<(usize, usize)>,
+                        text_len: usize,
+                    }
+                    #[derive(Default)]
+                    struct GatherRows {
+                        rows: Vec<RowInfo>,
+                    }
+                    impl WithPaneLines for GatherRows {
+                        fn with_lines_mut(
+                            &mut self,
+                            _first_row: StableRowIndex,
+                            lines: &mut [&mut Line],
+                        ) {
+                            for line in lines.iter() {
+                                let mut info = RowInfo {
+                                    wrapped: line.last_cell_was_wrapped(),
+                                    ..Default::default()
+                                };
+                                for cell in line.visible_cells() {
+                                    let idx = cell.cell_index();
+                                    let width = cell.width();
+                                    info.cells.push((idx, width));
+                                    if cell.str() != " " {
+                                        info.text_len = idx + width;
+                                    }
+                                }
+                                self.rows.push(info);
+                            }
                         }
-                        impl WithPaneLines for CountArrows {
-                            fn with_lines_mut(
-                                &mut self,
-                                _first_row: StableRowIndex,
-                                lines: &mut [&mut Line],
-                            ) {
-                                if let Some(line) = lines.first() {
-                                    for cell in line.visible_cells() {
-                                        let idx = cell.cell_index();
-                                        if idx < self.to_col && idx + cell.width() > self.from_col {
-                                            self.count += 1;
-                                        }
+                    }
+
+                    let mut gather = GatherRows::default();
+                    pane.with_lines_mut(top..bottom + 1, &mut gather);
+                    let rows = gather.rows;
+
+                    let mut bytes: Vec<u8> = Vec::new();
+                    if !rows.is_empty() {
+                        let last = rows.len() - 1;
+                        // The clicked row and the cursor row belong to one
+                        // soft-wrapped logical line when every physical row
+                        // above the last one carries the wrap attribute; the
+                        // line editor reaches any point in it with horizontal
+                        // arrows alone.
+                        let soft_wrapped_chain = rows[..last].iter().all(|info| info.wrapped);
+
+                        if stable_row == cursor.y || soft_wrapped_chain {
+                            // Count logical characters (not cells) between the
+                            // two points. Wide chars (CJK etc.) occupy 2 cells
+                            // but advance the cursor by 1 keypress.
+                            let (from, to) = {
+                                let a = (cursor.y, cursor.x);
+                                let b = (stable_row, column);
+                                if a <= b {
+                                    (a, b)
+                                } else {
+                                    (b, a)
+                                }
+                            };
+                            let mut count = 0usize;
+                            for (i, info) in rows.iter().enumerate() {
+                                for &(idx, width) in &info.cells {
+                                    let after_start = i > 0 || idx + width > from.1;
+                                    let before_end = i < last || idx < to.1;
+                                    if after_start && before_end {
+                                        count += 1;
                                     }
                                 }
                             }
-                        }
-
-                        let mut counter = CountArrows {
-                            from_col,
-                            to_col,
-                            count: 0,
-                        };
-                        pane.with_lines_mut(stable_row..stable_row + 1, &mut counter);
-
-                        if counter.count > 0 {
-                            let arrow: &[u8] = if column > cursor.x {
-                                b"\x1b[C"
+                            let moving_right = (stable_row, column) > (cursor.y, cursor.x);
+                            let arrow: &[u8] = if moving_right { b"\x1b[C" } else { b"\x1b[D" };
+                            bytes = arrow.repeat(count);
+                        } else {
+                            // Rows separated by hard newlines: a multi-line
+                            // editor buffer (shell continuation, TUI input
+                            // box). Move vertically first, then correct the
+                            // column on the clicked row. Cells past the end of
+                            // that row's text are ignored so repaint padding
+                            // does not become stray keypresses.
+                            let vertical: &[u8] = if stable_row < cursor.y {
+                                b"\x1b[A"
                             } else {
-                                b"\x1b[D"
+                                b"\x1b[B"
                             };
-                            let bytes: Vec<u8> = arrow.repeat(counter.count);
-                            if let Err(err) = self.write_terminal_input_bytes(&pane, &bytes) {
-                                log::debug!("option+click cursor move failed: {err:#}");
+                            bytes = vertical.repeat((bottom - top) as usize);
+
+                            let target = if stable_row < cursor.y {
+                                &rows[0]
+                            } else {
+                                &rows[last]
+                            };
+                            let (from_col, to_col) = if column > cursor.x {
+                                (cursor.x, column)
+                            } else {
+                                (column, cursor.x)
+                            };
+                            let mut count = 0usize;
+                            for &(idx, width) in &target.cells {
+                                if idx < to_col && idx + width > from_col && idx < target.text_len {
+                                    count += 1;
+                                }
                             }
-                            self.maybe_scroll_to_bottom_for_input(&pane);
+                            if count > 0 {
+                                let arrow: &[u8] = if column > cursor.x {
+                                    b"\x1b[C"
+                                } else {
+                                    b"\x1b[D"
+                                };
+                                bytes.extend_from_slice(&arrow.repeat(count));
+                            }
                         }
-                        return;
                     }
+
+                    if !bytes.is_empty() {
+                        if let Err(err) = self.write_terminal_input_bytes(&pane, &bytes) {
+                            log::debug!("option+click cursor move failed: {err:#}");
+                        }
+                        self.maybe_scroll_to_bottom_for_input(&pane);
+                    }
+                    // The press started a block selection origin; drop it so a
+                    // later shift-click does not extend from a stale point.
+                    self.selection(pane.pane_id()).clear();
+                    return;
                 }
 
                 // normalize delta and streak to make mouse assignment
