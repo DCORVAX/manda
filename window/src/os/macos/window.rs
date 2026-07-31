@@ -565,10 +565,24 @@ fn set_window_position(window: *mut Object, coords: ScreenPoint) {
         let content_frame = NSWindow::contentRectForFrameRect_(window, frame);
         let delta_x = content_frame.origin.x - frame.origin.x;
         let delta_y = content_frame.origin.y - frame.origin.y;
-        let point = NSPoint::new(
+        let mut point = NSPoint::new(
             cartesian.x as f64 - delta_x,
             cartesian.y as f64 - delta_y - content_frame.size.height,
         );
+
+        // Manual drags and programmatic moves can otherwise place the title
+        // bar behind the macOS menu bar, where the cursor can no longer
+        // reach it (#508). Native drags never allow this: AppKit pins the
+        // frame's top edge to the visible frame. Mirror that constraint for
+        // the top edge only; the other edges may go off screen, matching
+        // native drag behavior.
+        let new_frame = NSRect::new(point, frame.size);
+        if let Some(visible) = visible_frame_for_target_frame(window, new_frame) {
+            if let Some(clamped_y) = clamp_frame_top_below_menu_bar(new_frame, visible) {
+                point.y = clamped_y;
+            }
+        }
+
         NSWindow::setFrameOrigin_(window, point);
     }
 }
@@ -792,6 +806,50 @@ fn fit_frame_to_visible_frame(frame: NSRect, visible_frame: NSRect) -> Option<NS
     } else {
         Some(adjusted)
     }
+}
+
+/// Returns the y for `setFrameOrigin` that keeps the frame's top edge at or
+/// below the visible frame's top (i.e. below the menu bar), or None when the
+/// frame is already compliant. Only the top edge is constrained: windows may
+/// legitimately hang off the left, right, or bottom of the screen, exactly
+/// like a native title-bar drag allows.
+fn clamp_frame_top_below_menu_bar(frame: NSRect, visible_frame: NSRect) -> Option<f64> {
+    if visible_frame.size.width <= 0.0 || visible_frame.size.height <= 0.0 {
+        return None;
+    }
+    let top = frame.origin.y + frame.size.height;
+    let visible_top = visible_frame.origin.y + visible_frame.size.height;
+    if top > visible_top + 0.5 {
+        Some(visible_top - frame.size.height)
+    } else {
+        None
+    }
+}
+
+/// Visible frame of the screen that `frame` is headed to: the screen whose
+/// frame contains the target's center, falling back to the window's current
+/// screen. Using the target keeps cross-display moves (e.g. `--position` to
+/// a display arranged above the current one) from being clamped against the
+/// wrong screen.
+fn visible_frame_for_target_frame(window: id, frame: NSRect) -> Option<NSRect> {
+    unsafe {
+        let screens: id = msg_send![class!(NSScreen), screens];
+        let count: usize = msg_send![screens, count];
+        let center_x = frame.origin.x + frame.size.width / 2.0;
+        let center_y = frame.origin.y + frame.size.height / 2.0;
+        for i in 0..count {
+            let screen: id = msg_send![screens, objectAtIndex: i];
+            let sframe: NSRect = msg_send![screen, frame];
+            if center_x >= sframe.origin.x
+                && center_x < sframe.origin.x + sframe.size.width
+                && center_y >= sframe.origin.y
+                && center_y < sframe.origin.y + sframe.size.height
+            {
+                return Some(msg_send![screen, visibleFrame]);
+            }
+        }
+    }
+    visible_frame_for_window(window)
 }
 
 fn visible_frame_for_window(window: id) -> Option<NSRect> {
@@ -3823,6 +3881,28 @@ mod tests {
         assert_eq!(adjusted.origin.y, 0.0);
         assert_eq!(adjusted.size.width, 1440.0);
         assert_eq!(adjusted.size.height, 900.0);
+    }
+
+    #[test]
+    fn frame_top_is_clamped_below_menu_bar() {
+        // 1920x1080 screen with a 25pt menu bar: visible frame tops out at 1055.
+        let visible = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1920.0, 1055.0));
+
+        // Dragged so the title bar sits behind the menu bar: pinned back down.
+        let frame = NSRect::new(NSPoint::new(100.0, 500.0), NSSize::new(800.0, 600.0));
+        assert_eq!(clamp_frame_top_below_menu_bar(frame, visible), Some(455.0));
+
+        // Fully visible window is untouched.
+        let frame = NSRect::new(NSPoint::new(100.0, 100.0), NSSize::new(800.0, 600.0));
+        assert_eq!(clamp_frame_top_below_menu_bar(frame, visible), None);
+
+        // Exactly at the menu bar boundary is untouched.
+        let frame = NSRect::new(NSPoint::new(100.0, 455.0), NSSize::new(800.0, 600.0));
+        assert_eq!(clamp_frame_top_below_menu_bar(frame, visible), None);
+
+        // Hanging off the bottom stays allowed; only the top edge is pinned.
+        let frame = NSRect::new(NSPoint::new(100.0, -400.0), NSSize::new(800.0, 600.0));
+        assert_eq!(clamp_frame_top_below_menu_bar(frame, visible), None);
     }
 
     #[test]
