@@ -1282,7 +1282,11 @@ impl super::TermWindow {
                 Some(
                     current_viewport
                         .unwrap_or(dims.physical_top)
-                        .saturating_sub(self.terminal_size.rows.try_into().unwrap()),
+                        .saturating_sub(self.terminal_size.rows.try_into().unwrap())
+                        // Clamp like the wheel path: a page-up past scrollback_top
+                        // must pin to the top, not snap to the bottom (#448
+                        // normalization would otherwise teleport the view).
+                        .max(dims.scrollback_top),
                 ),
                 dims,
             );

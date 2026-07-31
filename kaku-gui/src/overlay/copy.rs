@@ -555,16 +555,27 @@ impl CopyRenderable {
     fn adjust_viewport_for_cursor_position(&self) {
         let dims = self.dimensions();
 
+        // Clamp both upward scrolls to scrollback_top: set_viewport's
+        // normalization maps a position below scrollback_top to None (snap to
+        // the bottom, #448), which would teleport the view from the top of
+        // scrollback straight to the bottom whenever the cursor sits within
+        // vertical_gap of the oldest row.
+        let follow_top = |row: StableRowIndex| row.max(dims.dims.scrollback_top);
+
         if dims.top > self.cursor.y {
             // Cursor is off the top of the viewport; adjust
-            self.set_viewport(Some(self.cursor.y.saturating_sub(dims.vertical_gap)));
+            self.set_viewport(Some(follow_top(
+                self.cursor.y.saturating_sub(dims.vertical_gap),
+            )));
             return;
         }
 
         let top_gap = self.cursor.y - dims.top;
         if top_gap < dims.vertical_gap {
             // Increase the gap so we can "look ahead"
-            self.set_viewport(Some(self.cursor.y.saturating_sub(dims.vertical_gap)));
+            self.set_viewport(Some(follow_top(
+                self.cursor.y.saturating_sub(dims.vertical_gap),
+            )));
             return;
         }
 
