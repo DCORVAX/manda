@@ -1320,8 +1320,7 @@ fn collect_response_annotation(
         .as_str()
         .filter(|title| !title.is_empty())
         .unwrap_or(url)
-        .replace('\n', " ")
-        .replace('\r', " ");
+        .replace(['\n', '\r'], " ");
     citations.push((title, url.to_string()));
 }
 
