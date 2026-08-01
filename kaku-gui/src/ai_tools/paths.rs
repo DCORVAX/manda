@@ -196,25 +196,6 @@ pub(crate) fn sensitive_search_globs(root: &Path) -> Vec<String> {
     globs
 }
 
-pub(crate) const SENSITIVE_SEARCH_FILE_EXCLUDES: &[&str] = &[
-    ".env",
-    ".env.*",
-    "*.pem",
-    "*.key",
-    "id_rsa",
-    "id_dsa",
-    "id_ecdsa",
-    "id_ed25519",
-    ".git-credentials",
-    ".netrc",
-    ".npmrc",
-    ".pypirc",
-    "*credentials*",
-];
-
-pub(crate) const SENSITIVE_SEARCH_DIR_EXCLUDES: &[&str] =
-    &[".ssh", ".gnupg", ".aws", ".docker", "gh", "secrets"];
-
 /// Handles `~/…` expansion and relative paths (resolved against `cwd`).
 ///
 /// Tool paths only accept `~` / `~/`; `$HOME` is not expanded here because

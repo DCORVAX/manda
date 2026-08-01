@@ -1,8 +1,13 @@
 //! Web search and code search tools.
 
 use anyhow::{Context, Result};
+use ignore::overrides::OverrideBuilder;
+use ignore::WalkBuilder;
+use regex::RegexBuilder;
+use std::collections::HashSet;
 use std::io::{BufRead, Read};
 use std::os::unix::process::CommandExt;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -12,6 +17,10 @@ use super::web::{read_error_body, web_client};
 
 /// Wall-clock ceiling for symbol_search / grep_search.
 const SEARCH_TIMEOUT_SECS: u64 = 30;
+
+/// The in-process fallback is only used when ripgrep is unavailable. Keep a
+/// per-file cap so a single generated artifact cannot exhaust the GUI process.
+const FALLBACK_MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
 // ─── Web search providers ─────────────────────────────────────────────────────
 
@@ -244,6 +253,167 @@ fn escape_regex(s: &str) -> String {
     out
 }
 
+struct FallbackSearchOutput {
+    lines: Vec<String>,
+    truncated: bool,
+    timed_out: bool,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fallback_regex_search(
+    pattern: &str,
+    root: &Path,
+    glob_filter: Option<&str>,
+    context_lines: usize,
+    case_insensitive: bool,
+    max_results: usize,
+    cancel: &AtomicBool,
+    provider_label: &str,
+) -> Result<FallbackSearchOutput> {
+    let regex = RegexBuilder::new(pattern)
+        .case_insensitive(case_insensitive)
+        .build()
+        .with_context(|| format!("invalid {provider_label} regular expression"))?;
+
+    let override_root = if root.is_dir() {
+        root
+    } else {
+        root.parent().unwrap_or_else(|| Path::new("."))
+    };
+    let mut walker = WalkBuilder::new(root);
+    walker
+        .follow_links(false)
+        .filter_entry(|entry| super::paths::reject_if_sensitive(entry.path()).is_ok());
+    if let Some(glob) = glob_filter {
+        let mut overrides = OverrideBuilder::new(override_root);
+        overrides
+            .add(glob)
+            .with_context(|| format!("invalid search glob '{glob}'"))?;
+        walker.overrides(overrides.build().context("build search glob")?);
+    }
+
+    let started = Instant::now();
+    let timeout = Duration::from_secs(SEARCH_TIMEOUT_SECS);
+    let mut output = Vec::new();
+    let mut match_count = 0usize;
+    let mut truncated = false;
+    let mut timed_out = false;
+
+    'entries: for entry in walker.build() {
+        if cancel.load(Ordering::Relaxed) {
+            anyhow::bail!("{provider_label} canceled");
+        }
+        if started.elapsed() >= timeout {
+            timed_out = true;
+            break;
+        }
+
+        let Ok(entry) = entry else { continue };
+        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if metadata.len() > FALLBACK_MAX_FILE_BYTES {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(entry.path()) else {
+            continue;
+        };
+        if bytes.contains(&0) {
+            continue;
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        let file_lines: Vec<&str> = text.lines().collect();
+        let mut matches = Vec::new();
+
+        for (index, line) in file_lines.iter().enumerate() {
+            if index % 256 == 0 {
+                if cancel.load(Ordering::Relaxed) {
+                    anyhow::bail!("{provider_label} canceled");
+                }
+                if started.elapsed() >= timeout {
+                    timed_out = true;
+                    break 'entries;
+                }
+            }
+            if !regex.is_match(line) {
+                continue;
+            }
+            if match_count >= max_results {
+                truncated = true;
+                break 'entries;
+            }
+            match_count += 1;
+            matches.push(index);
+        }
+
+        if matches.is_empty() {
+            continue;
+        }
+
+        let matched_lines: HashSet<usize> = matches.iter().copied().collect();
+        let mut regions: Vec<(usize, usize)> = Vec::new();
+        for index in matches {
+            let start = index.saturating_sub(context_lines);
+            let end = index
+                .saturating_add(context_lines)
+                .min(file_lines.len().saturating_sub(1));
+            if let Some((_, previous_end)) = regions.last_mut() {
+                if start <= previous_end.saturating_add(1) {
+                    *previous_end = (*previous_end).max(end);
+                    continue;
+                }
+            }
+            regions.push((start, end));
+        }
+
+        for (region_index, (start, end)) in regions.into_iter().enumerate() {
+            if region_index > 0 {
+                output.push("--".to_string());
+            }
+            for (offset, line) in file_lines[start..=end].iter().enumerate() {
+                let index = start + offset;
+                let marker = if matched_lines.contains(&index) {
+                    ':'
+                } else {
+                    '-'
+                };
+                output.push(format!(
+                    "{}{marker}{}{marker}{}",
+                    entry.path().display(),
+                    index + 1,
+                    line
+                ));
+            }
+        }
+    }
+
+    Ok(FallbackSearchOutput {
+        lines: output,
+        truncated,
+        timed_out,
+    })
+}
+
+fn sort_symbol_lines(lines: &mut [String]) {
+    lines.sort_by(|a, b| {
+        let has_definition_keyword = |line: &str| {
+            line.contains("fn ")
+                || line.contains("function ")
+                || line.contains("def ")
+                || line.contains("struct ")
+                || line.contains("class ")
+                || line.contains("type ")
+                || line.contains("enum ")
+                || line.contains("trait ")
+                || line.contains("interface ")
+        };
+        has_definition_keyword(b).cmp(&has_definition_keyword(a))
+    });
+}
+
 pub(super) fn exec_symbol_search(
     query: &str,
     kind: &str,
@@ -298,40 +468,51 @@ pub(super) fn exec_symbol_search(
             .is_ok()
     });
     if !rg {
-        anyhow::bail!(
-            "symbol_search requires ripgrep so recursive sensitive-path exclusions stay enforced"
-        );
+        let mut fallback = fallback_regex_search(
+            &combined,
+            &resolved_path,
+            glob_filter,
+            0,
+            false,
+            100,
+            cancel,
+            "symbol_search",
+        )?;
+        if fallback.lines.is_empty() {
+            if fallback.timed_out {
+                return Ok(format!(
+                    "symbol_search timed out after {}s with no results for '{}'.",
+                    SEARCH_TIMEOUT_SECS, query
+                ));
+            }
+            return Ok(format!("No symbol definitions found for '{}'.", query));
+        }
+        sort_symbol_lines(&mut fallback.lines);
+        let mut out = fallback.lines.join("\n");
+        if fallback.truncated {
+            out.push_str("\n[... truncated at 100 results]");
+        }
+        if fallback.timed_out {
+            out.push_str(&format!(
+                "\n[... timed out after {}s, results may be partial]",
+                SEARCH_TIMEOUT_SECS
+            ));
+        }
+        return Ok(out);
     }
 
-    let mut cmd = if rg {
-        let mut c = std::process::Command::new("rg");
-        c.arg("--line-number")
-            .arg("--no-heading")
-            .arg("--color=never")
-            .arg("--max-count=50");
-        if let Some(g) = glob_filter {
-            c.arg("--glob").arg(g);
-        }
-        for glob in &sensitive_globs {
-            c.arg("--iglob").arg(glob);
-        }
-        c.arg(&combined).arg(&abs_path);
-        c
-    } else {
-        let mut c = std::process::Command::new("grep");
-        c.arg("-rn").arg("--color=never").arg("-E");
-        if let Some(g) = glob_filter {
-            c.arg("--include").arg(g);
-        }
-        for pattern in super::paths::SENSITIVE_SEARCH_FILE_EXCLUDES {
-            c.arg("--exclude").arg(pattern);
-        }
-        for pattern in super::paths::SENSITIVE_SEARCH_DIR_EXCLUDES {
-            c.arg("--exclude-dir").arg(pattern);
-        }
-        c.arg(&combined).arg(&abs_path);
-        c
-    };
+    let mut cmd = std::process::Command::new("rg");
+    cmd.arg("--line-number")
+        .arg("--no-heading")
+        .arg("--color=never")
+        .arg("--max-count=50");
+    if let Some(g) = glob_filter {
+        cmd.arg("--glob").arg(g);
+    }
+    for glob in &sensitive_globs {
+        cmd.arg("--iglob").arg(glob);
+    }
+    cmd.arg(&combined).arg(&abs_path);
 
     cmd.stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -395,28 +576,8 @@ pub(super) fn exec_symbol_search(
         return Ok(format!("No symbol definitions found for '{}'.", query));
     }
 
-    let mut lines: Vec<&str> = text.lines().take(100).collect();
-    lines.sort_by(|a, b| {
-        let a_kw = a.contains("fn ")
-            || a.contains("function ")
-            || a.contains("def ")
-            || a.contains("struct ")
-            || a.contains("class ")
-            || a.contains("type ")
-            || a.contains("enum ")
-            || a.contains("trait ")
-            || a.contains("interface ");
-        let b_kw = b.contains("fn ")
-            || b.contains("function ")
-            || b.contains("def ")
-            || b.contains("struct ")
-            || b.contains("class ")
-            || b.contains("type ")
-            || b.contains("enum ")
-            || b.contains("trait ")
-            || b.contains("interface ");
-        b_kw.cmp(&a_kw)
-    });
+    let mut lines: Vec<String> = text.lines().take(100).map(str::to_owned).collect();
+    sort_symbol_lines(&mut lines);
 
     let mut out = lines.join("\n");
     if timed_out {
@@ -448,53 +609,59 @@ pub(super) fn exec_grep_search(
             .status()
             .is_ok()
     });
-    if !rg {
-        anyhow::bail!(
-            "grep_search requires ripgrep so recursive sensitive-path exclusions stay enforced"
-        );
-    }
     let resolved_path = super::paths::resolve(search_path, cwd)?;
     let sensitive_globs = super::paths::sensitive_search_globs(&resolved_path);
     let abs_path = resolved_path.to_string_lossy().into_owned();
 
-    let mut cmd = if rg {
-        let mut c = std::process::Command::new("rg");
-        c.arg("--line-number")
-            .arg("--no-heading")
-            .arg("--color=never")
-            .arg(format!("--context={}", context_lines))
-            .arg(format!("--max-count={}", max_results));
-        if case_insensitive {
-            c.arg("--ignore-case");
+    if !rg {
+        let fallback = fallback_regex_search(
+            pattern,
+            &resolved_path,
+            glob_filter,
+            context_lines,
+            case_insensitive,
+            max_results,
+            cancel,
+            "grep_search",
+        )?;
+        if fallback.lines.is_empty() {
+            if fallback.timed_out {
+                return Ok(format!(
+                    "grep_search timed out after {}s with no results.",
+                    SEARCH_TIMEOUT_SECS
+                ));
+            }
+            return Ok("No matches found.".into());
         }
-        if let Some(g) = glob_filter {
-            c.arg("--glob").arg(g);
+        let mut out = fallback.lines.join("\n");
+        if fallback.truncated {
+            out.push_str(&format!("\n[... truncated at {} results]", max_results));
         }
-        for glob in &sensitive_globs {
-            c.arg("--iglob").arg(glob);
+        if fallback.timed_out {
+            out.push_str(&format!(
+                "\n[... timed out after {}s, results may be partial]",
+                SEARCH_TIMEOUT_SECS
+            ));
         }
-        c.arg(pattern).arg(&abs_path);
-        c
-    } else {
-        let mut c = std::process::Command::new("grep");
-        c.arg("-rn")
-            .arg(format!("-C{}", context_lines))
-            .arg("--color=never");
-        if case_insensitive {
-            c.arg("-i");
-        }
-        if let Some(g) = glob_filter {
-            c.arg("--include").arg(g);
-        }
-        for pattern in super::paths::SENSITIVE_SEARCH_FILE_EXCLUDES {
-            c.arg("--exclude").arg(pattern);
-        }
-        for pattern in super::paths::SENSITIVE_SEARCH_DIR_EXCLUDES {
-            c.arg("--exclude-dir").arg(pattern);
-        }
-        c.arg(pattern).arg(&abs_path);
-        c
-    };
+        return Ok(out);
+    }
+
+    let mut cmd = std::process::Command::new("rg");
+    cmd.arg("--line-number")
+        .arg("--no-heading")
+        .arg("--color=never")
+        .arg(format!("--context={}", context_lines))
+        .arg(format!("--max-count={}", max_results));
+    if case_insensitive {
+        cmd.arg("--ignore-case");
+    }
+    if let Some(g) = glob_filter {
+        cmd.arg("--glob").arg(g);
+    }
+    for glob in &sensitive_globs {
+        cmd.arg("--iglob").arg(glob);
+    }
+    cmd.arg(pattern).arg(&abs_path);
 
     cmd.stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -625,4 +792,65 @@ pub(super) fn exec_grep_search(
         out.push_str("\n[... canceled by user]");
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod fallback_tests {
+    use super::*;
+
+    #[test]
+    fn in_process_search_preserves_recursive_secret_exclusions() {
+        let root = tempfile::tempdir().expect("tempdir");
+        std::fs::write(root.path().join("visible.txt"), "needle public\n").unwrap();
+        std::fs::write(root.path().join("visible.rs"), "fn shared_symbol() {}\n").unwrap();
+        std::fs::write(
+            root.path().join("Service-Credentials.txt"),
+            "needle credential-secret\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("Assistant.TOML"),
+            "needle assistant-secret\n",
+        )
+        .unwrap();
+        let secrets = root.path().join("Secrets");
+        std::fs::create_dir(&secrets).unwrap();
+        std::fs::write(secrets.join("token.txt"), "needle directory-secret\n").unwrap();
+        std::fs::write(secrets.join("secret.rs"), "fn shared_symbol() {}\n").unwrap();
+
+        let cancel = AtomicBool::new(false);
+        let grep = fallback_regex_search(
+            "needle",
+            root.path(),
+            None,
+            0,
+            false,
+            20,
+            &cancel,
+            "grep_search",
+        )
+        .unwrap()
+        .lines
+        .join("\n");
+        assert!(grep.contains("public"));
+        assert!(!grep.contains("credential-secret"));
+        assert!(!grep.contains("assistant-secret"));
+        assert!(!grep.contains("directory-secret"));
+
+        let symbols = fallback_regex_search(
+            r"fn\s+shared_symbol",
+            root.path(),
+            Some("*.rs"),
+            0,
+            false,
+            20,
+            &cancel,
+            "symbol_search",
+        )
+        .unwrap()
+        .lines
+        .join("\n");
+        assert!(symbols.contains("visible.rs"));
+        assert!(!symbols.contains("secret.rs"));
+    }
 }
