@@ -26,4 +26,22 @@ chinese_output="$(KAKU_CONFIG_UPDATE_LANGUAGE=zh print_config_update_highlights 
 [[ "$chinese_output" == *"Kaku Dark 现在会向 Hermes 正确报告深色终端背景"* ]]
 [[ "$chinese_output" != *"Tab and pane close confirmation now support"* ]]
 
+state_test_dir="$(mktemp -d)"
+trap 'rm -rf "$state_test_dir"' EXIT
+CONFIG_DIR="$state_test_dir/config"
+STATE_FILE="$CONFIG_DIR/state.json"
+LEGACY_VERSION_FILE="$CONFIG_DIR/.kaku_config_version"
+LEGACY_GEOMETRY_FILE="$CONFIG_DIR/.kaku_window_geometry"
+CURRENT_CONFIG_VERSION=22
+mkdir -p "$CONFIG_DIR"
+printf '%s\n' '{"config_version":21,"managed_shell":"fish","window_geometry":{"width":120,"height":40},"window_position":{"x":10,"y":20,"screen_id":7},"future_setting":{"enabled":true}}' >"$STATE_FILE"
+
+[[ "$(read_managed_shell)" == "fish" ]]
+persist_config_version
+[[ "$(read_managed_shell)" == "fish" ]]
+grep -Eq '"config_version"[[:space:]]*:[[:space:]]*22' "$STATE_FILE"
+grep -q '"width":120' "$STATE_FILE"
+grep -q '"screen_id":7' "$STATE_FILE"
+grep -q '"future_setting":{"enabled":true}' "$STATE_FILE"
+
 echo "config_update_highlights smoke test passed"

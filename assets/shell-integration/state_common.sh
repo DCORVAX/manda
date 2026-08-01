@@ -132,14 +132,48 @@ read_config_version() {
 	fi
 }
 
+read_managed_shell() {
+	if [[ ! -f "$STATE_FILE" ]]; then
+		return
+	fi
+
+	local managed_shell
+	managed_shell="$(sed -nE 's/.*"managed_shell"[[:space:]]*:[[:space:]]*"(zsh|fish)".*/\1/p' "$STATE_FILE" | head -n 1)"
+	case "$managed_shell" in
+		zsh|fish) printf '%s\n' "$managed_shell" ;;
+	esac
+}
+
 persist_config_version() {
 	local target_version="${1:-$CURRENT_CONFIG_VERSION}"
 	mkdir -p "$CONFIG_DIR"
+	if [[ ! "$target_version" =~ ^[0-9]+$ ]]; then
+		printf 'invalid config version: %s\n' "$target_version" >&2
+		return 1
+	fi
 
-	local width height geometry_json
+	# Normal updates only change config_version. Preserve managed_shell,
+	# window_position, and any future state fields byte-for-byte instead of
+	# rebuilding the object from the subset this shell helper knows about.
+	if [[ -f "$STATE_FILE" && ! -f "$LEGACY_GEOMETRY_FILE" ]] &&
+		grep -Eq '"config_version"[[:space:]]*:[[:space:]]*[0-9]+' "$STATE_FILE"; then
+		local state_tmp
+		state_tmp="${STATE_FILE}.tmp.$$"
+		if ! sed -E "s/(\"config_version\"[[:space:]]*:[[:space:]]*)[0-9]+/\\1${target_version}/" "$STATE_FILE" >"$state_tmp"; then
+			rm -f "$state_tmp"
+			return 1
+		fi
+		mv "$state_tmp" "$STATE_FILE"
+		printf '%s\n' "$target_version" >"$LEGACY_VERSION_FILE"
+		return
+	fi
+
+	local width height geometry_json managed_shell managed_shell_json
 	width=""
 	height=""
 	geometry_json=""
+	managed_shell="$(read_managed_shell || true)"
+	managed_shell_json=""
 
 	if [[ -f "$STATE_FILE" ]]; then
 		width="$(sed -nE 's/.*"width"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' "$STATE_FILE" | head -n 1)"
@@ -163,8 +197,11 @@ persist_config_version() {
 	if [[ -n "$width" && -n "$height" ]]; then
 		geometry_json="$(printf ',\n  "window_geometry": {\n    "width": %s,\n    "height": %s\n  }' "$width" "$height")"
 	fi
+	if [[ "$managed_shell" == "zsh" || "$managed_shell" == "fish" ]]; then
+		managed_shell_json="$(printf ',\n  "managed_shell": "%s"' "$managed_shell")"
+	fi
 
-	printf "{\n  \"config_version\": %s%s\n}\n" "$target_version" "$geometry_json" >"$STATE_FILE"
+	printf "{\n  \"config_version\": %s%s%s\n}\n" "$target_version" "$managed_shell_json" "$geometry_json" >"$STATE_FILE"
 
 	# Keep a legacy version marker for users still loading older bundled kaku.lua.
 	# This avoids repeated first-run onboarding after upgrades.

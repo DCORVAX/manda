@@ -37,7 +37,9 @@ mod imp {
 #[cfg(target_os = "macos")]
 mod imp {
     use super::*;
-    use crate::shell::{find_shell_executable, preferred_managed_shell, ManagedShell};
+    use crate::shell::{
+        find_shell_executable, persist_managed_shell, preferred_managed_shell, ManagedShell,
+    };
     use std::os::unix::fs::PermissionsExt;
 
     pub fn run(update_only: bool, shell: Option<ManagedShell>) -> anyhow::Result<()> {
@@ -66,6 +68,7 @@ mod imp {
             .with_context(|| format!("run {}", script.display()))?;
 
         if status.success() {
+            persist_managed_shell(shell).context("remember selected shell")?;
             return Ok(());
         }
 

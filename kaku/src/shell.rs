@@ -2,6 +2,8 @@ use clap::ValueEnum;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
+use anyhow::{Context, Result};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ManagedShell {
     Zsh,
@@ -13,6 +15,14 @@ impl ManagedShell {
         match self {
             Self::Zsh => "zsh",
             Self::Fish => "fish",
+        }
+    }
+
+    fn from_name(value: &str) -> Option<Self> {
+        match value {
+            "zsh" => Some(Self::Zsh),
+            "fish" => Some(Self::Fish),
+            _ => None,
         }
     }
 }
@@ -59,12 +69,62 @@ pub fn resolve_shell_kind(shell: Option<ManagedShell>) -> ShellKind {
     match shell {
         Some(ManagedShell::Zsh) => ShellKind::Zsh,
         Some(ManagedShell::Fish) => ShellKind::Fish,
-        None => detect_shell_kind(),
+        None => persisted_managed_shell()
+            .map(|shell| match shell {
+                ManagedShell::Zsh => ShellKind::Zsh,
+                ManagedShell::Fish => ShellKind::Fish,
+            })
+            .unwrap_or_else(detect_shell_kind),
     }
 }
 
 pub fn preferred_managed_shell() -> ManagedShell {
-    detect_shell_kind().managed().unwrap_or(ManagedShell::Zsh)
+    persisted_managed_shell()
+        .or_else(|| detect_shell_kind().managed())
+        .unwrap_or(ManagedShell::Zsh)
+}
+
+pub fn persisted_managed_shell() -> Option<ManagedShell> {
+    read_managed_shell_from_path(&managed_shell_state_path())
+}
+
+pub fn persist_managed_shell(shell: ManagedShell) -> Result<()> {
+    persist_managed_shell_to_path(&managed_shell_state_path(), shell)
+}
+
+fn managed_shell_state_path() -> PathBuf {
+    config::user_config_path()
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| config::HOME_DIR.join(".config").join("kaku"))
+        .join("state.json")
+}
+
+fn read_managed_shell_from_path(path: &Path) -> Option<ManagedShell> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let state: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    ManagedShell::from_name(state.get("managed_shell")?.as_str()?)
+}
+
+fn persist_managed_shell_to_path(path: &Path, shell: ManagedShell) -> Result<()> {
+    let parent = path.parent().context("managed shell state has no parent")?;
+    std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    let mut state = match std::fs::read_to_string(path) {
+        Ok(raw) => serde_json::from_str::<serde_json::Value>(&raw)
+            .with_context(|| format!("parse {}", path.display()))?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+        Err(error) => return Err(error).with_context(|| format!("read {}", path.display())),
+    };
+    let object = state
+        .as_object_mut()
+        .context("Kaku state must be a JSON object")?;
+    object.insert(
+        "managed_shell".to_string(),
+        serde_json::Value::String(shell.name().to_string()),
+    );
+    let bytes = serde_json::to_vec_pretty(&state).context("serialize Kaku state")?;
+    crate::utils::write_atomic(path, &bytes)
+        .with_context(|| format!("write managed shell to {}", path.display()))
 }
 
 pub fn find_shell_executable(shell: ManagedShell) -> Option<PathBuf> {
@@ -115,6 +175,7 @@ fn shell_kind_from_path(shell: &str) -> ShellKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn shell_kind_uses_executable_name() {
@@ -133,5 +194,35 @@ mod tests {
     fn managed_shell_names_match_cli_values() {
         assert_eq!(ManagedShell::Zsh.name(), "zsh");
         assert_eq!(ManagedShell::Fish.name(), "fish");
+    }
+
+    #[test]
+    fn managed_shell_state_round_trips_without_dropping_other_state() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        std::fs::write(
+            &path,
+            r#"{"config_version":17,"window_geometry":{"width":120,"height":40}}"#,
+        )
+        .unwrap();
+
+        persist_managed_shell_to_path(&path, ManagedShell::Fish).unwrap();
+
+        assert_eq!(
+            read_managed_shell_from_path(&path),
+            Some(ManagedShell::Fish)
+        );
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["config_version"], 17);
+        assert_eq!(saved["window_geometry"]["width"], 120);
+    }
+
+    #[test]
+    fn invalid_managed_shell_state_is_ignored() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        std::fs::write(&path, r#"{"managed_shell":"bash"}"#).unwrap();
+        assert_eq!(read_managed_shell_from_path(&path), None);
     }
 }

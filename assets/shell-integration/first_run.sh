@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-CONFIG_DIR="$HOME/.config/kaku"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/kaku"
 STATE_FILE="$CONFIG_DIR/state.json"
 LEGACY_VERSION_FILE="$CONFIG_DIR/.kaku_config_version"
 LEGACY_GEOMETRY_FILE="$CONFIG_DIR/.kaku_window_geometry"
@@ -159,7 +159,7 @@ fi
 mkdir -p "$CONFIG_DIR"
 
 ensure_user_config_via_cli() {
-	local kaku_lua_dest="$HOME/.config/kaku/kaku.lua"
+	local kaku_lua_dest="$CONFIG_DIR/kaku.lua"
 	if [[ -f "$kaku_lua_dest" ]]; then
 		echo "Keeping existing user config: $kaku_lua_dest"
 		return 0

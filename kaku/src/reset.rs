@@ -34,7 +34,9 @@ mod imp {
 #[cfg(target_os = "macos")]
 mod imp {
     use super::*;
-    use crate::shell::{detect_shell_kind, find_shell_executable, ManagedShell};
+    use crate::shell::{
+        detect_shell_kind, find_shell_executable, persisted_managed_shell, ManagedShell,
+    };
 
     const KAKU_SOURCE_PATTERN: &str = "kaku/zsh/kaku.zsh";
     const KAKU_PATH_MARKER: &str = "# Kaku PATH Integration";
@@ -245,6 +247,12 @@ mod imp {
     pub fn run(yes: bool, shell: Option<ManagedShell>) -> anyhow::Result<()> {
         confirm_reset(yes)?;
 
+        // Capture the authoritative managed shell before reset removes state.json.
+        let selected_shell = shell
+            .or_else(persisted_managed_shell)
+            .or_else(|| detect_shell_kind().managed())
+            .unwrap_or(ManagedShell::Zsh);
+
         let mut report = ResetReport::default();
 
         remove_zsh_integration(&mut report)?;
@@ -252,7 +260,7 @@ mod imp {
         remove_fish_integration(&mut report)?;
         remove_tmux_integration(&mut report)?;
         remove_file_if_exists(
-            config_home().join("tmux").join("kaku.tmux.conf"),
+            home_kaku_dir().join("tmux").join("kaku.tmux.conf"),
             "removed managed tmux integration script",
             &mut report,
         )?;
@@ -274,7 +282,7 @@ mod imp {
             &mut report,
         )?;
         remove_file_if_exists(
-            config_home().join("lazygit_state.json"),
+            home_kaku_dir().join("lazygit_state.json"),
             "removed Lazygit hint state",
             &mut report,
         )?;
@@ -302,9 +310,6 @@ mod imp {
 
         report.print();
 
-        let selected_shell = shell
-            .or_else(|| detect_shell_kind().managed())
-            .unwrap_or(ManagedShell::Zsh);
         let shell_executable = find_shell_executable(selected_shell)
             .unwrap_or_else(|| PathBuf::from(selected_shell.name()));
         let is_fish = selected_shell == ManagedShell::Fish;
@@ -391,7 +396,21 @@ mod imp {
     }
 
     fn config_home() -> PathBuf {
-        home_dir().join(".config").join("kaku")
+        config::CONFIG_DIRS
+            .first()
+            .cloned()
+            .unwrap_or_else(|| home_dir().join(".config").join("kaku"))
+    }
+
+    // Shell assets and the legacy Lazygit hint state are intentionally anchored
+    // at `$HOME/.config/kaku`. Keep this separate from `config_home()`, which
+    // follows XDG_CONFIG_HOME for application state and kaku.lua.
+    fn home_kaku_dir() -> PathBuf {
+        home_kaku_dir_for(&home_dir())
+    }
+
+    fn home_kaku_dir_for(home: &Path) -> PathBuf {
+        home.join(".config").join("kaku")
     }
 
     fn zshrc_path() -> PathBuf {
@@ -468,7 +487,7 @@ mod imp {
     }
 
     fn remove_kaku_shell_dir(report: &mut ResetReport) -> anyhow::Result<()> {
-        let kaku_init = config_home().join("zsh").join("kaku.zsh");
+        let kaku_init = home_kaku_dir().join("zsh").join("kaku.zsh");
         if kaku_init.exists() {
             std::fs::remove_file(&kaku_init)
                 .with_context(|| format!("remove {}", kaku_init.display()))?;
@@ -493,11 +512,11 @@ mod imp {
         )?;
 
         // Remove managed fish init file
-        let fish_init = config_home().join("fish").join("kaku.fish");
+        let fish_init = home_kaku_dir().join("fish").join("kaku.fish");
         remove_file_if_exists(fish_init, "removed ~/.config/kaku/fish/kaku.fish", report)?;
 
         // Remove fish wrapper bin
-        let fish_wrapper = config_home().join("fish").join("bin").join("kaku");
+        let fish_wrapper = home_kaku_dir().join("fish").join("bin").join("kaku");
         remove_file_if_exists(
             fish_wrapper,
             "removed ~/.config/kaku/fish/bin/kaku wrapper",
@@ -803,8 +822,18 @@ mod imp {
     #[cfg(test)]
     mod tests {
         use super::{
-            is_active_kaku_tmux_source_line, strip_legacy_inline_block, KAKU_TMUX_SOURCE_PATTERN,
+            home_kaku_dir_for, is_active_kaku_tmux_source_line, strip_legacy_inline_block,
+            KAKU_TMUX_SOURCE_PATTERN,
         };
+        use std::path::Path;
+
+        #[test]
+        fn home_anchored_kaku_files_stay_under_home_dot_config() {
+            assert_eq!(
+                home_kaku_dir_for(Path::new("/Users/tester")),
+                Path::new("/Users/tester/.config/kaku")
+            );
+        }
 
         #[test]
         fn active_tmux_source_line_is_detected() {

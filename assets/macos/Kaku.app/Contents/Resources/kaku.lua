@@ -4867,7 +4867,6 @@ wezterm.on('gui-startup', function(cmd)
   lazygit_hint_warmup_until_secs = now_secs() + lazygit_hint_startup_grace_secs
   runtime_cwd_warmup_until_secs = now_secs() + runtime_cwd_startup_grace_secs
 
-  local home = os.getenv("HOME")
   local function read_current_config_version()
     local candidates = {
       wezterm.executable_dir:gsub("MacOS/?$", "Resources") .. "/config_version.txt",
@@ -4895,19 +4894,22 @@ wezterm.on('gui-startup', function(cmd)
 
   local current_version = read_current_config_version()
 
-  local state_file = home .. "/.config/kaku/state.json"
+  local state_file = kaku_config_dir .. "/state.json"
   local is_first_run = false
   local needs_update = false
 
   local function ensure_state_dir()
-    os.execute("mkdir -p " .. home .. "/.config/kaku")
+    os.execute(string.format("mkdir -p %q", kaku_config_dir))
   end
 
-  local function write_state(version, geometry)
+  local function write_state(version, geometry, managed_shell)
     ensure_state_dir()
     local state = {
       config_version = version,
     }
+    if managed_shell == 'zsh' or managed_shell == 'fish' then
+      state.managed_shell = managed_shell
+    end
     if geometry and geometry.width and geometry.height then
       state.window_geometry = {
         width = geometry.width,
@@ -4928,10 +4930,18 @@ wezterm.on('gui-startup', function(cmd)
       else
         -- Manual JSON fallback when json_encode is unavailable.
         -- Include geometry if present so state is not lost.
-        if geometry and geometry.width and geometry.height then
+        if geometry and geometry.width and geometry.height and managed_shell then
+          wf:write(string.format(
+            '{\n  "config_version": %d,\n  "managed_shell": "%s",\n  "window_geometry": {\n    "width": %d,\n    "height": %d\n  }\n}\n',
+            version, managed_shell, geometry.width, geometry.height))
+        elseif geometry and geometry.width and geometry.height then
           wf:write(string.format(
             '{\n  "config_version": %d,\n  "window_geometry": {\n    "width": %d,\n    "height": %d\n  }\n}\n',
             version, geometry.width, geometry.height))
+        elseif managed_shell then
+          wf:write(string.format(
+            '{\n  "config_version": %d,\n  "managed_shell": "%s"\n}\n',
+            version, managed_shell))
         else
           wf:write(string.format('{\n  "config_version": %d\n}\n', version))
         end
@@ -4941,6 +4951,7 @@ wezterm.on('gui-startup', function(cmd)
   end
 
   local user_version = nil
+  local managed_shell = nil
   local state_file_exists = false
   local sf = io.open(state_file, "r")
   if sf then
@@ -4951,6 +4962,9 @@ wezterm.on('gui-startup', function(cmd)
       local ok, state = pcall(wezterm.json_parse, raw_state)
       if ok and type(state) == "table" then
         user_version = tonumber(state.config_version)
+        if state.managed_shell == 'zsh' or state.managed_shell == 'fish' then
+          managed_shell = state.managed_shell
+        end
       end
     end
   end
@@ -4959,7 +4973,7 @@ wezterm.on('gui-startup', function(cmd)
     is_first_run = true
   elseif user_version == nil then
     -- Corrupted or manually edited state file: repair with safe defaults.
-    write_state(current_version, nil)
+    write_state(current_version, nil, managed_shell)
     user_version = current_version
   elseif user_version < current_version then
     needs_update = true
