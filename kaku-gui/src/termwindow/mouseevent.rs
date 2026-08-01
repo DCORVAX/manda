@@ -104,6 +104,53 @@ fn manual_drag_window_top_left(start: &MouseEvent, event: &MouseEvent) -> ::wind
     )
 }
 
+#[derive(Default)]
+struct OptionClickRowInfo {
+    wrapped: bool,
+    cells: Vec<(usize, usize)>,
+}
+
+/// Arrow sequence for a cursor move that is provably confined to one shell
+/// editing line. Hard-newline rows are ambiguous scrollback: emitting Up/Down
+/// there can mutate shell history rather than position the active prompt.
+fn option_click_cursor_bytes(
+    rows: &[OptionClickRowInfo],
+    cursor_row: usize,
+    cursor_col: usize,
+    target_row: usize,
+    target_col: usize,
+) -> Vec<u8> {
+    if rows.is_empty() || cursor_row >= rows.len() || target_row >= rows.len() {
+        return Vec::new();
+    }
+
+    let (from, to) = if (cursor_row, cursor_col) <= (target_row, target_col) {
+        ((cursor_row, cursor_col), (target_row, target_col))
+    } else {
+        ((target_row, target_col), (cursor_row, cursor_col))
+    };
+    let same_row = from.0 == to.0;
+    let soft_wrapped_chain = rows[from.0..to.0].iter().all(|row| row.wrapped);
+    if !same_row && !soft_wrapped_chain {
+        return Vec::new();
+    }
+
+    let mut count = 0usize;
+    for (row_index, info) in rows.iter().enumerate().take(to.0 + 1).skip(from.0) {
+        for &(cell_index, width) in &info.cells {
+            let after_start = row_index > from.0 || cell_index + width > from.1;
+            let before_end = row_index < to.0 || cell_index < to.1;
+            if after_start && before_end {
+                count += 1;
+            }
+        }
+    }
+
+    let moving_right = (target_row, target_col) > (cursor_row, cursor_col);
+    let arrow: &[u8] = if moving_right { b"\x1b[C" } else { b"\x1b[D" };
+    arrow.repeat(count)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TitleAreaZoomAction {
     Maximize,
@@ -1818,14 +1865,8 @@ impl super::TermWindow {
                     let bottom = stable_row.max(cursor.y);
 
                     #[derive(Default)]
-                    struct RowInfo {
-                        wrapped: bool,
-                        cells: Vec<(usize, usize)>,
-                        text_len: usize,
-                    }
-                    #[derive(Default)]
                     struct GatherRows {
-                        rows: Vec<RowInfo>,
+                        rows: Vec<OptionClickRowInfo>,
                     }
                     impl WithPaneLines for GatherRows {
                         fn with_lines_mut(
@@ -1834,7 +1875,7 @@ impl super::TermWindow {
                             lines: &mut [&mut Line],
                         ) {
                             for line in lines.iter() {
-                                let mut info = RowInfo {
+                                let mut info = OptionClickRowInfo {
                                     wrapped: line.last_cell_was_wrapped(),
                                     ..Default::default()
                                 };
@@ -1842,9 +1883,6 @@ impl super::TermWindow {
                                     let idx = cell.cell_index();
                                     let width = cell.width();
                                     info.cells.push((idx, width));
-                                    if cell.str() != " " {
-                                        info.text_len = idx + width;
-                                    }
                                 }
                                 self.rows.push(info);
                             }
@@ -1855,82 +1893,10 @@ impl super::TermWindow {
                     pane.with_lines_mut(top..bottom + 1, &mut gather);
                     let rows = gather.rows;
 
-                    let mut bytes: Vec<u8> = Vec::new();
-                    if !rows.is_empty() {
-                        let last = rows.len() - 1;
-                        // The clicked row and the cursor row belong to one
-                        // soft-wrapped logical line when every physical row
-                        // above the last one carries the wrap attribute; the
-                        // line editor reaches any point in it with horizontal
-                        // arrows alone.
-                        let soft_wrapped_chain = rows[..last].iter().all(|info| info.wrapped);
-
-                        if stable_row == cursor.y || soft_wrapped_chain {
-                            // Count logical characters (not cells) between the
-                            // two points. Wide chars (CJK etc.) occupy 2 cells
-                            // but advance the cursor by 1 keypress.
-                            let (from, to) = {
-                                let a = (cursor.y, cursor.x);
-                                let b = (stable_row, column);
-                                if a <= b {
-                                    (a, b)
-                                } else {
-                                    (b, a)
-                                }
-                            };
-                            let mut count = 0usize;
-                            for (i, info) in rows.iter().enumerate() {
-                                for &(idx, width) in &info.cells {
-                                    let after_start = i > 0 || idx + width > from.1;
-                                    let before_end = i < last || idx < to.1;
-                                    if after_start && before_end {
-                                        count += 1;
-                                    }
-                                }
-                            }
-                            let moving_right = (stable_row, column) > (cursor.y, cursor.x);
-                            let arrow: &[u8] = if moving_right { b"\x1b[C" } else { b"\x1b[D" };
-                            bytes = arrow.repeat(count);
-                        } else {
-                            // Rows separated by hard newlines: a multi-line
-                            // editor buffer (shell continuation, TUI input
-                            // box). Move vertically first, then correct the
-                            // column on the clicked row. Cells past the end of
-                            // that row's text are ignored so repaint padding
-                            // does not become stray keypresses.
-                            let vertical: &[u8] = if stable_row < cursor.y {
-                                b"\x1b[A"
-                            } else {
-                                b"\x1b[B"
-                            };
-                            bytes = vertical.repeat((bottom - top) as usize);
-
-                            let target = if stable_row < cursor.y {
-                                &rows[0]
-                            } else {
-                                &rows[last]
-                            };
-                            let (from_col, to_col) = if column > cursor.x {
-                                (cursor.x, column)
-                            } else {
-                                (column, cursor.x)
-                            };
-                            let mut count = 0usize;
-                            for &(idx, width) in &target.cells {
-                                if idx < to_col && idx + width > from_col && idx < target.text_len {
-                                    count += 1;
-                                }
-                            }
-                            if count > 0 {
-                                let arrow: &[u8] = if column > cursor.x {
-                                    b"\x1b[C"
-                                } else {
-                                    b"\x1b[D"
-                                };
-                                bytes.extend_from_slice(&arrow.repeat(count));
-                            }
-                        }
-                    }
+                    let cursor_row = (cursor.y - top) as usize;
+                    let target_row = (stable_row - top) as usize;
+                    let bytes =
+                        option_click_cursor_bytes(&rows, cursor_row, cursor.x, target_row, column);
 
                     if !bytes.is_empty() {
                         if let Err(err) = self.write_terminal_input_bytes(&pane, &bytes) {
@@ -2112,12 +2078,12 @@ fn wmek_to_tmek_and_button(event: &MouseEvent) -> (TMEK, TMB) {
 #[cfg(test)]
 mod tests {
     use super::{
-        manual_drag_window_top_left, mouse_dispatch_target, should_bypass_wheel_assignment_in_alt,
-        should_preserve_tmux_bypass_reporting, should_use_manual_window_drag,
-        should_use_native_maximized_window_drag, should_zoom_title_area,
-        tab_bar_item_starts_window_drag, title_area_double_click_zoom_action,
-        wheel_during_terminal_selection_action, MouseDispatchTarget, SelectionDragWheelAction,
-        TitleAreaZoomAction,
+        manual_drag_window_top_left, mouse_dispatch_target, option_click_cursor_bytes,
+        should_bypass_wheel_assignment_in_alt, should_preserve_tmux_bypass_reporting,
+        should_use_manual_window_drag, should_use_native_maximized_window_drag,
+        should_zoom_title_area, tab_bar_item_starts_window_drag,
+        title_area_double_click_zoom_action, wheel_during_terminal_selection_action,
+        MouseDispatchTarget, OptionClickRowInfo, SelectionDragWheelAction, TitleAreaZoomAction,
     };
     use crate::tabbar::TabBarItem;
     use crate::termwindow::MouseCapture;
@@ -2165,6 +2131,42 @@ mod tests {
         assert_eq!(
             manual_drag_window_top_left(&start, &start),
             euclid::point2(700, 300)
+        );
+    }
+
+    #[test]
+    fn option_click_never_crosses_a_hard_newline() {
+        let rows = vec![
+            OptionClickRowInfo {
+                wrapped: false,
+                cells: (0..5).map(|column| (column, 1)).collect(),
+            },
+            OptionClickRowInfo {
+                wrapped: false,
+                cells: (0..5).map(|column| (column, 1)).collect(),
+            },
+        ];
+
+        assert!(option_click_cursor_bytes(&rows, 1, 2, 0, 2).is_empty());
+        assert!(option_click_cursor_bytes(&rows, 0, 2, 1, 2).is_empty());
+    }
+
+    #[test]
+    fn option_click_uses_horizontal_arrows_across_soft_wraps() {
+        let rows = vec![
+            OptionClickRowInfo {
+                wrapped: true,
+                cells: vec![(0, 1), (1, 2), (3, 1)],
+            },
+            OptionClickRowInfo {
+                wrapped: false,
+                cells: vec![(0, 1), (1, 1)],
+            },
+        ];
+
+        assert_eq!(
+            option_click_cursor_bytes(&rows, 0, 1, 1, 1),
+            b"\x1b[C\x1b[C\x1b[C".to_vec()
         );
     }
 

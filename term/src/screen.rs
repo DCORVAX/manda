@@ -1053,24 +1053,11 @@ impl Screen {
         }
     }
 
-    /// Returns true when `line` should be treated as flowing into the next
-    /// physical row for logical-line purposes. The primary signal is the wrap
-    /// attribute set by normal terminal line wrapping. TUI-style renderers
-    /// (ratatui/ink apps) repaint rows via absolute cursor positioning and
-    /// never set that attribute, so a row whose rightmost non-space content
-    /// reaches the full terminal width is also treated as continuing; without
-    /// this, implicit hyperlink scanning cannot see URLs those apps wrapped
-    /// across rows.
-    fn line_flows_into_next(line: &Line, physical_cols: usize) -> bool {
-        if line.last_cell_was_wrapped() {
-            return true;
-        }
-        line.visible_cells()
-            .filter(|cell| cell.str() != " ")
-            .last()
-            .map(|cell| cell.cell_index() + cell.width())
-            .unwrap_or(0)
-            >= physical_cols
+    /// Only the terminal wrap attribute establishes logical-line ownership.
+    /// A full hard-newline row may be unrelated output; treating width alone
+    /// as continuation can fabricate URLs and other tokens across commands.
+    fn line_flows_into_next(line: &Line) -> bool {
+        line.last_cell_was_wrapped()
     }
 
     pub fn for_each_logical_line_in_stable_range_mut<F>(
@@ -1092,7 +1079,7 @@ impl Screen {
         let mut back_len = 0;
         while phys_range.start > 0 {
             let prior = &mut self.lines[phys_range.start - 1];
-            if !Self::line_flows_into_next(prior, self.physical_cols) {
+            if !Self::line_flows_into_next(prior) {
                 break;
             }
             if prior.len() + back_len > MAX_LOGICAL_LINE_LEN {
@@ -1116,7 +1103,7 @@ impl Screen {
                     }
                     end_inclusive = idx;
                     total_len += line.len();
-                    if !Self::line_flows_into_next(line, self.physical_cols) {
+                    if !Self::line_flows_into_next(line) {
                         break;
                     }
                 } else if idx == phys_row {

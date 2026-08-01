@@ -5284,6 +5284,20 @@ impl TermWindow {
         use_default_app: bool,
         configured_editor: Option<&str>,
     ) -> anyhow::Result<()> {
+        let mut configured_editor_error = None;
+        if let Some(editor) = configured_editor {
+            match Self::try_open_configured_editor(editor, target) {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    log::warn!(
+                        "Configured file link editor `{}` failed; trying fallbacks: {error:#}",
+                        editor
+                    );
+                    configured_editor_error = Some(error);
+                }
+            }
+        }
+
         #[cfg(target_os = "macos")]
         if explicit && Self::try_open_path_with_default_app(&target.path)? {
             return Ok(());
@@ -5291,11 +5305,6 @@ impl TermWindow {
 
         #[cfg(target_os = "macos")]
         if use_default_app && Self::try_open_path_with_default_app(&target.path)? {
-            return Ok(());
-        }
-
-        if let Some(editor) = configured_editor {
-            Self::try_open_configured_editor(editor, target)?;
             return Ok(());
         }
 
@@ -5326,6 +5335,14 @@ impl TermWindow {
             }
         }
 
+        if let Some(error) = configured_editor_error {
+            return Err(error).with_context(|| {
+                format!(
+                    "configured editor and all fallbacks failed for {}",
+                    target.path.display()
+                )
+            });
+        }
         anyhow::bail!("failed to open {}", target.path.display())
     }
 
@@ -5362,8 +5379,64 @@ impl TermWindow {
             Self::parse_editor_command(raw.trim()).context("parse config.file_link_editor")?;
         let location = Self::file_link_location(target);
 
-        Self::run_path_command(&program, &args, Path::new(&location))
+        Self::run_editor_path_command(&program, &args, Path::new(&location))
             .with_context(|| format!("launch config.file_link_editor `{program}`"))
+    }
+
+    fn editor_program_candidates(program: &str) -> Vec<String> {
+        if program.contains('/') {
+            return vec![program.to_string()];
+        }
+
+        let mut candidates = vec![program.to_string()];
+        if let Some(home) = dirs_next::home_dir() {
+            candidates.push(
+                home.join(".local")
+                    .join("bin")
+                    .join(program)
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+        }
+        candidates.push(format!("/opt/homebrew/bin/{program}"));
+        candidates.push(format!("/usr/local/bin/{program}"));
+        match program {
+            "code" => candidates.extend(
+                VSCODE_OPEN_CANDIDATES
+                    .iter()
+                    .skip(1)
+                    .map(|candidate| (*candidate).to_string()),
+            ),
+            "cursor" => candidates
+                .push("/Applications/Cursor.app/Contents/Resources/app/bin/cursor".to_string()),
+            _ => {}
+        }
+        candidates.sort();
+        candidates.dedup();
+        // Preserve PATH lookup as the first attempt even after de-dup sorting.
+        if let Some(index) = candidates.iter().position(|candidate| candidate == program) {
+            candidates.swap(0, index);
+        }
+        candidates
+    }
+
+    fn run_editor_path_command(program: &str, args: &[String], path: &Path) -> std::io::Result<()> {
+        let mut not_found = None;
+        for candidate in Self::editor_program_candidates(program) {
+            match Self::run_path_command(&candidate, args, path) {
+                Ok(()) => return Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    not_found = Some(error);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Err(not_found.unwrap_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("editor executable `{program}` was not found"),
+            )
+        }))
     }
 
     fn file_link_location(target: &FileLinkTarget) -> String {
@@ -6601,6 +6674,23 @@ mod tests {
     fn parse_editor_command_rejects_empty_value() {
         let err = TermWindow::parse_editor_command("   ").unwrap_err();
         assert!(err.to_string().contains("editor command is empty"));
+    }
+
+    #[test]
+    fn configured_editor_candidates_cover_finder_launch_paths() {
+        let zed = TermWindow::editor_program_candidates("zed");
+        assert_eq!(zed.first().map(String::as_str), Some("zed"));
+        assert!(zed.iter().any(|path| path == "/usr/local/bin/zed"));
+
+        let cursor = TermWindow::editor_program_candidates("cursor");
+        assert!(cursor
+            .iter()
+            .any(|path| { path == "/Applications/Cursor.app/Contents/Resources/app/bin/cursor" }));
+
+        assert_eq!(
+            TermWindow::editor_program_candidates("/custom/editor"),
+            vec!["/custom/editor"]
+        );
     }
 
     #[test]

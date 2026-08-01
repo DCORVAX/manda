@@ -145,10 +145,10 @@ fn apply_hyperlink_rules_wrapped_lines() {
 }
 
 #[test]
-fn apply_hyperlink_rules_tui_wrapped_lines_with_indent() {
-    // A TUI renderer hard-broke a long URL at the terminal width without
-    // setting the wrap attribute, and indented the continuation row. The
-    // indent must not split the URL, and must survive the rebuild.
+fn apply_hyperlink_rules_does_not_join_hard_newline_rows() {
+    // Adjacent rows without a wrap attribute may belong to different commands.
+    // Scanning them as one string can manufacture a destination the terminal
+    // never emitted.
     let url_part1 = "https://accounts.example.com/o";
     let url_part2 = "/oauth2?code=abc123&state=xyz";
     let indent = "  ";
@@ -161,33 +161,35 @@ fn apply_hyperlink_rules_tui_wrapped_lines_with_indent() {
     let mut lines: [&mut Line; 2] = [&mut line1, &mut line2];
     Line::apply_hyperlink_rules(&rules, &mut lines);
 
-    let full_url = format!("{}{}", url_part1, url_part2);
-    let expected_link = Arc::new(Hyperlink::new_implicit(&full_url));
+    let fabricated = Arc::new(Hyperlink::new_implicit(&format!(
+        "{}{}",
+        url_part1, url_part2
+    )));
 
-    assert_eq!(
+    assert_ne!(
         line1.get_cell(0).unwrap().attrs().hyperlink().cloned(),
-        Some(expected_link.clone()),
-        "line1 carries the full URL"
+        Some(fabricated.clone()),
+        "first row must not point at a cross-row URL"
     );
     assert_eq!(
         line2.get_cell(0).unwrap().attrs().hyperlink().cloned(),
         None,
         "indent cell stays unlinked"
     );
-    assert_eq!(
+    assert_ne!(
         line2
             .get_cell(indent.len())
             .unwrap()
             .attrs()
             .hyperlink()
             .cloned(),
-        Some(expected_link),
-        "continuation content carries the full URL"
+        Some(fabricated),
+        "continuation must not point at a cross-row URL"
     );
     assert_eq!(
         line2.len(),
         indent.len() + url_part2.len(),
-        "indent cells are restored after the rebuild"
+        "hard-newline scan preserves the original row"
     );
 }
 

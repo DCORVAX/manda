@@ -207,12 +207,10 @@ fn multiple_tabs_hit_successive_stops() {
 // ─── Logical line joining ─────────────────────────────────────────────────────
 
 #[test]
-fn logical_line_walker_joins_full_width_rows_without_wrap_attr() {
+fn logical_line_walker_does_not_join_full_width_hard_newline_rows() {
     let mut term = TestTerm::new(4, 10, 0);
-    // A TUI renderer hard-breaks a long token at the terminal width and
-    // moves on with an explicit newline: the wrap attribute is never set.
-    // Row 0 is full width, row 1 is its indented continuation, row 2 is
-    // unrelated (not full width).
+    // Width alone cannot prove that adjacent rows share logical ownership.
+    // Explicit newlines keep them separate even when a row fills the terminal.
     term.print("ABCDEFGHIJ\r\n  KLMNO\r\nxyz\r\n");
 
     let mut groups: Vec<usize> = vec![];
@@ -225,7 +223,7 @@ fn logical_line_walker_joins_full_width_rows_without_wrap_attr() {
 
     assert_eq!(
         groups,
-        vec![2, 1],
-        "full-width row joins its continuation; the short row stands alone"
+        vec![1, 1, 1],
+        "hard-newline rows stay independent regardless of width"
     );
 }

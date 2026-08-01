@@ -45,6 +45,7 @@ use raw_window_handle::{
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
 use std::ffi::{c_void, CStr};
 use std::path::PathBuf;
 use std::ptr::NonNull;
@@ -620,9 +621,13 @@ struct PersistedState {
     #[serde(default)]
     config_version: Option<u64>,
     #[serde(default)]
+    managed_shell: Option<String>,
+    #[serde(default)]
     window_geometry: Option<PersistedWindowSize>,
     #[serde(default)]
     window_position: Option<PersistedWindowPosition>,
+    #[serde(default, flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Default)]
@@ -826,27 +831,62 @@ fn clamp_frame_top_below_menu_bar(frame: NSRect, visible_frame: NSRect) -> Optio
     }
 }
 
-/// Visible frame of the screen that `frame` is headed to: the screen whose
-/// frame contains the target's center, falling back to the window's current
-/// screen. Using the target keeps cross-display moves (e.g. `--position` to
-/// a display arranged above the current one) from being clamped against the
-/// wrong screen.
+#[derive(Clone, Copy)]
+struct ScreenGeometry {
+    frame: NSRect,
+    visible_frame: NSRect,
+}
+
+fn squared_distance_from_point_to_rect(point: NSPoint, rect: NSRect) -> f64 {
+    let nearest_x = point
+        .x
+        .clamp(rect.origin.x, rect.origin.x + rect.size.width);
+    let nearest_y = point
+        .y
+        .clamp(rect.origin.y, rect.origin.y + rect.size.height);
+    (point.x - nearest_x).powi(2) + (point.y - nearest_y).powi(2)
+}
+
+fn select_visible_frame_for_target(target: NSRect, screens: &[ScreenGeometry]) -> Option<NSRect> {
+    // The clamp protects the title bar, so screen ownership must follow the
+    // title bar rather than the window center or largest body overlap. Sample
+    // just inside the top edge; this lets a vertical drag enter the adjacent
+    // display as soon as its title bar crosses the boundary instead of pinning
+    // the window to the old display until half its body has crossed.
+    let title_bar_point = NSPoint::new(
+        target.origin.x + target.size.width / 2.0,
+        target.origin.y + target.size.height - 0.5,
+    );
+    screens
+        .iter()
+        .min_by(|left, right| {
+            squared_distance_from_point_to_rect(title_bar_point, left.frame).total_cmp(
+                &squared_distance_from_point_to_rect(title_bar_point, right.frame),
+            )
+        })
+        .map(|screen| screen.visible_frame)
+}
+
+/// Visible frame of the screen that `frame` is headed to. Prefer the display
+/// containing its title bar; when the title bar lies in a gap, use the nearest
+/// display. Body-center/overlap selection makes vertically arranged drags stick
+/// to the old monitor until half of the window has crossed.
 fn visible_frame_for_target_frame(window: id, frame: NSRect) -> Option<NSRect> {
     unsafe {
         let screens: id = msg_send![class!(NSScreen), screens];
         let count: usize = msg_send![screens, count];
-        let center_x = frame.origin.x + frame.size.width / 2.0;
-        let center_y = frame.origin.y + frame.size.height / 2.0;
+        let mut geometries = Vec::with_capacity(count);
         for i in 0..count {
             let screen: id = msg_send![screens, objectAtIndex: i];
             let sframe: NSRect = msg_send![screen, frame];
-            if center_x >= sframe.origin.x
-                && center_x < sframe.origin.x + sframe.size.width
-                && center_y >= sframe.origin.y
-                && center_y < sframe.origin.y + sframe.size.height
-            {
-                return Some(msg_send![screen, visibleFrame]);
-            }
+            let visible_frame: NSRect = msg_send![screen, visibleFrame];
+            geometries.push(ScreenGeometry {
+                frame: sframe,
+                visible_frame,
+            });
+        }
+        if let Some(visible) = select_visible_frame_for_target(frame, &geometries) {
+            return Some(visible);
         }
     }
     visible_frame_for_window(window)
@@ -981,8 +1021,10 @@ fn migrate_legacy_window_state() -> Option<PersistedState> {
 
     let state = PersistedState {
         config_version: None,
+        managed_shell: None,
         window_geometry: Some(size),
         window_position: None,
+        extra: BTreeMap::new(),
     };
 
     let state_file_name = state_file();
@@ -3526,6 +3568,108 @@ mod tests {
         let origin = centered_frame_origin(visible, NSSize::new(2400., 1600.));
         assert_eq!(origin.x, -1920.);
         assert_eq!(origin.y, 100.);
+    }
+
+    #[test]
+    fn persisted_window_state_keeps_managed_shell() {
+        let mut state: PersistedState = serde_json::from_str(
+            r#"{"config_version":22,"managed_shell":"fish","window_geometry":{"width":120,"height":40},"future_setting":{"enabled":true}}"#,
+        )
+        .unwrap();
+        state.window_geometry = Some(PersistedWindowSize {
+            width: 140,
+            height: 50,
+        });
+
+        let saved = serde_json::to_value(state).unwrap();
+        assert_eq!(saved["managed_shell"], "fish");
+        assert_eq!(saved["window_geometry"]["width"], 140);
+        assert_eq!(saved["future_setting"]["enabled"], true);
+    }
+
+    #[test]
+    fn target_screen_follows_title_bar_across_displays() {
+        let left_visible = NSRect::new(NSPoint::new(0., 25.), NSSize::new(1440., 875.));
+        let right_visible = NSRect::new(NSPoint::new(1440., 0.), NSSize::new(1920., 1080.));
+        let screens = [
+            ScreenGeometry {
+                frame: NSRect::new(NSPoint::new(0., 0.), NSSize::new(1440., 900.)),
+                visible_frame: left_visible,
+            },
+            ScreenGeometry {
+                frame: NSRect::new(NSPoint::new(1440., 0.), NSSize::new(1920., 1080.)),
+                visible_frame: right_visible,
+            },
+        ];
+        let target = NSRect::new(NSPoint::new(1300., 100.), NSSize::new(500., 500.));
+
+        let selected = select_visible_frame_for_target(target, &screens).unwrap();
+        assert!(nsrect_approx_eq(selected, right_visible, 0.0));
+    }
+
+    #[test]
+    fn target_screen_handles_vertical_and_gap_arrangements() {
+        let lower_visible = NSRect::new(NSPoint::new(0., 0.), NSSize::new(1000., 700.));
+        let upper_visible = NSRect::new(NSPoint::new(0., 900.), NSSize::new(1000., 700.));
+        let vertical = [
+            ScreenGeometry {
+                frame: lower_visible,
+                visible_frame: lower_visible,
+            },
+            ScreenGeometry {
+                frame: upper_visible,
+                visible_frame: upper_visible,
+            },
+        ];
+        let target = NSRect::new(NSPoint::new(200., 780.), NSSize::new(500., 400.));
+        let selected = select_visible_frame_for_target(target, &vertical).unwrap();
+        assert!(nsrect_approx_eq(selected, upper_visible, 0.0));
+
+        let left = NSRect::new(NSPoint::new(0., 0.), NSSize::new(1000., 800.));
+        let right = NSRect::new(NSPoint::new(1400., 0.), NSSize::new(1000., 800.));
+        let gap = [
+            ScreenGeometry {
+                frame: left,
+                visible_frame: left,
+            },
+            ScreenGeometry {
+                frame: right,
+                visible_frame: right,
+            },
+        ];
+        let target = NSRect::new(NSPoint::new(1190., 200.), NSSize::new(100., 100.));
+        let selected = select_visible_frame_for_target(target, &gap).unwrap();
+        assert!(nsrect_approx_eq(selected, right, 0.0));
+    }
+
+    #[test]
+    fn vertical_crossing_does_not_clamp_to_the_old_screen() {
+        let lower_frame = NSRect::new(NSPoint::new(0., 0.), NSSize::new(1000., 1000.));
+        let lower_visible = NSRect::new(NSPoint::new(0., 0.), NSSize::new(1000., 975.));
+        let upper_frame = NSRect::new(NSPoint::new(0., 1000.), NSSize::new(1000., 1000.));
+        let upper_visible = NSRect::new(NSPoint::new(0., 1000.), NSSize::new(1000., 975.));
+        let screens = [
+            ScreenGeometry {
+                frame: lower_frame,
+                visible_frame: lower_visible,
+            },
+            ScreenGeometry {
+                frame: upper_frame,
+                visible_frame: upper_visible,
+            },
+        ];
+        // Equal body overlap on both displays, but the title bar has already
+        // crossed into the upper display. Largest-overlap selection used to
+        // keep choosing the lower display and pin origin.y back to 375.
+        let target = NSRect::new(NSPoint::new(200., 700.), NSSize::new(600., 600.));
+
+        let selected = select_visible_frame_for_target(target, &screens).unwrap();
+        assert!(nsrect_approx_eq(selected, upper_visible, 0.0));
+        assert_eq!(clamp_frame_top_below_menu_bar(target, selected), None);
+        assert_eq!(
+            clamp_frame_top_below_menu_bar(target, lower_visible),
+            Some(375.)
+        );
     }
 
     #[test]

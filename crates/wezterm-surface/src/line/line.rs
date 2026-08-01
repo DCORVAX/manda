@@ -584,35 +584,25 @@ impl Line {
             return;
         }
 
-        // A continuation row is part of this logical line for one of two
-        // reasons: the prior row carries the wrap attribute (normal terminal
-        // wrapping), or the prior row was filled to the terminal width by a
-        // TUI renderer that repaints via absolute cursor positioning and
-        // never sets that attribute. In the latter case the row often starts
-        // with indentation that is layout, not content; drop those leading
-        // blanks from the scan so they do not split a URL that the TUI
-        // wrapped across rows. The dropped prefix is re-attached when the
-        // physical rows are rebuilt below.
-        let mut skipped_prefixes: Vec<Option<Line>> = Vec::with_capacity(logical_line.len());
-        skipped_prefixes.push(None);
-        let mut logical = logical_line[0].clone();
-        for (prev_idx, line) in logical_line[1..].iter().enumerate() {
-            let seqno = logical.current_seqno().max(line.current_seqno());
-            let mut content = (**line).clone();
-            let mut prefix = None;
-            if !logical_line[prev_idx].last_cell_was_wrapped() {
-                let blanks = content
-                    .visible_cells()
-                    .take_while(|cell| cell.str() == " ")
-                    .count();
-                if blanks > 0 {
-                    let rest = content.split_off(blanks, seqno);
-                    prefix = Some(content);
-                    content = rest;
-                }
+        // Only a wrap attribute proves that adjacent physical rows belong to
+        // one token stream. If a caller groups hard-newline rows, scan each
+        // independently so hyperlinks cannot be fabricated across commands.
+        if logical_line.len() > 1
+            && logical_line[..logical_line.len() - 1]
+                .iter()
+                .any(|line| !line.last_cell_was_wrapped())
+        {
+            for line in logical_line.iter_mut() {
+                let mut one = [&mut **line];
+                Self::apply_hyperlink_rules(rules, &mut one);
             }
-            skipped_prefixes.push(prefix);
-            logical.append_line(content, seqno);
+            return;
+        }
+
+        let mut logical = logical_line[0].clone();
+        for line in &logical_line[1..] {
+            let seqno = logical.current_seqno().max(line.current_seqno());
+            logical.append_line((**line).clone(), seqno);
         }
         let seq = logical.current_seqno();
 
@@ -629,23 +619,14 @@ impl Line {
         }
 
         // Re-compute the physical lines that comprise this logical line
-        for (phys, prefix) in logical_line.iter_mut().zip(skipped_prefixes) {
+        for phys in logical_line.iter_mut() {
             let wrapped = phys.last_cell_was_wrapped();
             let is_cluster = matches!(&phys.cells, CellStorage::C(_));
-            let prefix_len = prefix.as_ref().map(|p| p.len()).unwrap_or(0);
-            let len = phys.len().saturating_sub(prefix_len);
+            let len = phys.len();
             let remainder = logical.split_off(len, seq);
             let content = logical;
             logical = remainder;
-            **phys = match prefix {
-                Some(mut prefix) => {
-                    let bits = content.bits;
-                    prefix.append_line(content, seq);
-                    prefix.bits = bits;
-                    prefix
-                }
-                None => content,
-            };
+            **phys = content;
             phys.set_last_cell_was_wrapped(wrapped, seq);
             #[cfg(feature = "appdata")]
             phys.clear_appdata();
