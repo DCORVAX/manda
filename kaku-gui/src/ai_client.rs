@@ -9,7 +9,7 @@
 
 use anyhow::{Context, Result};
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -22,6 +22,18 @@ const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 /// Codex (ChatGPT subscription) Responses backend. ChatGPT-login OAuth tokens
 /// are only accepted here, not on /chat/completions.
 const CODEX_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
+const MAX_RESPONSE_BODY_BYTES: usize = 8 * 1024 * 1024;
+const MAX_MODELS_BODY_BYTES: usize = 1024 * 1024;
+const MAX_RESPONSE_SSE_LINE_BYTES: usize = 1024 * 1024;
+const MAX_RESPONSE_STREAM_BYTES: usize = 16 * 1024 * 1024;
+const MAX_RESPONSE_STREAM_EVENTS: usize = 16_384;
+const MAX_RESPONSE_TOOL_CALLS: usize = 32;
+const MAX_RESPONSE_TOOL_ARGUMENT_BYTES: usize = 64 * 1024;
+const MAX_RESPONSE_OUTPUT_ITEMS: usize = 128;
+const MAX_RESPONSE_CITATIONS: usize = 256;
+const MAX_RESPONSE_CITATION_TITLE_CHARS: usize = 512;
+const MAX_RESPONSE_CITATION_URL_CHARS: usize = 2_048;
+const MAX_ERROR_BODY_BYTES: usize = 4 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ApiMode {
@@ -251,6 +263,16 @@ impl AssistantConfig {
     pub fn native_web_search_ready(&self) -> bool {
         self.api_mode == ApiMode::Responses && self.native_web_search && self.chat_tools_enabled
     }
+
+    /// Codex authentication always uses the Responses transport regardless of
+    /// the compatibility value stored in `api_mode`.
+    pub fn effective_api_mode(&self) -> ApiMode {
+        if self.auth_type == "codex" {
+            ApiMode::Responses
+        } else {
+            self.api_mode
+        }
+    }
 }
 
 fn parse_custom_headers(value: Option<&toml::Value>) -> Result<Vec<(String, String)>> {
@@ -361,6 +383,14 @@ impl ApiMessage {
         }))
     }
 
+    /// A raw output item returned by the Responses API. Reasoning models can
+    /// require encrypted reasoning items to be replayed unchanged before tool
+    /// outputs on the next step, so reducing these to chat-completion messages
+    /// loses protocol state.
+    pub fn responses_output_item(item: serde_json::Value) -> Self {
+        Self(serde_json::json!({ "kaku_responses_output_item": item }))
+    }
+
     /// Approximate serialized byte size of this message. Used for history-budget
     /// accounting in the agent loop; does not need to be exact.
     pub fn byte_len(&self) -> usize {
@@ -384,6 +414,29 @@ pub struct ToolCall {
     pub name: String,
     /// Complete JSON-encoded arguments string, e.g. `{"path": "~/Downloads"}`.
     pub arguments: String,
+}
+
+/// Result of one model step. `response_items` is empty for Chat Completions;
+/// Responses callers must replay these raw items before function-call outputs.
+pub struct ChatStepResult {
+    pub tool_calls: Vec<ToolCall>,
+    pub response_items: Vec<serde_json::Value>,
+}
+
+impl ChatStepResult {
+    fn empty() -> Self {
+        Self {
+            tool_calls: Vec::new(),
+            response_items: Vec::new(),
+        }
+    }
+
+    fn chat_completions(tool_calls: Vec<ToolCall>) -> Self {
+        Self {
+            tool_calls,
+            response_items: Vec::new(),
+        }
+    }
 }
 
 // ─── Client ───────────────────────────────────────────────────────────────────
@@ -410,9 +463,19 @@ pub struct AiClient {
 /// `timeout` controls the per-request ceiling; AI chat needs minutes for
 /// long streaming completions while web tools should fail fast.
 pub(crate) fn build_client_with_proxy(timeout: std::time::Duration) -> reqwest::blocking::Client {
+    build_client_with_proxy_redirects(timeout, true)
+}
+
+fn build_client_with_proxy_redirects(
+    timeout: std::time::Duration,
+    follow_redirects: bool,
+) -> reqwest::blocking::Client {
     let mut builder = reqwest::blocking::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(30))
         .timeout(timeout);
+    if !follow_redirects {
+        builder = builder.redirect(reqwest::redirect::Policy::none());
+    }
 
     if let Some(proxy_url) = config::proxy::detect_system_proxy() {
         match reqwest::Proxy::all(&proxy_url) {
@@ -439,7 +502,15 @@ pub(crate) fn build_client_with_proxy(timeout: std::time::Duration) -> reqwest::
 
     builder.build().unwrap_or_else(|e| {
         log::warn!("Failed to build HTTP client: {e}; falling back to default client");
-        reqwest::blocking::Client::new()
+        let fallback = reqwest::blocking::Client::builder();
+        let fallback = if follow_redirects {
+            fallback
+        } else {
+            fallback.redirect(reqwest::redirect::Policy::none())
+        };
+        fallback
+            .build()
+            .expect("default reqwest client configuration must be valid")
     })
 }
 
@@ -563,6 +634,7 @@ impl AiClient {
             model,
             messages,
             &[],
+            false,
             &cancelled,
             &mut |tok| {
                 text.push_str(tok);
@@ -581,10 +653,12 @@ impl AiClient {
         let resp = req.send().context("GET /models failed")?;
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().unwrap_or_default();
+            let body = read_error_response_preview(resp, MAX_ERROR_BODY_BYTES);
             anyhow::bail!("models API {}: {}", status, body);
         }
-        let v: serde_json::Value = resp.json().context("parse /models response")?;
+        let body = read_body_capped(resp, MAX_MODELS_BODY_BYTES, "models API")?;
+        let v: serde_json::Value =
+            serde_json::from_slice(&body).context("parse /models response")?;
         let arr = v
             .get("data")
             .and_then(|d| d.as_array())
@@ -659,20 +733,22 @@ impl AiClient {
         model: &str,
         messages: &[ApiMessage],
         tools: &[serde_json::Value],
+        allow_native_web_search: bool,
         cancelled: &AtomicBool,
         on_token: &mut dyn FnMut(&str),
         on_reasoning: &mut dyn FnMut(&str),
-    ) -> Result<Vec<ToolCall>> {
+    ) -> Result<ChatStepResult> {
         // Codex (ChatGPT subscription) uses the Responses backend, not
         // /chat/completions, so it needs an entirely separate transport.
         if self.config.auth_type == "codex" {
             return self.chat_step_codex(model, messages, tools, cancelled, on_token, on_reasoning);
         }
-        if self.config.api_mode == ApiMode::Responses {
+        if self.config.effective_api_mode() == ApiMode::Responses {
             return self.chat_step_responses(
                 model,
                 messages,
                 tools,
+                allow_native_web_search,
                 cancelled,
                 on_token,
                 on_reasoning,
@@ -702,21 +778,31 @@ impl AiClient {
 
         let response = send_with_retry(req, "API", cancelled, self.max_request_attempts)?;
 
-        let reader = BufReader::new(response);
+        let mut reader = BufReader::new(response);
         // Accumulate tool call fragments by index; each index is one pending call.
         // BTreeMap keeps indices sorted so we process them in order.
         let mut tc_buf: BTreeMap<usize, ToolCallBuf> = BTreeMap::new();
         let mut finish_reason = String::new();
         let mut think_filter = InlineThinkFilter::new();
+        let mut stream_bytes = 0usize;
+        let mut stream_events = 0usize;
 
-        for line in reader.lines() {
+        loop {
             if cancelled.load(Ordering::Relaxed) {
                 break;
             }
-            let line = line.context("read SSE line")?;
+            let Some(mut line_bytes) = read_sse_line_capped(&mut reader, "API")? else {
+                break;
+            };
+            add_stream_bytes(&mut stream_bytes, line_bytes.len(), "API")?;
+            while matches!(line_bytes.last(), Some(b'\n' | b'\r')) {
+                line_bytes.pop();
+            }
+            let line = std::str::from_utf8(&line_bytes).context("API SSE line was not UTF-8")?;
             let Some(data) = sse_data_payload(&line) else {
                 continue;
             };
+            add_stream_event(&mut stream_events, "API")?;
             if data.trim() == "[DONE]" {
                 break;
             }
@@ -762,6 +848,9 @@ impl AiClient {
             if let Some(tc_arr) = delta["tool_calls"].as_array() {
                 for tc in tc_arr {
                     let idx = tc["index"].as_u64().unwrap_or(0) as usize;
+                    if !tc_buf.contains_key(&idx) && tc_buf.len() >= MAX_RESPONSE_TOOL_CALLS {
+                        anyhow::bail!("API returned too many function calls");
+                    }
                     let entry = tc_buf.entry(idx).or_default();
                     if let Some(id) = tc["id"].as_str() {
                         entry.id = id.to_string();
@@ -770,9 +859,7 @@ impl AiClient {
                         entry.name = name.to_string();
                     }
                     if let Some(args) = tc["function"]["arguments"].as_str() {
-                        if entry.arguments.len() < 65_536 {
-                            entry.arguments.push_str(args);
-                        }
+                        append_tool_arguments(&mut entry.arguments, args, "API")?;
                     }
                 }
             }
@@ -799,12 +886,12 @@ impl AiClient {
                 })
                 .collect::<Vec<_>>();
             if calls.is_empty() {
-                Ok(vec![])
+                Ok(ChatStepResult::empty())
             } else {
-                Ok(calls)
+                Ok(ChatStepResult::chat_completions(calls))
             }
         } else {
-            Ok(vec![])
+            Ok(ChatStepResult::empty())
         }
     }
 
@@ -813,10 +900,11 @@ impl AiClient {
         model: &str,
         messages: &[ApiMessage],
         tools: &[serde_json::Value],
+        allow_native_web_search: bool,
         cancelled: &AtomicBool,
         on_token: &mut dyn FnMut(&str),
         on_reasoning: &mut dyn FnMut(&str),
-    ) -> Result<Vec<ToolCall>> {
+    ) -> Result<ChatStepResult> {
         use serde_json::{json, Value};
 
         let url = format!("{}/responses", self.config.base_url);
@@ -824,7 +912,7 @@ impl AiClient {
         let responses_tools = translate_responses_tools(
             tools,
             self.config.chat_tools_enabled,
-            self.config.native_web_search_ready(),
+            allow_native_web_search && self.config.native_web_search_ready(),
         );
 
         let mut body = json!({
@@ -839,6 +927,7 @@ impl AiClient {
         if !responses_tools.is_empty() {
             body["tools"] = Value::Array(responses_tools);
             body["tool_choice"] = Value::String("auto".to_string());
+            body["include"] = json!(["reasoning.encrypted_content"]);
         }
 
         let req = self
@@ -868,7 +957,7 @@ impl AiClient {
         cancelled: &AtomicBool,
         on_token: &mut dyn FnMut(&str),
         on_reasoning: &mut dyn FnMut(&str),
-    ) -> Result<Vec<ToolCall>> {
+    ) -> Result<ChatStepResult> {
         use serde_json::{json, Value};
 
         let mut auth = self.codex_auth()?;
@@ -893,6 +982,7 @@ impl AiClient {
         if !responses_tools.is_empty() {
             body["tools"] = Value::Array(responses_tools);
             body["tool_choice"] = Value::String("auto".to_string());
+            body["include"] = json!(["reasoning.encrypted_content"]);
         }
 
         let build = |auth: &ai_auth::CodexAuth| -> reqwest::blocking::RequestBuilder {
@@ -922,12 +1012,7 @@ impl AiClient {
         }
         if !response.status().is_success() {
             let status = response.status();
-            let preview: String = response
-                .text()
-                .unwrap_or_default()
-                .chars()
-                .take(400)
-                .collect();
+            let preview = read_error_response_preview(response, 400);
             anyhow::bail!("Codex responses error {status}: {preview}");
         }
 
@@ -947,6 +1032,10 @@ fn translate_responses_messages(messages: &[ApiMessage]) -> (String, Vec<serde_j
     let mut instructions = String::new();
     let mut input = Vec::new();
     for ApiMessage(message) in messages {
+        if let Some(item) = message.get("kaku_responses_output_item") {
+            input.push(item.clone());
+            continue;
+        }
         let role = message["role"].as_str().unwrap_or("user");
 
         if role == "tool" {
@@ -1052,22 +1141,41 @@ fn parse_responses_http(
     on_token: &mut dyn FnMut(&str),
     on_reasoning: &mut dyn FnMut(&str),
     provider_label: &str,
-) -> Result<Vec<ToolCall>> {
-    let is_json = response
+) -> Result<ChatStepResult> {
+    let content_type = response
         .headers()
         .get(CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.to_ascii_lowercase().contains("application/json"));
+        .map(str::to_owned);
 
-    if is_json {
-        let value = response
-            .json::<serde_json::Value>()
+    if content_type
+        .as_deref()
+        .is_some_and(content_type_is_event_stream)
+    {
+        return parse_responses_sse(
+            BufReader::new(response),
+            cancelled,
+            on_token,
+            on_reasoning,
+            provider_label,
+        );
+    }
+
+    let bytes = read_response_body_capped(response, provider_label)?;
+    let looks_json = content_type.as_deref().is_some_and(content_type_is_json)
+        || bytes
+            .iter()
+            .copied()
+            .find(|byte| !byte.is_ascii_whitespace())
+            .is_some_and(|byte| matches!(byte, b'{' | b'['));
+    if looks_json {
+        let value = serde_json::from_slice::<serde_json::Value>(&bytes)
             .with_context(|| format!("parse {provider_label} JSON response"))?;
         return parse_responses_value(&value, on_token, on_reasoning, provider_label);
     }
 
     parse_responses_sse(
-        BufReader::new(response),
+        std::io::Cursor::new(bytes),
         cancelled,
         on_token,
         on_reasoning,
@@ -1075,46 +1183,172 @@ fn parse_responses_http(
     )
 }
 
+fn content_type_is_json(value: &str) -> bool {
+    let media_type = value
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    media_type == "application/json"
+        || (media_type.starts_with("application/") && media_type.ends_with("+json"))
+}
+
+fn content_type_is_event_stream(value: &str) -> bool {
+    value
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .eq_ignore_ascii_case("text/event-stream")
+}
+
+fn read_response_body_capped(
+    response: reqwest::blocking::Response,
+    provider_label: &str,
+) -> Result<Vec<u8>> {
+    read_body_capped(response, MAX_RESPONSE_BODY_BYTES, provider_label)
+}
+
+fn read_body_capped(reader: impl Read, max_bytes: usize, provider_label: &str) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    reader
+        .take((max_bytes + 1) as u64)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("read {provider_label} response body"))?;
+    if bytes.len() > max_bytes {
+        anyhow::bail!("{provider_label} response exceeded {} bytes", max_bytes);
+    }
+    Ok(bytes)
+}
+
+fn read_error_response_preview(response: reqwest::blocking::Response, max_chars: usize) -> String {
+    let mut bytes = Vec::new();
+    let _ = response
+        .take(MAX_ERROR_BODY_BYTES as u64)
+        .read_to_end(&mut bytes);
+    String::from_utf8_lossy(&bytes)
+        .chars()
+        .take(max_chars)
+        .collect()
+}
+
+fn read_sse_line_capped<R: BufRead>(
+    reader: &mut R,
+    provider_label: &str,
+) -> Result<Option<Vec<u8>>> {
+    let mut line = Vec::new();
+    loop {
+        let available = reader
+            .fill_buf()
+            .with_context(|| format!("read {provider_label} SSE line"))?;
+        if available.is_empty() {
+            return if line.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(line))
+            };
+        }
+        let take = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(available.len(), |index| index + 1);
+        let new_len = line
+            .len()
+            .checked_add(take)
+            .ok_or_else(|| anyhow::anyhow!("{provider_label} SSE line length overflowed"))?;
+        if new_len > MAX_RESPONSE_SSE_LINE_BYTES {
+            anyhow::bail!(
+                "{provider_label} SSE line exceeded {} bytes",
+                MAX_RESPONSE_SSE_LINE_BYTES
+            );
+        }
+        let found_newline = available.get(take.saturating_sub(1)) == Some(&b'\n');
+        line.extend_from_slice(&available[..take]);
+        reader.consume(take);
+        if found_newline {
+            return Ok(Some(line));
+        }
+    }
+}
+
+fn add_stream_bytes(total: &mut usize, amount: usize, provider_label: &str) -> Result<()> {
+    *total = total
+        .checked_add(amount)
+        .ok_or_else(|| anyhow::anyhow!("{provider_label} stream size overflowed"))?;
+    if *total > MAX_RESPONSE_STREAM_BYTES {
+        anyhow::bail!(
+            "{provider_label} stream exceeded {} bytes",
+            MAX_RESPONSE_STREAM_BYTES
+        );
+    }
+    Ok(())
+}
+
+fn add_stream_event(total: &mut usize, provider_label: &str) -> Result<()> {
+    *total += 1;
+    if *total > MAX_RESPONSE_STREAM_EVENTS {
+        anyhow::bail!(
+            "{provider_label} stream exceeded {} events",
+            MAX_RESPONSE_STREAM_EVENTS
+        );
+    }
+    Ok(())
+}
+
 fn parse_responses_sse<R: BufRead>(
-    reader: R,
+    mut reader: R,
     cancelled: &AtomicBool,
     on_token: &mut dyn FnMut(&str),
     on_reasoning: &mut dyn FnMut(&str),
     provider_label: &str,
-) -> Result<Vec<ToolCall>> {
+) -> Result<ChatStepResult> {
     let mut calls: Vec<(String, ToolCallBuf)> = Vec::new();
     let mut citations = Vec::new();
     let mut saw_text_delta = false;
+    let mut saw_reasoning_delta = false;
+    let mut streamed_text = String::new();
+    let mut completed_output_text = String::new();
+    let mut response_items = Vec::new();
+    let mut completed = false;
+    let mut stream_bytes = 0usize;
+    let mut stream_events = 0usize;
 
-    for line in reader.lines() {
+    loop {
         if cancelled.load(Ordering::Relaxed) {
-            break;
+            return Ok(ChatStepResult::empty());
         }
-        let line = line.with_context(|| format!("read {provider_label} SSE line"))?;
+        let Some(mut line_bytes) = read_sse_line_capped(&mut reader, provider_label)? else {
+            break;
+        };
+        add_stream_bytes(&mut stream_bytes, line_bytes.len(), provider_label)?;
+        while matches!(line_bytes.last(), Some(b'\n' | b'\r')) {
+            line_bytes.pop();
+        }
+        let line = std::str::from_utf8(&line_bytes)
+            .with_context(|| format!("{provider_label} SSE line was not UTF-8"))?;
         let Some(data) = sse_data_payload(&line) else {
             continue;
         };
+        add_stream_event(&mut stream_events, provider_label)?;
         if data.trim() == "[DONE]" {
             break;
         }
-        let event = match serde_json::from_str::<serde_json::Value>(data) {
-            Ok(value) => value,
-            Err(error) => {
-                log::warn!("Failed to parse {provider_label} SSE event: {error}");
-                continue;
-            }
-        };
+        let event = serde_json::from_str::<serde_json::Value>(data)
+            .with_context(|| format!("parse {provider_label} SSE event"))?;
 
         match event["type"].as_str() {
             Some("response.output_text.delta") => {
                 if let Some(delta) = event["delta"].as_str() {
                     saw_text_delta = true;
+                    streamed_text.push_str(delta);
                     on_token(delta);
                 }
             }
             Some("response.reasoning_summary_text.delta")
             | Some("response.reasoning_text.delta") => {
                 if let Some(delta) = event["delta"].as_str() {
+                    saw_reasoning_delta = true;
                     on_reasoning(delta);
                 }
             }
@@ -1123,46 +1357,67 @@ fn parse_responses_sse<R: BufRead>(
             }
             Some("response.output_item.added") | Some("response.output_item.done") => {
                 let item = &event["item"];
+                upsert_response_item(&mut response_items, item)?;
                 if item["type"] == "function_call" {
-                    upsert_response_call(&mut calls, item);
+                    upsert_response_call(&mut calls, item)?;
                 } else if item["type"] == "message" {
                     collect_response_citations(item, &mut citations);
                 }
             }
             Some("response.function_call_arguments.delta") => {
-                if let Some(buffer) =
-                    upsert_call(&mut calls, event["item_id"].as_str().unwrap_or(""))
-                {
+                let item_id = event["item_id"].as_str().unwrap_or("");
+                let updated_arguments = if let Some(buffer) = upsert_call(&mut calls, item_id)? {
                     if let Some(delta) = event["delta"].as_str() {
-                        if buffer.arguments.len() < 65_536 {
-                            buffer.arguments.push_str(delta);
-                        }
+                        append_tool_arguments(&mut buffer.arguments, delta, provider_label)?;
                     }
+                    Some(buffer.arguments.clone())
+                } else {
+                    None
+                };
+                if let Some(arguments) = updated_arguments {
+                    update_response_item_arguments(&mut response_items, item_id, &arguments);
                 }
             }
             Some("response.function_call_arguments.done") => {
-                if let Some(buffer) =
-                    upsert_call(&mut calls, event["item_id"].as_str().unwrap_or(""))
-                {
+                let item_id = event["item_id"].as_str().unwrap_or("");
+                let updated_arguments = if let Some(buffer) = upsert_call(&mut calls, item_id)? {
                     if let Some(arguments) = event["arguments"].as_str() {
-                        buffer.arguments = arguments.to_string();
+                        set_tool_arguments(&mut buffer.arguments, arguments, provider_label)?;
                     }
+                    Some(buffer.arguments.clone())
+                } else {
+                    None
+                };
+                if let Some(arguments) = updated_arguments {
+                    update_response_item_arguments(&mut response_items, item_id, &arguments);
                 }
             }
             Some("response.completed") => {
-                let completed = &event["response"];
-                if !saw_text_delta && calls.is_empty() {
-                    return parse_responses_value(
-                        completed,
-                        on_token,
-                        on_reasoning,
-                        provider_label,
-                    );
+                let completed_response = &event["response"];
+                validate_completed_response(completed_response, provider_label)?;
+                completed_output_text = completed_response["output_text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                if let Some(output) = completed_response["output"].as_array() {
+                    validate_response_item_count(output.len(), provider_label)?;
+                    if !output.is_empty() {
+                        response_items = output.clone();
+                        let completed_calls = response_calls(completed_response, provider_label)?;
+                        if !completed_calls.is_empty() {
+                            calls = completed_calls;
+                        }
+                    }
                 }
-                collect_response_citations(completed, &mut citations);
-                if calls.is_empty() {
-                    calls = response_calls(completed);
-                }
+                emit_response_output(
+                    completed_response,
+                    !saw_text_delta,
+                    !saw_reasoning_delta,
+                    on_token,
+                    on_reasoning,
+                );
+                collect_response_citations(completed_response, &mut citations);
+                completed = true;
                 break;
             }
             Some("response.failed") | Some("response.incomplete") => {
@@ -1179,8 +1434,34 @@ fn parse_responses_sse<R: BufRead>(
         }
     }
 
-    emit_response_citations(&citations, on_token);
-    Ok(tool_calls_from_buffers(calls))
+    if cancelled.load(Ordering::Relaxed) {
+        return Ok(ChatStepResult::empty());
+    }
+    if !completed {
+        anyhow::bail!("{provider_label} stream ended before response.completed");
+    }
+    validate_response_call_buffers(&calls, provider_label)?;
+    sync_response_call_items(&mut response_items, &calls, provider_label)?;
+    let citations_text = format_response_citations(&citations);
+    if !citations_text.is_empty() {
+        on_token(&citations_text);
+    }
+    if !response_items.iter().any(response_message_has_text) {
+        let mut final_text = if streamed_text.is_empty() {
+            completed_output_text
+        } else {
+            streamed_text
+        };
+        final_text.push_str(&citations_text);
+        if !final_text.is_empty() {
+            upsert_synthesized_response_message(&mut response_items, final_text, provider_label)?;
+        }
+    }
+    validate_response_item_count(response_items.len(), provider_label)?;
+    Ok(ChatStepResult {
+        tool_calls: tool_calls_from_buffers(calls),
+        response_items,
+    })
 }
 
 fn parse_responses_value(
@@ -1188,18 +1469,56 @@ fn parse_responses_value(
     on_token: &mut dyn FnMut(&str),
     on_reasoning: &mut dyn FnMut(&str),
     provider_label: &str,
-) -> Result<Vec<ToolCall>> {
-    if matches!(response["status"].as_str(), Some("failed" | "incomplete")) {
-        let message = response_error_message(response).unwrap_or("unknown error");
-        anyhow::bail!("{provider_label} failed: {message}");
-    }
+) -> Result<ChatStepResult> {
+    validate_completed_response(response, provider_label)?;
 
     let mut citations = Vec::new();
+    let mut output = response["output"].as_array().cloned().unwrap_or_default();
+    validate_response_item_count(output.len(), provider_label)?;
+    emit_response_output(response, true, true, on_token, on_reasoning);
+    collect_response_citations(response, &mut citations);
+
+    let citations_text = format_response_citations(&citations);
+    if !citations_text.is_empty() {
+        on_token(&citations_text);
+    }
+    if !output.iter().any(response_message_has_text) {
+        let mut text = response["output_text"].as_str().unwrap_or("").to_string();
+        text.push_str(&citations_text);
+        if !text.is_empty() {
+            upsert_synthesized_response_message(&mut output, text, provider_label)?;
+        }
+    }
+    Ok(ChatStepResult {
+        tool_calls: tool_calls_from_buffers(response_calls(response, provider_label)?),
+        response_items: output,
+    })
+}
+
+fn validate_completed_response(response: &serde_json::Value, provider_label: &str) -> Result<()> {
+    match response["status"].as_str() {
+        Some("completed") => Ok(()),
+        Some("failed" | "incomplete") => {
+            let message = response_error_message(response).unwrap_or("unknown error");
+            anyhow::bail!("{provider_label} failed: {message}")
+        }
+        Some(status) => anyhow::bail!("{provider_label} returned unexpected status `{status}`"),
+        None => anyhow::bail!("{provider_label} response omitted completion status"),
+    }
+}
+
+fn emit_response_output(
+    response: &serde_json::Value,
+    emit_text: bool,
+    emit_reasoning: bool,
+    on_token: &mut dyn FnMut(&str),
+    on_reasoning: &mut dyn FnMut(&str),
+) {
     let mut emitted_text = false;
     if let Some(output) = response["output"].as_array() {
         for item in output {
             match item["type"].as_str() {
-                Some("message") => {
+                Some("message") if emit_text => {
                     if let Some(content) = item["content"].as_array() {
                         for part in content {
                             if let Some(text) =
@@ -1210,9 +1529,8 @@ fn parse_responses_value(
                             }
                         }
                     }
-                    collect_response_citations(item, &mut citations);
                 }
-                Some("reasoning") => {
+                Some("reasoning") if emit_reasoning => {
                     if let Some(summary) = item["summary"].as_array() {
                         for part in summary {
                             if let Some(text) = part["text"].as_str() {
@@ -1225,35 +1543,45 @@ fn parse_responses_value(
             }
         }
     }
-    if !emitted_text {
+    if emit_text && !emitted_text {
         if let Some(text) = response["output_text"].as_str() {
             on_token(text);
         }
     }
-
-    emit_response_citations(&citations, on_token);
-    Ok(tool_calls_from_buffers(response_calls(response)))
 }
 
-fn response_calls(response: &serde_json::Value) -> Vec<(String, ToolCallBuf)> {
+fn response_calls(
+    response: &serde_json::Value,
+    provider_label: &str,
+) -> Result<Vec<(String, ToolCallBuf)>> {
     let mut calls = Vec::new();
     if let Some(output) = response["output"].as_array() {
         for item in output {
             if item["type"] == "function_call" {
-                upsert_response_call(&mut calls, item);
+                upsert_response_call(&mut calls, item)?;
             }
         }
     }
-    calls
+    validate_response_call_buffers(&calls, provider_label)?;
+    Ok(calls)
 }
 
-fn upsert_response_call(calls: &mut Vec<(String, ToolCallBuf)>, item: &serde_json::Value) {
+fn upsert_response_call(
+    calls: &mut Vec<(String, ToolCallBuf)>,
+    item: &serde_json::Value,
+) -> Result<()> {
     let item_id = item["id"]
         .as_str()
         .filter(|value| !value.is_empty())
         .or_else(|| item["call_id"].as_str())
         .unwrap_or("");
-    if let Some(buffer) = upsert_call(calls, item_id) {
+    if !item_id.is_empty()
+        && !calls.iter().any(|(id, _)| id == item_id)
+        && calls.len() >= MAX_RESPONSE_TOOL_CALLS
+    {
+        anyhow::bail!("Responses API returned too many function calls");
+    }
+    if let Some(buffer) = upsert_call(calls, item_id)? {
         if let Some(call_id) = item["call_id"].as_str().filter(|value| !value.is_empty()) {
             buffer.id = call_id.to_string();
         }
@@ -1261,9 +1589,130 @@ fn upsert_response_call(calls: &mut Vec<(String, ToolCallBuf)>, item: &serde_jso
             buffer.name = name.to_string();
         }
         if let Some(arguments) = item["arguments"].as_str().filter(|value| !value.is_empty()) {
-            buffer.arguments = arguments.to_string();
+            set_tool_arguments(&mut buffer.arguments, arguments, "Responses API")?;
         }
     }
+    Ok(())
+}
+
+fn upsert_response_item(
+    items: &mut Vec<serde_json::Value>,
+    item: &serde_json::Value,
+) -> Result<()> {
+    let id = item["id"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .or_else(|| item["call_id"].as_str().filter(|value| !value.is_empty()));
+    if let Some(id) = id {
+        if let Some(existing) = items.iter_mut().find(|existing| {
+            existing["id"].as_str() == Some(id) || existing["call_id"].as_str() == Some(id)
+        }) {
+            *existing = item.clone();
+            return Ok(());
+        }
+    }
+    validate_response_item_count(items.len() + 1, "Responses API")?;
+    items.push(item.clone());
+    Ok(())
+}
+
+fn update_response_item_arguments(items: &mut [serde_json::Value], item_id: &str, arguments: &str) {
+    if item_id.is_empty() {
+        return;
+    }
+    if let Some(item) = items.iter_mut().find(|item| {
+        item["id"].as_str() == Some(item_id) || item["call_id"].as_str() == Some(item_id)
+    }) {
+        item["arguments"] = serde_json::Value::String(arguments.to_string());
+    }
+}
+
+fn sync_response_call_items(
+    items: &mut Vec<serde_json::Value>,
+    calls: &[(String, ToolCallBuf)],
+    provider_label: &str,
+) -> Result<()> {
+    for (item_id, call) in calls {
+        let existing = items.iter_mut().find(|item| {
+            (!item_id.is_empty() && item["id"].as_str() == Some(item_id.as_str()))
+                || (!call.id.is_empty() && item["call_id"].as_str() == Some(call.id.as_str()))
+        });
+        if let Some(item) = existing {
+            item["arguments"] = serde_json::Value::String(call.arguments.clone());
+            continue;
+        }
+
+        validate_response_item_count(items.len() + 1, provider_label)?;
+        let mut item = serde_json::json!({
+            "type": "function_call",
+            "call_id": call.id,
+            "name": call.name,
+            "arguments": call.arguments,
+        });
+        if !item_id.is_empty() {
+            item["id"] = serde_json::Value::String(item_id.clone());
+        }
+        items.push(item);
+    }
+    Ok(())
+}
+
+fn validate_response_item_count(count: usize, provider_label: &str) -> Result<()> {
+    if count > MAX_RESPONSE_OUTPUT_ITEMS {
+        anyhow::bail!(
+            "{provider_label} returned more than {} output items",
+            MAX_RESPONSE_OUTPUT_ITEMS
+        );
+    }
+    Ok(())
+}
+
+fn append_tool_arguments(target: &mut String, delta: &str, provider_label: &str) -> Result<()> {
+    let new_len = target
+        .len()
+        .checked_add(delta.len())
+        .ok_or_else(|| anyhow::anyhow!("{provider_label} tool arguments overflowed"))?;
+    if new_len > MAX_RESPONSE_TOOL_ARGUMENT_BYTES {
+        anyhow::bail!(
+            "{provider_label} tool arguments exceeded {} bytes",
+            MAX_RESPONSE_TOOL_ARGUMENT_BYTES
+        );
+    }
+    target.push_str(delta);
+    Ok(())
+}
+
+fn set_tool_arguments(target: &mut String, arguments: &str, provider_label: &str) -> Result<()> {
+    if arguments.len() > MAX_RESPONSE_TOOL_ARGUMENT_BYTES {
+        anyhow::bail!(
+            "{provider_label} tool arguments exceeded {} bytes",
+            MAX_RESPONSE_TOOL_ARGUMENT_BYTES
+        );
+    }
+    target.clear();
+    target.push_str(arguments);
+    Ok(())
+}
+
+fn validate_response_call_buffers(
+    calls: &[(String, ToolCallBuf)],
+    provider_label: &str,
+) -> Result<()> {
+    if calls.len() > MAX_RESPONSE_TOOL_CALLS {
+        anyhow::bail!(
+            "{provider_label} returned more than {} function calls",
+            MAX_RESPONSE_TOOL_CALLS
+        );
+    }
+    for (_, call) in calls {
+        if call.arguments.len() > MAX_RESPONSE_TOOL_ARGUMENT_BYTES {
+            anyhow::bail!(
+                "{provider_label} tool arguments exceeded {} bytes",
+                MAX_RESPONSE_TOOL_ARGUMENT_BYTES
+            );
+        }
+    }
+    Ok(())
 }
 
 fn tool_calls_from_buffers(calls: Vec<(String, ToolCallBuf)>) -> Vec<ToolCall> {
@@ -1310,30 +1759,81 @@ fn collect_response_annotation(
     if annotation["type"] != "url_citation" {
         return;
     }
+    if citations.len() >= MAX_RESPONSE_CITATIONS {
+        return;
+    }
     let Some(url) = annotation["url"].as_str().filter(|url| !url.is_empty()) else {
         return;
     };
     if citations.iter().any(|(_, existing)| existing == url) {
         return;
     }
+    let url = url
+        .chars()
+        .take(MAX_RESPONSE_CITATION_URL_CHARS)
+        .collect::<String>();
     let title = annotation["title"]
         .as_str()
         .filter(|title| !title.is_empty())
-        .unwrap_or(url)
-        .replace(['\n', '\r'], " ");
-    citations.push((title, url.to_string()));
+        .unwrap_or(&url)
+        .replace(['\n', '\r'], " ")
+        .chars()
+        .take(MAX_RESPONSE_CITATION_TITLE_CHARS)
+        .collect();
+    citations.push((title, url));
 }
 
-fn emit_response_citations(citations: &[(String, String)], on_token: &mut dyn FnMut(&str)) {
+fn format_response_citations(citations: &[(String, String)]) -> String {
     if citations.is_empty() {
-        return;
+        return String::new();
     }
-    on_token("\n\nSources:\n");
+    let mut out = String::from("\n\nSources:\n");
     for (title, url) in citations {
         // Kaku's compact Markdown renderer intentionally drops link targets,
         // so keep the URL visible for copying and terminal link detection.
-        on_token(&format!("- {title}: {url}\n"));
+        out.push_str(&format!("- {title}: {url}\n"));
     }
+    out
+}
+
+fn synthesized_response_message(text: String) -> serde_json::Value {
+    serde_json::json!({
+        "type": "message",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{
+            "type": "output_text",
+            "text": text,
+            "annotations": [],
+        }],
+    })
+}
+
+fn response_message_has_text(item: &serde_json::Value) -> bool {
+    item["type"] == "message"
+        && item["content"].as_array().is_some_and(|content| {
+            content.iter().any(|part| {
+                part["text"]
+                    .as_str()
+                    .or_else(|| part["refusal"].as_str())
+                    .is_some_and(|text| !text.is_empty())
+            })
+        })
+}
+
+fn upsert_synthesized_response_message(
+    items: &mut Vec<serde_json::Value>,
+    text: String,
+    provider_label: &str,
+) -> Result<()> {
+    let message = synthesized_response_message(text);
+    if let Some(existing) = items.iter_mut().find(|item| item["type"] == "message") {
+        *existing = message;
+    } else {
+        validate_response_item_count(items.len() + 1, provider_label)?;
+        items.push(message);
+    }
+    Ok(())
 }
 
 /// Send a request up to `max_attempts` times with exponential backoff on transient
@@ -1376,7 +1876,7 @@ fn send_with_retry(
             return Ok(r);
         }
         let code = status.as_u16();
-        let body = r.text().unwrap_or_default();
+        let body = read_error_response_preview(r, MAX_ERROR_BODY_BYTES);
         if code == 429 || code >= 500 {
             let preview: String = body.chars().take(200).collect();
             last_err = format!("{} error {}: {}", provider_label, code, preview);
@@ -1414,18 +1914,21 @@ struct ToolCallBuf {
 fn upsert_call<'a>(
     calls: &'a mut Vec<(String, ToolCallBuf)>,
     item_id: &str,
-) -> Option<&'a mut ToolCallBuf> {
+) -> Result<Option<&'a mut ToolCallBuf>> {
     if item_id.is_empty() {
-        return None;
+        return Ok(None);
     }
     let pos = match calls.iter().position(|(id, _)| id == item_id) {
         Some(pos) => pos,
         None => {
+            if calls.len() >= MAX_RESPONSE_TOOL_CALLS {
+                anyhow::bail!("Responses API returned too many function calls");
+            }
             calls.push((item_id.to_string(), ToolCallBuf::default()));
             calls.len() - 1
         }
     };
-    Some(&mut calls[pos].1)
+    Ok(Some(&mut calls[pos].1))
 }
 
 fn reasoning_delta_text<'a>(
@@ -1682,10 +2185,13 @@ fn detect_provider_with_auth(base_url: &str, auth_type: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_no_proxy_list, detect_provider_with_auth, parse_custom_headers, parse_responses_sse,
-        parse_responses_value, reasoning_delta_text, should_roundtrip_reasoning_content,
-        sse_data_payload, translate_responses_messages, translate_responses_tools, AiClient,
-        ApiMessage, ApiMode, AssistantConfig, InlineThinkFilter, ThinkSegment,
+        add_stream_bytes, add_stream_event, build_no_proxy_list, content_type_is_json,
+        detect_provider_with_auth, parse_custom_headers, parse_responses_sse,
+        parse_responses_value, read_body_capped, read_sse_line_capped, reasoning_delta_text,
+        should_roundtrip_reasoning_content, sse_data_payload, translate_responses_messages,
+        translate_responses_tools, AiClient, ApiMessage, ApiMode, AssistantConfig,
+        InlineThinkFilter, ThinkSegment, MAX_MODELS_BODY_BYTES, MAX_RESPONSE_SSE_LINE_BYTES,
+        MAX_RESPONSE_STREAM_BYTES, MAX_RESPONSE_STREAM_EVENTS, MAX_RESPONSE_TOOL_ARGUMENT_BYTES,
     };
     use reqwest::header::{AUTHORIZATION, USER_AGENT};
     use std::io::{Cursor, Read, Write};
@@ -1878,6 +2384,41 @@ mod tests {
     }
 
     #[test]
+    fn responses_translation_replays_raw_reasoning_items_before_tool_outputs() {
+        let reasoning = serde_json::json!({
+            "type": "reasoning",
+            "id": "rs_1",
+            "encrypted_content": "opaque-provider-state",
+            "summary": []
+        });
+        let function_call = serde_json::json!({
+            "type": "function_call",
+            "id": "fc_1",
+            "call_id": "call_1",
+            "name": "pwd",
+            "arguments": "{}"
+        });
+        let messages = vec![
+            ApiMessage::responses_output_item(reasoning.clone()),
+            ApiMessage::responses_output_item(function_call.clone()),
+            ApiMessage::tool_result("call_1", "pwd", "/tmp"),
+        ];
+
+        let (_, input) = translate_responses_messages(&messages);
+        assert_eq!(input[0], reasoning);
+        assert_eq!(input[1], function_call);
+        assert_eq!(input[2]["type"], "function_call_output");
+    }
+
+    #[test]
+    fn recognizes_vendor_json_content_types() {
+        assert!(content_type_is_json("application/json; charset=utf-8"));
+        assert!(content_type_is_json("application/problem+json"));
+        assert!(content_type_is_json("application/vnd.openai.response+json"));
+        assert!(!content_type_is_json("text/event-stream"));
+    }
+
+    #[test]
     fn custom_responses_mode_posts_expected_wire_shape() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock responses server");
         let address = listener.local_addr().expect("mock server address");
@@ -1957,13 +2498,14 @@ mod tests {
                 "gpt-test",
                 &[ApiMessage::user("hello")],
                 &tools,
+                true,
                 &AtomicBool::new(false),
                 &mut |token| text.push_str(token),
                 &mut |_| {},
             )
             .expect("responses request");
         assert_eq!(text, "ok");
-        assert!(calls.is_empty());
+        assert!(calls.tool_calls.is_empty());
 
         server.join().expect("mock responses server");
         let request = request_rx.recv().expect("captured request");
@@ -1989,6 +2531,10 @@ mod tests {
             .expect("responses tools")
             .iter()
             .any(|tool| tool["type"] == "function" && tool["name"] == "pwd"));
+        assert_eq!(
+            body["include"],
+            serde_json::json!(["reasoning.encrypted_content"])
+        );
     }
 
     #[test]
@@ -2023,7 +2569,7 @@ mod tests {
         });
         let mut text = String::new();
         let mut reasoning = String::new();
-        let calls = parse_responses_value(
+        let result = parse_responses_value(
             &response,
             &mut |token| text.push_str(token),
             &mut |token| reasoning.push_str(token),
@@ -2034,10 +2580,11 @@ mod tests {
         assert_eq!(reasoning, "Checking sources");
         assert!(text.starts_with("Current answer"));
         assert!(text.contains("Example source: https://example.com/source"));
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].id, "call_1");
-        assert_eq!(calls[0].name, "pwd");
-        assert_eq!(calls[0].arguments, "{}");
+        assert_eq!(result.tool_calls.len(), 1);
+        assert_eq!(result.tool_calls[0].id, "call_1");
+        assert_eq!(result.tool_calls[0].name, "pwd");
+        assert_eq!(result.tool_calls[0].arguments, "{}");
+        assert_eq!(result.response_items.len(), 3);
     }
 
     #[test]
@@ -2052,7 +2599,7 @@ mod tests {
         );
         let mut text = String::new();
         let mut reasoning = String::new();
-        let calls = parse_responses_sse(
+        let result = parse_responses_sse(
             Cursor::new(stream),
             &AtomicBool::new(false),
             &mut |token| text.push_str(token),
@@ -2064,9 +2611,123 @@ mod tests {
         assert_eq!(reasoning, "Thinking");
         assert!(text.starts_with("Answer"));
         assert!(text.contains("Example: https://example.com"));
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].id, "call_1");
-        assert_eq!(calls[0].arguments, "{}");
+        assert_eq!(result.tool_calls.len(), 1);
+        assert_eq!(result.tool_calls[0].id, "call_1");
+        assert_eq!(result.tool_calls[0].arguments, "{}");
+        assert_eq!(result.response_items[0]["arguments"], "{}");
+        let message = result
+            .response_items
+            .iter()
+            .find(|item| item["type"] == "message")
+            .expect("delta-only response should synthesize a replayable message item");
+        assert_eq!(message["content"][0]["text"], text);
+    }
+
+    #[test]
+    fn responses_json_output_text_synthesizes_replayable_message() {
+        let response = serde_json::json!({
+            "status": "completed",
+            "output": [],
+            "output_text": "final answer",
+        });
+        let mut text = String::new();
+        let result = parse_responses_value(
+            &response,
+            &mut |token| text.push_str(token),
+            &mut |_| {},
+            "test",
+        )
+        .unwrap();
+
+        assert_eq!(text, "final answer");
+        assert_eq!(result.response_items.len(), 1);
+        assert_eq!(result.response_items[0]["type"], "message");
+        assert_eq!(
+            result.response_items[0]["content"][0]["text"],
+            "final answer"
+        );
+    }
+
+    #[test]
+    fn models_body_reader_rejects_oversized_success_payload() {
+        let oversized = vec![b'x'; MAX_MODELS_BODY_BYTES + 1];
+        let error = read_body_capped(Cursor::new(oversized), MAX_MODELS_BODY_BYTES, "models API")
+            .expect_err("oversized model lists must be rejected before JSON parsing");
+        assert!(error.to_string().contains("exceeded"));
+    }
+
+    #[test]
+    fn responses_sse_rejects_eof_before_response_completed() {
+        let stream = concat!(
+            "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"pwd\",\"arguments\":\"{}\"}}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let result = parse_responses_sse(
+            Cursor::new(stream),
+            &AtomicBool::new(false),
+            &mut |_| {},
+            &mut |_| {},
+            "test",
+        );
+
+        assert!(
+            result.is_err(),
+            "truncated streams must never execute tools"
+        );
+    }
+
+    #[test]
+    fn sse_line_reader_rejects_unterminated_oversized_line() {
+        let oversized = vec![b'x'; MAX_RESPONSE_SSE_LINE_BYTES + 1];
+        let error = read_sse_line_capped(&mut Cursor::new(oversized), "test")
+            .expect_err("oversized line must fail before it is returned");
+        assert!(error.to_string().contains("SSE line exceeded"));
+    }
+
+    #[test]
+    fn stream_budget_rejects_excess_bytes_and_events() {
+        let mut bytes = MAX_RESPONSE_STREAM_BYTES;
+        assert!(add_stream_bytes(&mut bytes, 1, "test").is_err());
+        let mut events = MAX_RESPONSE_STREAM_EVENTS;
+        assert!(add_stream_event(&mut events, "test").is_err());
+    }
+
+    #[test]
+    fn responses_sse_rejects_malformed_data_event() {
+        let stream = concat!(
+            "data: {not-json}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n"
+        );
+        let result = parse_responses_sse(
+            Cursor::new(stream),
+            &AtomicBool::new(false),
+            &mut |_| {},
+            &mut |_| {},
+            "test",
+        );
+
+        assert!(
+            result.is_err(),
+            "malformed lifecycle events must fail closed"
+        );
+    }
+
+    #[test]
+    fn responses_sse_rejects_oversized_tool_arguments() {
+        let oversized = "x".repeat(MAX_RESPONSE_TOOL_ARGUMENT_BYTES + 1);
+        let stream = format!(
+            "data: {{\"type\":\"response.output_item.added\",\"item\":{{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"pwd\",\"arguments\":\"\"}}}}\n\ndata: {{\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"fc_1\",\"delta\":\"{}\"}}\n\ndata: {{\"type\":\"response.completed\",\"response\":{{\"status\":\"completed\",\"output\":[]}}}}\n\n",
+            oversized
+        );
+        let result = parse_responses_sse(
+            Cursor::new(stream),
+            &AtomicBool::new(false),
+            &mut |_| {},
+            &mut |_| {},
+            "test",
+        );
+
+        assert!(result.is_err());
     }
 
     #[test]

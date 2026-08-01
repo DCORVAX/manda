@@ -450,8 +450,9 @@ mod markdown_tests {
         assert!(approval_summary("fs_patch", &args).is_some());
         assert!(approval_summary("fs_mkdir", &args).is_some());
         assert!(approval_summary("fs_delete", &args).is_some());
-        // http_request: mutating methods require approval
-        for method in ["POST", "PUT", "PATCH", "DELETE"] {
+        // Every direct request requires approval, including GET, because the
+        // destination can expose data outside the model conversation.
+        for method in ["GET", "POST", "PUT", "PATCH", "DELETE"] {
             let args = serde_json::json!({"method": method, "url": "https://api.example.com/data"});
             assert!(
                 approval_summary("http_request", &args).is_some(),
@@ -470,9 +471,6 @@ mod markdown_tests {
         assert!(approval_summary("pwd", &serde_json::json!({})).is_none());
         assert!(approval_summary("shell_poll", &serde_json::json!({"pid": 123})).is_none());
         assert!(approval_summary("unknown_tool", &args).is_none());
-        // http_request: GET is read-only
-        let args = serde_json::json!({"method": "GET", "url": "https://api.example.com/data"});
-        assert!(approval_summary("http_request", &args).is_none());
     }
 
     #[test]

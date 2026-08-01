@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result};
 use std::io::Read;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -67,13 +68,14 @@ pub(super) fn exec_http_request(
     body: Option<&str>,
     query_params: Option<&serde_json::Map<String, serde_json::Value>>,
 ) -> Result<String> {
-    let client = web_client();
+    let destination = validate_external_http_url(url)?;
+    let client = pinned_web_client(&destination)?;
     let mut req = match method {
-        "GET" => client.get(url),
-        "POST" => client.post(url),
-        "PUT" => client.put(url),
-        "PATCH" => client.patch(url),
-        "DELETE" => client.delete(url),
+        "GET" => client.get(destination.url.clone()),
+        "POST" => client.post(destination.url.clone()),
+        "PUT" => client.put(destination.url.clone()),
+        "PATCH" => client.patch(destination.url.clone()),
+        "DELETE" => client.delete(destination.url.clone()),
         _ => anyhow::bail!("unsupported HTTP method: {}", method),
     };
 
@@ -134,6 +136,122 @@ pub(super) fn exec_http_request(
         out.push_str(&body_text);
     }
     Ok(out)
+}
+
+/// Validate direct HTTP destinations before connecting. This intentionally
+/// rejects names that resolve to any non-public address, rather than only
+/// checking URL text, so DNS aliases cannot be used to reach local services.
+struct ValidatedHttpDestination {
+    url: url::Url,
+    domain: Option<String>,
+    addresses: Vec<SocketAddr>,
+}
+
+fn validate_external_http_url(raw: &str) -> Result<ValidatedHttpDestination> {
+    let parsed = url::Url::parse(raw).context("invalid http_request URL")?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        anyhow::bail!("http_request URL must use http or https");
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        anyhow::bail!("http_request URL must not contain credentials");
+    }
+    let port = parsed
+        .port_or_known_default()
+        .ok_or_else(|| anyhow::anyhow!("http_request URL has no usable port"))?;
+    let (domain, addresses) = match parsed.host() {
+        Some(url::Host::Ipv4(address)) => {
+            reject_non_public_ip(IpAddr::V4(address))?;
+            (None, vec![SocketAddr::new(IpAddr::V4(address), port)])
+        }
+        Some(url::Host::Ipv6(address)) => {
+            reject_non_public_ip(IpAddr::V6(address))?;
+            (None, vec![SocketAddr::new(IpAddr::V6(address), port)])
+        }
+        Some(url::Host::Domain(domain)) => {
+            let normalized = domain.trim_end_matches('.').to_ascii_lowercase();
+            if normalized == "localhost" || normalized.ends_with(".localhost") {
+                anyhow::bail!("http_request refuses loopback destinations");
+            }
+            if normalized == "local" || normalized.ends_with(".local") {
+                anyhow::bail!("http_request refuses .local destinations");
+            }
+            let addresses = (domain, port)
+                .to_socket_addrs()
+                .with_context(|| format!("resolve http_request host `{domain}`"))?
+                .collect::<Vec<_>>();
+            if addresses.is_empty() {
+                anyhow::bail!("http_request host `{domain}` resolved to no addresses");
+            }
+            for address in &addresses {
+                reject_non_public_ip(address.ip())?;
+            }
+            (Some(domain.to_string()), addresses)
+        }
+        None => anyhow::bail!("http_request URL is missing a host"),
+    };
+    Ok(ValidatedHttpDestination {
+        url: parsed,
+        domain,
+        addresses,
+    })
+}
+
+fn pinned_web_client(destination: &ValidatedHttpDestination) -> Result<reqwest::blocking::Client> {
+    let mut builder = reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(60))
+        .redirect(reqwest::redirect::Policy::none())
+        // A proxy would resolve the hostname again and detach the validated IP
+        // set from the actual connection, reopening DNS-rebinding SSRF.
+        .no_proxy();
+    if let Some(domain) = destination.domain.as_deref() {
+        builder = builder.resolve_to_addrs(domain, &destination.addresses);
+    }
+    builder.build().context("build pinned http_request client")
+}
+
+fn reject_non_public_ip(address: IpAddr) -> Result<()> {
+    let public = match address {
+        IpAddr::V4(address) => ipv4_is_public(address),
+        IpAddr::V6(address) => ipv6_is_public(address),
+    };
+    if !public {
+        anyhow::bail!("http_request refuses non-public destination `{address}`");
+    }
+    Ok(())
+}
+
+fn ipv4_is_public(address: Ipv4Addr) -> bool {
+    let octets = address.octets();
+    !(address.is_private()
+        || address.is_loopback()
+        || address.is_link_local()
+        || address.is_multicast()
+        || address.is_broadcast()
+        || address.is_unspecified()
+        || octets[0] == 0
+        || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+        || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+        || (octets[0] == 198 && matches!(octets[1], 18 | 19))
+        || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)
+        || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100)
+        || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)
+        || octets[0] >= 240)
+}
+
+fn ipv6_is_public(address: Ipv6Addr) -> bool {
+    if let Some(mapped) = address.to_ipv4_mapped() {
+        return ipv4_is_public(mapped);
+    }
+    let segments = address.segments();
+    !(address.is_loopback()
+        || address.is_unspecified()
+        || address.is_multicast()
+        || (segments[0] & 0xfe00) == 0xfc00
+        || (segments[0] & 0xffc0) == 0xfe80
+        || (segments[0] & 0xffc0) == 0xfec0
+        || (segments[0] == 0x0064 && segments[1] == 0xff9b && segments[2] == 0x0001)
+        || (segments[0] == 0x2001 && segments[1] == 0x0db8))
 }
 
 /// Read a URL and return clean extracted text.
@@ -285,6 +403,48 @@ pub(super) fn maybe_summarize_fetched(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_http_requests_reject_local_and_private_destinations() {
+        for url in [
+            "http://127.0.0.1/admin",
+            "http://[::1]/admin",
+            "http://10.0.0.8/",
+            "http://100.64.0.1/",
+            "http://169.254.169.254/latest/meta-data/",
+            "https://service.local/",
+            "https://localhost/",
+        ] {
+            assert!(
+                validate_external_http_url(url).is_err(),
+                "must reject {}",
+                url
+            );
+        }
+    }
+
+    #[test]
+    fn public_ip_classification_rejects_reserved_ranges() {
+        assert!(ipv4_is_public("8.8.8.8".parse().unwrap()));
+        assert!(!ipv4_is_public("192.168.1.2".parse().unwrap()));
+        assert!(!ipv4_is_public("100.127.255.254".parse().unwrap()));
+        assert!(!ipv6_is_public("fe80::1".parse().unwrap()));
+        assert!(!ipv6_is_public("fec0::1".parse().unwrap()));
+        assert!(!ipv6_is_public("64:ff9b:1::1".parse().unwrap()));
+        assert!(ipv6_is_public("2606:4700:4700::1111".parse().unwrap()));
+    }
+
+    #[test]
+    fn validated_ip_destination_is_pinned_to_the_checked_socket() {
+        let destination = validate_external_http_url("https://8.8.8.8/example").unwrap();
+        assert!(destination.domain.is_none());
+        assert_eq!(destination.addresses.len(), 1);
+        assert_eq!(
+            destination.addresses[0].ip(),
+            "8.8.8.8".parse::<IpAddr>().unwrap()
+        );
+        assert_eq!(destination.addresses[0].port(), 443);
+    }
 
     #[test]
     fn raw_fetch_policy_respects_full_detail_and_explicit_raw() {

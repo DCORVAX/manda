@@ -35,9 +35,6 @@ fn http_request_approval_summary(args: &serde_json::Value) -> Option<String> {
         .chars()
         .take(60)
         .collect();
-    if method == "GET" {
-        return None;
-    }
     Some(format!("http {}: {}", method, url))
 }
 
@@ -863,9 +860,9 @@ mod tests {
     }
 
     #[test]
-    fn http_get_no_approval() {
+    fn http_get_requires_approval() {
         let args = serde_json::json!({"method": "GET", "url": "https://example.com/api"});
-        assert!(approval_summary("http_request", &args).is_none());
+        assert!(approval_summary("http_request", &args).is_some());
     }
 
     #[test]

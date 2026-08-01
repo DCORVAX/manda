@@ -41,6 +41,41 @@ pub(crate) fn expand_user_prefix(s: &str) -> Option<PathBuf> {
 /// caught.
 pub(crate) fn reject_if_sensitive(path: &Path) -> Result<()> {
     let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    for b in blocked_locations() {
+        let b_canon = std::fs::canonicalize(&b).unwrap_or_else(|_| b.clone());
+        if canon == b_canon || canon.starts_with(&b_canon) {
+            anyhow::bail!(
+                "refused: '{}' is a protected secret location",
+                path.display()
+            );
+        }
+    }
+
+    // Name-pattern guard: credential files live anywhere, not just in the
+    // fixed locations above. Check both the requested name and the
+    // canonicalized name so a symlink cannot launder a `.env` past the guard.
+    for candidate in [path, canon.as_path()] {
+        if candidate.components().any(|component| {
+            component
+                .as_os_str()
+                .to_str()
+                .is_some_and(is_sensitive_directory_name)
+        }) {
+            anyhow::bail!(
+                "refused: '{}' is inside a credential directory",
+                path.display()
+            );
+        }
+        if let Some(name) = candidate.file_name().and_then(|n| n.to_str()) {
+            if is_sensitive_filename(name) {
+                anyhow::bail!("refused: '{}' looks like a credential file", path.display());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn blocked_locations() -> Vec<PathBuf> {
     let mut blocked: Vec<PathBuf> = vec![
         PathBuf::from("/etc/shadow"),
         PathBuf::from("/etc/sudoers"),
@@ -54,33 +89,23 @@ pub(crate) fn reject_if_sensitive(path: &Path) -> Result<()> {
             ".ssh",
             ".aws/credentials",
             ".gnupg",
+            ".config/gh",
             ".config/kaku/assistant.toml",
             ".config/kaku/secrets",
+            ".docker/config.json",
+            ".git-credentials",
+            ".netrc",
+            ".npmrc",
+            ".pypirc",
         ] {
             blocked.push(home.join(rel));
         }
     }
-    for b in &blocked {
-        let b_canon = std::fs::canonicalize(b).unwrap_or_else(|_| b.clone());
-        if canon == b_canon || canon.starts_with(&b_canon) {
-            anyhow::bail!(
-                "refused: '{}' is a protected secret location",
-                path.display()
-            );
-        }
+    if let Some(config_dir) = config::user_config_path().parent() {
+        blocked.push(config_dir.join("assistant.toml"));
+        blocked.push(config_dir.join("secrets"));
     }
-
-    // Name-pattern guard: credential files live anywhere, not just in the
-    // fixed locations above. Check both the requested name and the
-    // canonicalized name so a symlink cannot launder a `.env` past the guard.
-    for candidate in [path, canon.as_path()] {
-        if let Some(name) = candidate.file_name().and_then(|n| n.to_str()) {
-            if is_sensitive_filename(name) {
-                anyhow::bail!("refused: '{}' looks like a credential file", path.display());
-            }
-        }
-    }
-    Ok(())
+    blocked
 }
 
 /// File-name patterns that commonly hold secrets regardless of directory
@@ -107,6 +132,17 @@ fn is_sensitive_filename(name: &str) -> bool {
         return true;
     }
 
+    if lower.contains("credentials") {
+        return true;
+    }
+
+    if matches!(
+        lower.as_str(),
+        ".git-credentials" | ".netrc" | ".npmrc" | ".pypirc" | "assistant.toml"
+    ) {
+        return true;
+    }
+
     // Well-known SSH private key file names. Public `.pub` siblings do not
     // match the exact names, so they stay readable.
     matches!(
@@ -114,6 +150,70 @@ fn is_sensitive_filename(name: &str) -> bool {
         "id_rsa" | "id_dsa" | "id_ecdsa" | "id_ed25519"
     )
 }
+
+fn is_sensitive_directory_name(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        ".ssh" | ".gnupg" | "secrets"
+    )
+}
+
+/// Ripgrep exclusions for sensitive descendants of an otherwise-readable
+/// search root. Root validation alone is insufficient for recursive search.
+pub(crate) fn sensitive_search_globs(root: &Path) -> Vec<String> {
+    let root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let mut globs = vec![
+        "!**/.env".to_string(),
+        "!**/.env.*".to_string(),
+        "!**/*.pem".to_string(),
+        "!**/*.key".to_string(),
+        "!**/id_rsa".to_string(),
+        "!**/id_dsa".to_string(),
+        "!**/id_ecdsa".to_string(),
+        "!**/id_ed25519".to_string(),
+        "!**/.git-credentials".to_string(),
+        "!**/.netrc".to_string(),
+        "!**/.npmrc".to_string(),
+        "!**/.pypirc".to_string(),
+        "!**/assistant.toml".to_string(),
+        "!**/*credentials*".to_string(),
+        "!**/.ssh/**".to_string(),
+        "!**/.gnupg/**".to_string(),
+        "!**/secrets/**".to_string(),
+    ];
+    for blocked in blocked_locations() {
+        let blocked = std::fs::canonicalize(&blocked).unwrap_or(blocked);
+        let Ok(relative) = blocked.strip_prefix(&root) else {
+            continue;
+        };
+        if relative.as_os_str().is_empty() {
+            continue;
+        }
+        let relative = relative.to_string_lossy().replace('\\', "/");
+        globs.push(format!("!{relative}"));
+        globs.push(format!("!{relative}/**"));
+    }
+    globs
+}
+
+pub(crate) const SENSITIVE_SEARCH_FILE_EXCLUDES: &[&str] = &[
+    ".env",
+    ".env.*",
+    "*.pem",
+    "*.key",
+    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    ".git-credentials",
+    ".netrc",
+    ".npmrc",
+    ".pypirc",
+    "*credentials*",
+];
+
+pub(crate) const SENSITIVE_SEARCH_DIR_EXCLUDES: &[&str] =
+    &[".ssh", ".gnupg", ".aws", ".docker", "gh", "secrets"];
 
 /// Handles `~/…` expansion and relative paths (resolved against `cwd`).
 ///
@@ -322,6 +422,28 @@ mod tests {
     }
 
     #[test]
+    fn reject_if_sensitive_blocks_actual_xdg_assistant_config() {
+        let assistant_config = config::user_config_path()
+            .parent()
+            .unwrap()
+            .join("assistant.toml");
+        let err = reject_if_sensitive(&assistant_config).expect_err("must reject active config");
+        assert!(err.to_string().contains("protected") || err.to_string().contains("credential"));
+    }
+
+    #[test]
+    fn reject_if_sensitive_blocks_token_dotfiles_in_any_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in [".npmrc", ".pypirc", ".netrc", ".git-credentials"] {
+            let path = dir.path().join(name);
+            let err = reject_if_sensitive(&path)
+                .err()
+                .unwrap_or_else(|| panic!("must reject {}", path.display()));
+            assert!(err.to_string().contains("credential"));
+        }
+    }
+
+    #[test]
     fn reject_if_sensitive_allows_normal_paths() {
         // /tmp is not in the blocked list; resolve_if_sensitive must Ok it.
         assert!(reject_if_sensitive(&PathBuf::from("/tmp")).is_ok());
@@ -369,6 +491,24 @@ mod tests {
         let gpg = PathBuf::from(&home).join(".gnupg");
         let err = reject_if_sensitive(&gpg).expect_err("must reject ~/.gnupg");
         assert!(err.to_string().contains("protected secret location"));
+    }
+
+    #[test]
+    fn reject_if_sensitive_blocks_common_cli_token_stores() {
+        let home = PathBuf::from(std::env::var("HOME").expect("HOME not set"));
+        for relative in [
+            ".config/gh/hosts.yml",
+            ".docker/config.json",
+            ".git-credentials",
+            ".netrc",
+            ".npmrc",
+            ".pypirc",
+        ] {
+            let path = home.join(relative);
+            let error =
+                reject_if_sensitive(&path).expect_err("common CLI token store must be rejected");
+            assert!(error.to_string().contains("protected secret location"));
+        }
     }
 
     #[test]

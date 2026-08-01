@@ -1258,7 +1258,7 @@ fn render_toml_string(value: &str) -> String {
     toml::Value::String(value.to_string()).to_string()
 }
 
-fn write_kaku_assistant_config(path: &Path, cfg: &KakuAssistantConfig) -> anyhow::Result<()> {
+fn render_kaku_assistant_config(cfg: &KakuAssistantConfig) -> String {
     let mut out = String::new();
     out.push_str("# Kaku Assistant configuration\n");
     out.push_str(
@@ -1376,8 +1376,66 @@ fn write_kaku_assistant_config(path: &Path, cfg: &KakuAssistantConfig) -> anyhow
             ));
         }
     }
-    write_atomic(path, out.as_bytes()).with_context(|| format!("write {}", path.display()))?;
-    Ok(())
+    out
+}
+
+#[cfg(test)]
+fn write_kaku_assistant_config(path: &Path, cfg: &KakuAssistantConfig) -> anyhow::Result<()> {
+    let out = render_kaku_assistant_config(cfg);
+    write_atomic(path, out.as_bytes()).with_context(|| format!("write {}", path.display()))
+}
+
+/// Update the fields owned by the TUI while retaining runtime-only and future
+/// top-level keys. Reconstructing the whole file used to silently turn
+/// `chat_tools_enabled = false` back into the GUI default and dropped custom
+/// integrations whenever an unrelated field was edited.
+fn write_kaku_assistant_config_preserving(
+    path: &Path,
+    cfg: &KakuAssistantConfig,
+    original_raw: &str,
+) -> anyhow::Result<()> {
+    const TUI_MANAGED_KEYS: &[&str] = &[
+        "enabled",
+        "api_key",
+        "model",
+        "fast_model",
+        "chat_model",
+        "chat_model_choices",
+        "auto_fix_ignored_exit_codes",
+        "base_url",
+        "api_mode",
+        "native_web_search",
+        "auth_type",
+        "custom_headers",
+        "web_search_provider",
+        "web_search_api_key",
+    ];
+
+    let canonical = render_kaku_assistant_config(cfg);
+    let Ok(mut original) = original_raw.parse::<toml::Value>() else {
+        return write_atomic(path, canonical.as_bytes())
+            .with_context(|| format!("write {}", path.display()));
+    };
+    let canonical_value = canonical
+        .parse::<toml::Value>()
+        .context("parse generated assistant config")?;
+    let Some(original_table) = original.as_table_mut() else {
+        return write_atomic(path, canonical.as_bytes())
+            .with_context(|| format!("write {}", path.display()));
+    };
+    let canonical_table = canonical_value
+        .as_table()
+        .context("generated assistant config is not a TOML table")?;
+
+    for key in TUI_MANAGED_KEYS {
+        original_table.remove(*key);
+    }
+    for (key, value) in canonical_table {
+        original_table.insert(key.clone(), value.clone());
+    }
+
+    let out = toml::to_string_pretty(&original).context("serialize assistant config")?;
+    write_atomic(path, out.as_bytes()).with_context(|| format!("write {}", path.display()))
 }
 
 fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<()> {
@@ -1578,7 +1636,7 @@ fn save_kaku_assistant_field_to_path(
     };
     updated.auto_fix_ignored_exit_codes = cfg.auto_fix_ignored_exit_codes().to_vec();
 
-    write_kaku_assistant_config(path, &updated)
+    write_kaku_assistant_config_preserving(path, &updated, &raw)
 }
 
 /// Get Gemini account email from google_accounts.json
@@ -5430,6 +5488,42 @@ provider = "managed:kimi-code"
         let cfg2 = parse_kaku_assistant_config(&saved);
         assert_eq!(cfg2.chat_model(), "gpt-5.4");
         assert_eq!(cfg2.chat_model_choices(), &["gpt-5.4", "claude-sonnet-4-6"]);
+    }
+
+    #[test]
+    fn kaku_assistant_tui_save_preserves_runtime_and_unknown_keys() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("assistant.toml");
+        std::fs::write(
+            &path,
+            concat!(
+                "enabled = true\n",
+                "model = \"gpt-5.4-mini\"\n",
+                "base_url = \"https://api.openai.com/v1\"\n",
+                "chat_tools_enabled = false\n",
+                "web_fetch_script = \"~/bin/fetch-safe\"\n",
+                "memory_curator_model = \"gpt-5.4-nano\"\n",
+                "future_provider_option = \"keep-me\"\n",
+            ),
+        )
+        .expect("write temp config");
+
+        save_kaku_assistant_field_to_path(&path, "Simple Model", "gpt-5.4").expect("save model");
+        let saved = std::fs::read_to_string(&path).expect("read saved config");
+
+        for expected in [
+            "chat_tools_enabled = false",
+            "web_fetch_script = \"~/bin/fetch-safe\"",
+            "memory_curator_model = \"gpt-5.4-nano\"",
+            "future_provider_option = \"keep-me\"",
+        ] {
+            assert!(
+                saved.contains(expected),
+                "TUI save dropped `{}`:\n{}",
+                expected,
+                saved
+            );
+        }
     }
 
     #[test]

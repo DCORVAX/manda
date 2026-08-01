@@ -252,9 +252,9 @@ pub(super) fn exec_symbol_search(
     cwd: &str,
     cancel: &Arc<AtomicBool>,
 ) -> Result<String> {
-    let abs_path = super::paths::resolve(search_path, cwd)?
-        .to_string_lossy()
-        .into_owned();
+    let resolved_path = super::paths::resolve(search_path, cwd)?;
+    let sensitive_globs = super::paths::sensitive_search_globs(&resolved_path);
+    let abs_path = resolved_path.to_string_lossy().into_owned();
 
     let patterns: Vec<String> = match kind {
         "function" => vec![
@@ -297,6 +297,11 @@ pub(super) fn exec_symbol_search(
             .status()
             .is_ok()
     });
+    if !rg {
+        anyhow::bail!(
+            "symbol_search requires ripgrep so recursive sensitive-path exclusions stay enforced"
+        );
+    }
 
     let mut cmd = if rg {
         let mut c = std::process::Command::new("rg");
@@ -307,6 +312,9 @@ pub(super) fn exec_symbol_search(
         if let Some(g) = glob_filter {
             c.arg("--glob").arg(g);
         }
+        for glob in &sensitive_globs {
+            c.arg("--iglob").arg(glob);
+        }
         c.arg(&combined).arg(&abs_path);
         c
     } else {
@@ -314,6 +322,12 @@ pub(super) fn exec_symbol_search(
         c.arg("-rn").arg("--color=never").arg("-E");
         if let Some(g) = glob_filter {
             c.arg("--include").arg(g);
+        }
+        for pattern in super::paths::SENSITIVE_SEARCH_FILE_EXCLUDES {
+            c.arg("--exclude").arg(pattern);
+        }
+        for pattern in super::paths::SENSITIVE_SEARCH_DIR_EXCLUDES {
+            c.arg("--exclude-dir").arg(pattern);
         }
         c.arg(&combined).arg(&abs_path);
         c
@@ -434,9 +448,14 @@ pub(super) fn exec_grep_search(
             .status()
             .is_ok()
     });
-    let abs_path = super::paths::resolve(search_path, cwd)?
-        .to_string_lossy()
-        .into_owned();
+    if !rg {
+        anyhow::bail!(
+            "grep_search requires ripgrep so recursive sensitive-path exclusions stay enforced"
+        );
+    }
+    let resolved_path = super::paths::resolve(search_path, cwd)?;
+    let sensitive_globs = super::paths::sensitive_search_globs(&resolved_path);
+    let abs_path = resolved_path.to_string_lossy().into_owned();
 
     let mut cmd = if rg {
         let mut c = std::process::Command::new("rg");
@@ -451,6 +470,9 @@ pub(super) fn exec_grep_search(
         if let Some(g) = glob_filter {
             c.arg("--glob").arg(g);
         }
+        for glob in &sensitive_globs {
+            c.arg("--iglob").arg(glob);
+        }
         c.arg(pattern).arg(&abs_path);
         c
     } else {
@@ -463,6 +485,12 @@ pub(super) fn exec_grep_search(
         }
         if let Some(g) = glob_filter {
             c.arg("--include").arg(g);
+        }
+        for pattern in super::paths::SENSITIVE_SEARCH_FILE_EXCLUDES {
+            c.arg("--exclude").arg(pattern);
+        }
+        for pattern in super::paths::SENSITIVE_SEARCH_DIR_EXCLUDES {
+            c.arg("--exclude-dir").arg(pattern);
         }
         c.arg(pattern).arg(&abs_path);
         c

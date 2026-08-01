@@ -10,7 +10,7 @@ use termwiz::cell::unicode_column_width;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::ai_chat_engine::{StreamMsg, MAX_HISTORY_PAIRS};
-use crate::ai_client::{should_roundtrip_reasoning_content, AiClient, ApiMessage};
+use crate::ai_client::{should_roundtrip_reasoning_content, AiClient, ApiMessage, ApiMode};
 use crate::ai_conversations;
 
 use super::layout::{char_to_byte_pos, layout_input};
@@ -37,6 +37,50 @@ pub(super) fn push_input_snapshot(stack: &mut Vec<InputSnapshot>, input: &str, c
         input: input.to_string(),
         cursor,
     });
+}
+
+#[cfg(test)]
+mod responses_state_tests {
+    use super::*;
+
+    #[test]
+    fn transient_responses_state_never_creates_persistable_assistant_turn() {
+        let mut messages = vec![Message::text(Role::Assistant, "side answer", false, true)];
+        let mut pending = vec![serde_json::json!({
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "side answer"}],
+        })];
+
+        attach_responses_state(&mut messages, &mut pending, true);
+
+        assert!(pending.is_empty());
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].is_context);
+        assert!(messages[0].responses_items.is_empty());
+        assert!(!messages.iter().any(|message| !message.is_context));
+    }
+
+    #[test]
+    fn full_responses_state_makes_earlier_tool_round_text_display_only() {
+        let mut messages = vec![
+            Message::text(Role::Assistant, "before tool", false, false),
+            Message::tool_event("pwd", ""),
+            Message::text(Role::Assistant, "final", false, false),
+        ];
+        let mut pending = vec![serde_json::json!({
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "before tool"}],
+        })];
+
+        attach_responses_state(&mut messages, &mut pending, false);
+
+        assert!(messages[0].is_context);
+        assert!(!messages[2].is_context);
+        assert_eq!(messages[2].responses_items.len(), 1);
+        assert!(pending.is_empty());
+    }
 }
 
 // ─── Attachment / slash helpers ───────────────────────────────────────────────
@@ -593,6 +637,55 @@ fn send_unfocused_notification(title: &str, body: &str) {
     .show();
 }
 
+fn attach_responses_state(
+    messages: &mut Vec<Message>,
+    pending: &mut Vec<serde_json::Value>,
+    transient: bool,
+) {
+    if transient {
+        pending.clear();
+        return;
+    }
+    if pending.is_empty() {
+        return;
+    }
+    if !messages
+        .iter()
+        .any(|m| m.role == Role::Assistant && !m.is_context && !m.is_tool() && !m.complete)
+    {
+        messages.push(Message::text(Role::Assistant, "", false, false));
+    }
+    if let Some(last) = messages
+        .iter_mut()
+        .rev()
+        .find(|m| m.role == Role::Assistant && !m.is_context && !m.is_tool() && !m.complete)
+    {
+        last.responses_items = std::mem::take(pending);
+    }
+    // The raw transcript already contains every assistant item from earlier
+    // tool rounds. Keep those separate UI fragments visible, but exclude them
+    // from persistence/API reconstruction so they are not replayed twice.
+    let canonical = messages.iter().rposition(|message| {
+        message.role == Role::Assistant
+            && !message.is_context
+            && !message.is_tool()
+            && !message.complete
+            && !message.responses_items.is_empty()
+    });
+    if let Some(canonical) = canonical {
+        for (index, message) in messages.iter_mut().enumerate() {
+            if index != canonical
+                && message.role == Role::Assistant
+                && !message.is_context
+                && !message.is_tool()
+                && !message.complete
+            {
+                message.is_context = true;
+            }
+        }
+    }
+}
+
 // ─── App struct ───────────────────────────────────────────────────────────────
 
 pub(crate) struct App {
@@ -623,6 +716,8 @@ pub(crate) struct App {
     pub(crate) stream_pending_done: bool,
     /// Error message from a finished stream, displayed once the queue empties.
     pub(crate) stream_pending_err: Option<String>,
+    /// Stateless Responses transcript received for the current assistant turn.
+    pub(crate) pending_responses_items: Vec<serde_json::Value>,
     /// Cancel flag shared with the background streaming thread.
     pub(crate) cancel_flag: Arc<AtomicBool>,
     /// Reused HTTP client; Clone is cheap (Arc-backed).
@@ -784,6 +879,7 @@ impl App {
                 } else {
                     let mut msg = Message::text(Role::Assistant, p.content, true, false);
                     msg.reasoning_content = p.reasoning_content;
+                    msg.responses_items = p.responses_items;
                     msg
                 }
             })
@@ -828,6 +924,7 @@ impl App {
             grapheme_queue: VecDeque::new(),
             stream_pending_done: false,
             stream_pending_err: None,
+            pending_responses_items: Vec::new(),
             cancel_flag: Arc::new(AtomicBool::new(false)),
             client,
             cols,
@@ -1398,6 +1495,7 @@ impl App {
         self.grapheme_queue.clear();
         self.stream_pending_done = false;
         self.stream_pending_err = None;
+        self.pending_responses_items.clear();
 
         let (tx, rx): (Sender<StreamMsg>, Receiver<StreamMsg>) = mpsc::channel();
         self.token_rx = Some(rx);
@@ -1465,7 +1563,16 @@ impl App {
                     &msg.attachments,
                 ))),
                 Role::Assistant if msg.complete => {
-                    if should_roundtrip_reasoning_content(&self.current_model()) {
+                    if self.client.config().effective_api_mode() == ApiMode::Responses
+                        && !msg.responses_items.is_empty()
+                    {
+                        out.extend(
+                            msg.responses_items
+                                .iter()
+                                .cloned()
+                                .map(ApiMessage::responses_output_item),
+                        );
+                    } else if should_roundtrip_reasoning_content(&self.current_model()) {
                         out.push(ApiMessage::assistant_with_reasoning(
                             msg.content.clone(),
                             &msg.reasoning_content,
@@ -1513,6 +1620,9 @@ impl App {
                         {
                             last.reasoning_content.push_str(&t);
                         }
+                    }
+                    Ok(StreamMsg::ResponsesState(items)) => {
+                        self.pending_responses_items = items;
                     }
                     Ok(StreamMsg::ToolStart { name, args_preview }) => {
                         self.messages.push(Message::tool_event(name, args_preview));
@@ -1639,6 +1749,14 @@ impl App {
                     last.complete = true;
                 }
             } else {
+                // `/btw` responses are display-only. Raw Responses items must
+                // not create a non-context assistant turn that later leaks the
+                // side question into saved/API history.
+                attach_responses_state(
+                    &mut self.messages,
+                    &mut self.pending_responses_items,
+                    self.stream_is_transient,
+                );
                 for msg in self
                     .messages
                     .iter_mut()
@@ -1651,7 +1769,9 @@ impl App {
                         && !m.is_context
                         && !m.is_tool()
                         && m.complete
-                        && m.content.is_empty())
+                        && m.content.is_empty()
+                        && m.reasoning_content.is_empty()
+                        && m.responses_items.is_empty())
                 });
             }
             self.stream_pending_done = false;
@@ -1715,6 +1835,7 @@ impl App {
         self.grapheme_queue.clear();
         self.stream_pending_done = false;
         self.stream_pending_err = None;
+        self.pending_responses_items.clear();
     }
 
     /// Return the cached flat list of display lines.
@@ -1743,6 +1864,7 @@ impl App {
                     role: role_str.to_string(),
                     content: m.content.clone(),
                     reasoning_content: m.reasoning_content.clone(),
+                    responses_items: m.responses_items.clone(),
                     attachments: m
                         .attachments
                         .iter()
@@ -1959,7 +2081,7 @@ impl App {
              chat_tools_enabled {tools}\n\
              web_search        {ws}",
             provider = cfg.provider,
-            api_mode = cfg.api_mode.as_str(),
+            api_mode = cfg.effective_api_mode().as_str(),
             model = cfg.chat_model,
             simple = simple,
             choices = model_list,
@@ -2030,6 +2152,7 @@ impl App {
         self.grapheme_queue.clear();
         self.stream_pending_done = false;
         self.stream_pending_err = None;
+        self.pending_responses_items.clear();
 
         let (tx, rx) = std::sync::mpsc::channel::<StreamMsg>();
         self.token_rx = Some(rx);
@@ -2131,6 +2254,7 @@ impl App {
                         } else {
                             let mut msg = Message::text(Role::Assistant, p.content, true, false);
                             msg.reasoning_content = p.reasoning_content;
+                            msg.responses_items = p.responses_items;
                             msg
                         }
                     })

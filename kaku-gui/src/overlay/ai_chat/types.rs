@@ -196,6 +196,7 @@ pub(crate) struct Message {
     pub(crate) role: Role,
     pub(crate) content: String,
     pub(crate) reasoning_content: String,
+    pub(crate) responses_items: Vec<serde_json::Value>,
     /// False while the assistant is still streaming.
     pub(crate) complete: bool,
     /// True for UI-only messages (e.g. welcome text) that are not sent to the API.
@@ -220,6 +221,7 @@ impl Message {
             role,
             content: content.into(),
             reasoning_content: String::new(),
+            responses_items: Vec::new(),
             complete,
             is_context,
             tool_name: None,
@@ -236,6 +238,7 @@ impl Message {
             role: Role::User,
             content: content.into(),
             reasoning_content: String::new(),
+            responses_items: Vec::new(),
             complete: true,
             is_context: false,
             tool_name: None,
@@ -249,6 +252,7 @@ impl Message {
             role: Role::Assistant,
             content: String::new(),
             reasoning_content: String::new(),
+            responses_items: Vec::new(),
             complete: false,
             is_context: false,
             tool_name: Some(name.into()),

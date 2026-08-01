@@ -16,7 +16,7 @@ pub(crate) mod title;
 /// Hard cap on conversation titles stored in the index and shown in `/resume`.
 pub(crate) const TITLE_MAX_CHARS: usize = 40;
 
-use crate::ai_client::{should_roundtrip_reasoning_content, AiClient, ApiMessage};
+use crate::ai_client::{should_roundtrip_reasoning_content, AiClient, ApiMessage, ApiMode};
 use crate::ai_conversations::{self, PersistedMessage};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -31,6 +31,9 @@ pub enum StreamMsg {
     Token(String),
     /// Hidden provider reasoning, stored separately from visible assistant text.
     Reasoning(String),
+    /// Stateless Responses transcript needed to continue this assistant turn
+    /// across the next user message without losing encrypted reasoning state.
+    ResponsesState(Vec<serde_json::Value>),
     ToolStart {
         name: String,
         args_preview: String,
@@ -331,6 +334,39 @@ pub(crate) const MAX_AGENT_ROUNDS: usize = 25;
 /// Soft warning threshold inside the agent loop; `MAX_AGENT_ROUNDS - 5`.
 const SOFT_ROUND_WARN: usize = MAX_AGENT_ROUNDS - 5;
 const MAX_HISTORY_BYTES: usize = 120_000;
+const MAX_RESPONSES_STATE_BYTES: usize = MAX_HISTORY_BYTES;
+const MAX_STREAMED_OUTPUT_BYTES: usize = MAX_HISTORY_BYTES;
+
+fn reserve_streamed_output(total: &std::cell::Cell<usize>, chunk_bytes: usize) -> bool {
+    let Some(next) = total.get().checked_add(chunk_bytes) else {
+        return false;
+    };
+    if next > MAX_STREAMED_OUTPUT_BYTES {
+        return false;
+    }
+    total.set(next);
+    true
+}
+
+fn compact_and_validate_responses_state(
+    items: &mut [serde_json::Value],
+    round: usize,
+) -> anyhow::Result<()> {
+    compact::micro_compact_response_items(items, round);
+    let bytes = items.iter().try_fold(0usize, |total, item| {
+        let item_bytes = serde_json::to_vec(item)?.len();
+        total
+            .checked_add(item_bytes)
+            .ok_or_else(|| anyhow::anyhow!("Responses transcript size overflowed"))
+    })?;
+    if bytes > MAX_RESPONSES_STATE_BYTES {
+        anyhow::bail!(
+            "Responses transcript exceeded {} bytes",
+            MAX_RESPONSES_STATE_BYTES
+        );
+    }
+    Ok(())
+}
 
 #[allow(clippy::too_many_arguments)] // grandfathered; bundling into a struct
                                      // is tracked separately.
@@ -357,6 +393,12 @@ pub(crate) fn run_agent(
         .map(|d| d.join(&conv_id).join("tool_outputs"));
 
     let mut summarize_cooldown: usize = 0;
+    let responses_mode = client.config().effective_api_mode() == ApiMode::Responses;
+    let mut responses_state = Vec::new();
+    // Bound the entire user turn before chunks reach the overlay, where each
+    // grapheme is queued separately for paced rendering.
+    let streamed_output_bytes = std::cell::Cell::new(0usize);
+    let streamed_output_exceeded = std::cell::Cell::new(false);
 
     for round in 0..MAX_ROUNDS {
         if cancel.load(Ordering::Relaxed) {
@@ -407,12 +449,17 @@ pub(crate) fn run_agent(
         let tx_r = tx.clone();
         let sent_start = std::cell::Cell::new(false);
         let mut reasoning_buf = String::new();
-        let tool_calls = match client.chat_step(
+        let step = match client.chat_step(
             &model,
             &messages,
             &tools,
+            true,
             &cancel,
             &mut |token| {
+                if !reserve_streamed_output(&streamed_output_bytes, token.len()) {
+                    streamed_output_exceeded.set(true);
+                    return;
+                }
                 if !sent_start.get() {
                     let _ = tx_c.send(StreamMsg::AssistantStart);
                     sent_start.set(true);
@@ -420,6 +467,10 @@ pub(crate) fn run_agent(
                 let _ = tx_c.send(StreamMsg::Token(token.to_string()));
             },
             &mut |reasoning| {
+                if !reserve_streamed_output(&streamed_output_bytes, reasoning.len()) {
+                    streamed_output_exceeded.set(true);
+                    return;
+                }
                 if !sent_start.get() {
                     let _ = tx_r.send(StreamMsg::AssistantStart);
                     sent_start.set(true);
@@ -428,33 +479,68 @@ pub(crate) fn run_agent(
                 let _ = tx_r.send(StreamMsg::Reasoning(reasoning.to_string()));
             },
         ) {
-            Ok(tc) => tc,
+            Ok(step) => step,
             Err(e) => {
                 let _ = tx.send(StreamMsg::Err(e.to_string()));
                 return;
             }
         };
+        if streamed_output_exceeded.get() {
+            let _ = tx.send(StreamMsg::Err(format!(
+                "model output exceeded {} bytes",
+                MAX_STREAMED_OUTPUT_BYTES
+            )));
+            return;
+        }
 
-        if tool_calls.is_empty() {
+        let response_items = step.response_items;
+        if responses_mode {
+            responses_state.extend(response_items.iter().cloned());
+            if let Err(error) = compact_and_validate_responses_state(&mut responses_state, round) {
+                let _ = tx.send(StreamMsg::Err(error.to_string()));
+                return;
+            }
+        }
+
+        if step.tool_calls.is_empty() {
+            if !responses_state.is_empty() {
+                let _ = tx.send(StreamMsg::ResponsesState(responses_state));
+            }
             let _ = tx.send(StreamMsg::Done);
             return;
         }
 
-        let tc_json: Vec<serde_json::Value> = tool_calls
-            .iter()
-            .map(|tc| {
-                serde_json::json!({
-                    "id": tc.id,
-                    "type": "function",
-                    "function": { "name": tc.name, "arguments": tc.arguments }
-                })
-            })
-            .collect();
-        let mut assistant_msg = ApiMessage::assistant_tool_calls(serde_json::Value::Array(tc_json));
-        if should_roundtrip_reasoning_content(&model) && !reasoning_buf.is_empty() {
-            assistant_msg.0["reasoning_content"] = serde_json::Value::String(reasoning_buf);
+        if let Err(error) = validate_requested_tools(&step.tool_calls, &tools) {
+            let _ = tx.send(StreamMsg::Err(error.to_string()));
+            return;
         }
-        messages.push(assistant_msg);
+
+        let tool_calls = step.tool_calls;
+
+        if response_items.is_empty() {
+            let tc_json: Vec<serde_json::Value> = tool_calls
+                .iter()
+                .map(|tc| {
+                    serde_json::json!({
+                        "id": tc.id,
+                        "type": "function",
+                        "function": { "name": tc.name, "arguments": tc.arguments }
+                    })
+                })
+                .collect();
+            let mut assistant_msg =
+                ApiMessage::assistant_tool_calls(serde_json::Value::Array(tc_json));
+            if should_roundtrip_reasoning_content(&model) && !reasoning_buf.is_empty() {
+                assistant_msg.0["reasoning_content"] = serde_json::Value::String(reasoning_buf);
+            }
+            messages.push(assistant_msg);
+        } else {
+            messages.extend(
+                response_items
+                    .into_iter()
+                    .map(ApiMessage::responses_output_item),
+            );
+        }
 
         for tc in &tool_calls {
             if cancel.load(Ordering::Relaxed) {
@@ -466,11 +552,18 @@ pub(crate) fn run_agent(
                 Err(e) => {
                     let err = format!("tool '{}' arguments were not valid JSON: {}", tc.name, e);
                     let _ = tx.send(StreamMsg::ToolFailed { error: err.clone() });
-                    messages.push(ApiMessage::tool_result(
+                    if let Err(error) = record_tool_result(
+                        &mut messages,
+                        &mut responses_state,
+                        responses_mode,
+                        round,
                         tc.id.clone(),
                         tc.name.clone(),
                         format!("Error: {}", err),
-                    ));
+                    ) {
+                        let _ = tx.send(StreamMsg::Err(error.to_string()));
+                        return;
+                    }
                     continue;
                 }
             };
@@ -503,11 +596,18 @@ pub(crate) fn run_agent(
                     let _ = tx.send(StreamMsg::ToolFailed {
                         error: "Operation rejected by user.".into(),
                     });
-                    messages.push(ApiMessage::tool_result(
+                    if let Err(error) = record_tool_result(
+                        &mut messages,
+                        &mut responses_state,
+                        responses_mode,
+                        round,
                         tc.id.clone(),
                         tc.name.clone(),
                         "Error: user rejected the operation.".to_string(),
-                    ));
+                    ) {
+                        let _ = tx.send(StreamMsg::Err(error.to_string()));
+                        return;
+                    }
                     continue;
                 }
             }
@@ -523,22 +623,36 @@ pub(crate) fn run_agent(
                     let _ = tx.send(StreamMsg::ToolDone {
                         result_preview: preview,
                     });
-                    messages.push(ApiMessage::tool_result(
+                    if let Err(error) = record_tool_result(
+                        &mut messages,
+                        &mut responses_state,
+                        responses_mode,
+                        round,
                         tc.id.clone(),
                         tc.name.clone(),
                         result,
-                    ));
+                    ) {
+                        let _ = tx.send(StreamMsg::Err(error.to_string()));
+                        return;
+                    }
                 }
                 Err(e) => {
                     let err_str = e.to_string();
                     let _ = tx.send(StreamMsg::ToolFailed {
                         error: err_str.clone(),
                     });
-                    messages.push(ApiMessage::tool_result(
+                    if let Err(error) = record_tool_result(
+                        &mut messages,
+                        &mut responses_state,
+                        responses_mode,
+                        round,
                         tc.id.clone(),
                         tc.name.clone(),
                         format!("Error: {}", err_str),
-                    ));
+                    ) {
+                        let _ = tx.send(StreamMsg::Err(error.to_string()));
+                        return;
+                    }
                 }
             }
         }
@@ -550,6 +664,48 @@ pub(crate) fn run_agent(
             .to_string(),
     ));
     let _ = tx.send(StreamMsg::Done);
+}
+
+fn validate_requested_tools(
+    tool_calls: &[crate::ai_client::ToolCall],
+    advertised_tools: &[serde_json::Value],
+) -> anyhow::Result<()> {
+    let allowed = advertised_tools
+        .iter()
+        .filter_map(|tool| tool["function"]["name"].as_str())
+        .collect::<std::collections::HashSet<_>>();
+    if let Some(call) = tool_calls
+        .iter()
+        .find(|call| !allowed.contains(call.name.as_str()))
+    {
+        anyhow::bail!("model requested unadvertised tool '{}'", call.name);
+    }
+    Ok(())
+}
+
+fn record_tool_result(
+    messages: &mut Vec<ApiMessage>,
+    responses_state: &mut Vec<serde_json::Value>,
+    responses_mode: bool,
+    round: usize,
+    call_id: String,
+    name: String,
+    content: String,
+) -> anyhow::Result<()> {
+    messages.push(ApiMessage::tool_result(
+        call_id.clone(),
+        name,
+        content.clone(),
+    ));
+    if responses_mode {
+        responses_state.push(serde_json::json!({
+            "type": "function_call_output",
+            "call_id": call_id,
+            "output": content,
+        }));
+        compact_and_validate_responses_state(responses_state, round)?;
+    }
+    Ok(())
 }
 
 // ── Summary generation ────────────────────────────────────────────────────────
@@ -761,6 +917,7 @@ impl Engine {
             role: "user".to_string(),
             content: user_input.clone(),
             reasoning_content: String::new(),
+            responses_items: vec![],
             attachments: vec![],
             round_id,
         });
@@ -797,11 +954,21 @@ impl Engine {
 
     /// Record the completed assistant response and persist the conversation.
     pub fn record_assistant_with_reasoning(&mut self, content: String, reasoning_content: String) {
+        self.record_assistant_with_state(content, reasoning_content, vec![]);
+    }
+
+    pub fn record_assistant_with_state(
+        &mut self,
+        content: String,
+        reasoning_content: String,
+        responses_items: Vec<serde_json::Value>,
+    ) {
         let round_id = self.last_round_id();
         self.messages.push(PersistedMessage {
             role: "assistant".to_string(),
             content,
             reasoning_content,
+            responses_items,
             attachments: vec![],
             round_id,
         });
@@ -855,7 +1022,16 @@ impl Engine {
             match msg.role.as_str() {
                 "user" => out.push(ApiMessage::user(&msg.content)),
                 "assistant" => {
-                    if should_roundtrip_reasoning_content(&self.model) {
+                    if self.client.config().effective_api_mode() == ApiMode::Responses
+                        && !msg.responses_items.is_empty()
+                    {
+                        out.extend(
+                            msg.responses_items
+                                .iter()
+                                .cloned()
+                                .map(ApiMessage::responses_output_item),
+                        );
+                    } else if should_roundtrip_reasoning_content(&self.model) {
                         out.push(ApiMessage::assistant_with_reasoning(
                             &msg.content,
                             &msg.reasoning_content,
@@ -886,9 +1062,72 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai_client::{ApiMode, AssistantConfig};
+    use crate::ai_client::{ApiMode, AssistantConfig, ToolCall};
+
+    #[test]
+    fn rejects_model_tool_calls_that_were_not_advertised() {
+        let calls = vec![ToolCall {
+            id: "call-1".to_string(),
+            name: "fs_delete".to_string(),
+            arguments: "{}".to_string(),
+        }];
+        let advertised = vec![serde_json::json!({
+            "type": "function",
+            "function": { "name": "pwd" }
+        })];
+
+        assert!(validate_requested_tools(&calls, &advertised).is_err());
+        assert!(validate_requested_tools(&calls, &[]).is_err());
+    }
+
+    #[test]
+    fn responses_transcript_rejects_uncompactable_oversized_state() {
+        let mut items = vec![serde_json::json!({
+            "type": "reasoning",
+            "encrypted_content": "x".repeat(MAX_RESPONSES_STATE_BYTES + 1),
+        })];
+        let error = compact_and_validate_responses_state(&mut items, 0)
+            .expect_err("oversized raw protocol state must not accumulate or persist");
+        assert!(error.to_string().contains("exceeded"));
+    }
+
+    #[test]
+    fn streamed_output_budget_is_cumulative_and_fail_closed() {
+        let total = std::cell::Cell::new(MAX_STREAMED_OUTPUT_BYTES - 2);
+        assert!(reserve_streamed_output(&total, 2));
+        assert!(!reserve_streamed_output(&total, 1));
+        assert_eq!(total.get(), MAX_STREAMED_OUTPUT_BYTES);
+        assert!(!reserve_streamed_output(&total, usize::MAX));
+    }
+
+    #[test]
+    fn responses_transcript_compacts_tool_outputs_before_budgeting() {
+        let mut items = vec![
+            serde_json::json!({
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "fs_read",
+                "arguments": "{}",
+            }),
+            serde_json::json!({
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "x".repeat(MAX_RESPONSES_STATE_BYTES),
+            }),
+        ];
+
+        compact_and_validate_responses_state(&mut items, 0).unwrap();
+        assert!(items[1]["output"]
+            .as_str()
+            .unwrap()
+            .contains("bytes elided"));
+    }
 
     fn test_client() -> AiClient {
+        test_client_with_mode(ApiMode::ChatCompletions)
+    }
+
+    fn test_client_with_mode(api_mode: ApiMode) -> AiClient {
         AiClient::new(AssistantConfig {
             api_key: "test-key".to_string(),
             chat_model: "deepseek-v4-pro".to_string(),
@@ -896,7 +1135,7 @@ mod tests {
             base_url: "https://example.com/v1".to_string(),
             custom_headers: vec![],
             provider: "Custom".to_string(),
-            api_mode: ApiMode::ChatCompletions,
+            api_mode,
             auth_type: "api_key".to_string(),
             chat_tools_enabled: true,
             native_web_search: false,
@@ -979,6 +1218,7 @@ mod tests {
             role: "user".to_string(),
             content: "hello".to_string(),
             reasoning_content: String::new(),
+            responses_items: vec![],
             attachments: vec![],
             round_id: 0,
         });
@@ -1001,6 +1241,7 @@ mod tests {
             role: "user".to_string(),
             content: "hello".to_string(),
             reasoning_content: String::new(),
+            responses_items: vec![],
             attachments: vec![],
             round_id: 0,
         });
@@ -1014,6 +1255,38 @@ mod tests {
             .unwrap();
         assert_eq!(assistant.0["content"], "visible");
         assert!(assistant.0.get("reasoning_content").is_none());
+    }
+
+    #[test]
+    fn build_api_messages_replays_persisted_responses_state() {
+        let mut engine = test_engine("gpt-5.4");
+        engine.client = test_client_with_mode(ApiMode::Responses);
+        engine.messages.push(PersistedMessage {
+            role: "user".to_string(),
+            content: "inspect".to_string(),
+            reasoning_content: String::new(),
+            responses_items: vec![],
+            attachments: vec![],
+            round_id: 0,
+        });
+        let reasoning = serde_json::json!({
+            "id": "reasoning_1",
+            "type": "reasoning",
+            "encrypted_content": "opaque"
+        });
+        engine.record_assistant_with_state(
+            "done".to_string(),
+            String::new(),
+            vec![reasoning.clone()],
+        );
+
+        let messages = engine.build_api_messages();
+        assert!(messages
+            .iter()
+            .any(|message| { message.0.get("kaku_responses_output_item") == Some(&reasoning) }));
+        assert!(!messages
+            .iter()
+            .any(|message| { message.0["role"] == "assistant" && message.0["content"] == "done" }));
     }
 
     #[test]
