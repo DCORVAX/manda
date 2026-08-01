@@ -2225,8 +2225,13 @@ pub fn default_hyperlink_rules() -> Vec<hyperlink::Rule> {
             "https://$0",
         )
         .unwrap(),
+        // The TLD group is case-sensitive lowercase (real domains render
+        // lowercase in terminals) so namespace-style identifiers such as
+        // `System.Net` never match, and a match directly followed by `(` is
+        // rejected so method calls like `model.to(device)` / `df.info()`
+        // stay plain text.
         hyperlink::Rule::new(
-            r"(?i)(?<![0-9a-z._-])(?:[0-9a-z][0-9a-z-]*\.)+(?:com|net|org|edu|gov|io|dev|ai|fun|xyz|me|im|tv|to|co|info|biz|tech|site|online|cloud|blog|store|link|live|news|cn|jp|kr|uk|de|fr|us|ca|au|br|ru|nl|se|ch|hk|tw|sg)(?::\d+)?(?:/[\x21-\x7e]*[_/a-zA-Z0-9-]|/)?(?!\.?[0-9a-z_-])",
+            r"(?i)(?<![0-9a-z._-])(?:[0-9a-z][0-9a-z-]*\.)+(?-i:com|net|org|edu|gov|io|dev|ai|fun|xyz|me|im|tv|to|co|info|biz|tech|site|online|cloud|blog|store|link|live|news|cn|jp|kr|uk|de|fr|us|ca|au|br|ru|nl|se|ch|hk|tw|sg)(?::\d+)?(?:/[\x21-\x7e]*[_/a-zA-Z0-9-]|/)?(?!\.?[0-9a-z_-]|\()",
             "https://$0",
         )
         .unwrap(),
@@ -2473,6 +2478,12 @@ mod tests {
             "regenerated Makefile.in",
             "open dist/Kaku.app",
             "plain Kaku.app name",
+            // Method calls and namespace identifiers, not domains.
+            "tensor model.to(device) done",
+            "print df.info() output",
+            "using System.Net;",
+            "import System.IO.Path",
+            "call foo.De() here",
         ] {
             assert!(
                 !Rule::match_hyperlinks(text, &rules)

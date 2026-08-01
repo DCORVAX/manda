@@ -119,6 +119,7 @@ fn option_click_cursor_bytes(
     cursor_col: usize,
     target_row: usize,
     target_col: usize,
+    application_cursor_keys: bool,
 ) -> Vec<u8> {
     if rows.is_empty() || cursor_row >= rows.len() || target_row >= rows.len() {
         return Vec::new();
@@ -147,7 +148,14 @@ fn option_click_cursor_bytes(
     }
 
     let moving_right = (target_row, target_col) > (cursor_row, cursor_col);
-    let arrow: &[u8] = if moving_right { b"\x1b[C" } else { b"\x1b[D" };
+    // DECCKM (application cursor keys) changes the arrow encoding; inline
+    // raw-mode TUIs that enabled it expect SS3-style arrows.
+    let arrow: &[u8] = match (moving_right, application_cursor_keys) {
+        (true, false) => b"\x1b[C",
+        (false, false) => b"\x1b[D",
+        (true, true) => b"\x1bOC",
+        (false, true) => b"\x1bOD",
+    };
     arrow.repeat(count)
 }
 
@@ -1895,19 +1903,31 @@ impl super::TermWindow {
 
                     let cursor_row = (cursor.y - top) as usize;
                     let target_row = (stable_row - top) as usize;
-                    let bytes =
-                        option_click_cursor_bytes(&rows, cursor_row, cursor.x, target_row, column);
+                    let bytes = option_click_cursor_bytes(
+                        &rows,
+                        cursor_row,
+                        cursor.x,
+                        target_row,
+                        column,
+                        pane.application_cursor_keys_enabled(),
+                    );
 
                     if !bytes.is_empty() {
                         if let Err(err) = self.write_terminal_input_bytes(&pane, &bytes) {
                             log::debug!("option+click cursor move failed: {err:#}");
                         }
                         self.maybe_scroll_to_bottom_for_input(&pane);
+                        // The press started a block selection origin; drop it
+                        // so a later shift-click does not extend from a stale
+                        // point.
+                        self.selection(pane.pane_id()).clear();
+                        return;
                     }
-                    // The press started a block selection origin; drop it so a
-                    // later shift-click does not extend from a stale point.
+                    // No movement was possible (e.g. the click crossed a hard
+                    // newline). Drop the stale selection origin but let the
+                    // release fall through so user Alt+LeftUp mouse bindings
+                    // stay reachable.
                     self.selection(pane.pane_id()).clear();
-                    return;
                 }
 
                 // normalize delta and streak to make mouse assignment
@@ -2147,8 +2167,8 @@ mod tests {
             },
         ];
 
-        assert!(option_click_cursor_bytes(&rows, 1, 2, 0, 2).is_empty());
-        assert!(option_click_cursor_bytes(&rows, 0, 2, 1, 2).is_empty());
+        assert!(option_click_cursor_bytes(&rows, 1, 2, 0, 2, false).is_empty());
+        assert!(option_click_cursor_bytes(&rows, 0, 2, 1, 2, false).is_empty());
     }
 
     #[test]
@@ -2165,8 +2185,25 @@ mod tests {
         ];
 
         assert_eq!(
-            option_click_cursor_bytes(&rows, 0, 1, 1, 1),
+            option_click_cursor_bytes(&rows, 0, 1, 1, 1, false),
             b"\x1b[C\x1b[C\x1b[C".to_vec()
+        );
+    }
+
+    #[test]
+    fn option_click_honors_application_cursor_keys() {
+        let rows = vec![OptionClickRowInfo {
+            wrapped: false,
+            cells: (0..5).map(|column| (column, 1)).collect(),
+        }];
+
+        assert_eq!(
+            option_click_cursor_bytes(&rows, 0, 1, 0, 3, true),
+            b"\x1bOC\x1bOC".to_vec()
+        );
+        assert_eq!(
+            option_click_cursor_bytes(&rows, 0, 3, 0, 1, true),
+            b"\x1bOD\x1bOD".to_vec()
         );
     }
 

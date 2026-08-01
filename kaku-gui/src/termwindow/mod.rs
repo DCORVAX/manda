@@ -5411,12 +5411,10 @@ impl TermWindow {
                 .push("/Applications/Cursor.app/Contents/Resources/app/bin/cursor".to_string()),
             _ => {}
         }
-        candidates.sort();
-        candidates.dedup();
-        // Preserve PATH lookup as the first attempt even after de-dup sorting.
-        if let Some(index) = candidates.iter().position(|candidate| candidate == program) {
-            candidates.swap(0, index);
-        }
+        // De-dup while preserving probe order: PATH lookup first, then the
+        // conventional locations in the order they were pushed.
+        let mut seen = std::collections::HashSet::new();
+        candidates.retain(|candidate| seen.insert(candidate.clone()));
         candidates
     }
 

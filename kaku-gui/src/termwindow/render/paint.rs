@@ -132,6 +132,11 @@ impl crate::TermWindow {
                         self.invalidate_modal();
                     }
                     Err(err) => {
+                        // The grow failed (allocation), so capacity is
+                        // unchanged and a forced repaint would fail the same
+                        // way every frame. Draw the clamped frame and stop:
+                        // do not request another pass.
+                        quads_grew = false;
                         log::error!("{:#}", err);
                         break 'pass;
                     }
