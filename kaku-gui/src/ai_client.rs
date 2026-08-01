@@ -728,6 +728,7 @@ impl AiClient {
     /// caller to execute and loop. Returns an empty vec when the step is text-only.
     ///
     /// The caller must set `cancelled` to `true` to abort mid-stream.
+    #[allow(clippy::too_many_arguments)]
     pub fn chat_step(
         &self,
         model: &str,
@@ -799,7 +800,7 @@ impl AiClient {
                 line_bytes.pop();
             }
             let line = std::str::from_utf8(&line_bytes).context("API SSE line was not UTF-8")?;
-            let Some(data) = sse_data_payload(&line) else {
+            let Some(data) = sse_data_payload(line) else {
                 continue;
             };
             add_stream_event(&mut stream_events, "API")?;
@@ -895,6 +896,7 @@ impl AiClient {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn chat_step_responses(
         &self,
         model: &str,
@@ -1327,7 +1329,7 @@ fn parse_responses_sse<R: BufRead>(
         }
         let line = std::str::from_utf8(&line_bytes)
             .with_context(|| format!("{provider_label} SSE line was not UTF-8"))?;
-        let Some(data) = sse_data_payload(&line) else {
+        let Some(data) = sse_data_payload(line) else {
             continue;
         };
         add_stream_event(&mut stream_events, provider_label)?;

@@ -39,50 +39,6 @@ pub(super) fn push_input_snapshot(stack: &mut Vec<InputSnapshot>, input: &str, c
     });
 }
 
-#[cfg(test)]
-mod responses_state_tests {
-    use super::*;
-
-    #[test]
-    fn transient_responses_state_never_creates_persistable_assistant_turn() {
-        let mut messages = vec![Message::text(Role::Assistant, "side answer", false, true)];
-        let mut pending = vec![serde_json::json!({
-            "type": "message",
-            "role": "assistant",
-            "content": [{"type": "output_text", "text": "side answer"}],
-        })];
-
-        attach_responses_state(&mut messages, &mut pending, true);
-
-        assert!(pending.is_empty());
-        assert_eq!(messages.len(), 1);
-        assert!(messages[0].is_context);
-        assert!(messages[0].responses_items.is_empty());
-        assert!(!messages.iter().any(|message| !message.is_context));
-    }
-
-    #[test]
-    fn full_responses_state_makes_earlier_tool_round_text_display_only() {
-        let mut messages = vec![
-            Message::text(Role::Assistant, "before tool", false, false),
-            Message::tool_event("pwd", ""),
-            Message::text(Role::Assistant, "final", false, false),
-        ];
-        let mut pending = vec![serde_json::json!({
-            "type": "message",
-            "role": "assistant",
-            "content": [{"type": "output_text", "text": "before tool"}],
-        })];
-
-        attach_responses_state(&mut messages, &mut pending, false);
-
-        assert!(messages[0].is_context);
-        assert!(!messages[2].is_context);
-        assert_eq!(messages[2].responses_items.len(), 1);
-        assert!(pending.is_empty());
-    }
-}
-
 // ─── Attachment / slash helpers ───────────────────────────────────────────────
 
 pub(super) fn attachment_option_by_label(label: &str) -> Option<AttachmentOption> {
@@ -2276,5 +2232,49 @@ impl App {
         }
         self.scroll_offset = 0;
         self.display_lines_dirty = true;
+    }
+}
+
+#[cfg(test)]
+mod responses_state_tests {
+    use super::*;
+
+    #[test]
+    fn transient_responses_state_never_creates_persistable_assistant_turn() {
+        let mut messages = vec![Message::text(Role::Assistant, "side answer", false, true)];
+        let mut pending = vec![serde_json::json!({
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "side answer"}],
+        })];
+
+        attach_responses_state(&mut messages, &mut pending, true);
+
+        assert!(pending.is_empty());
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].is_context);
+        assert!(messages[0].responses_items.is_empty());
+        assert!(!messages.iter().any(|message| !message.is_context));
+    }
+
+    #[test]
+    fn full_responses_state_makes_earlier_tool_round_text_display_only() {
+        let mut messages = vec![
+            Message::text(Role::Assistant, "before tool", false, false),
+            Message::tool_event("pwd", ""),
+            Message::text(Role::Assistant, "final", false, false),
+        ];
+        let mut pending = vec![serde_json::json!({
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "before tool"}],
+        })];
+
+        attach_responses_state(&mut messages, &mut pending, false);
+
+        assert!(messages[0].is_context);
+        assert!(!messages[2].is_context);
+        assert_eq!(messages[2].responses_items.len(), 1);
+        assert!(pending.is_empty());
     }
 }
