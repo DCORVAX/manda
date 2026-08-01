@@ -281,9 +281,16 @@ fn fallback_regex_search(
         root.parent().unwrap_or_else(|| Path::new("."))
     };
     let mut walker = WalkBuilder::new(root);
-    walker
-        .follow_links(false)
-        .filter_entry(|entry| super::paths::reject_if_sensitive(entry.path()).is_ok());
+    walker.follow_links(false).filter_entry(|entry| {
+        // Mirror the rg path's `!**/*credentials*` exclusion: search results
+        // cannot be approval-gated per file, so credential-named entries are
+        // skipped here even when fs_read would allow them behind a prompt.
+        let credential_named = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.to_ascii_lowercase().contains("credentials"));
+        !credential_named && super::paths::reject_if_sensitive(entry.path()).is_ok()
+    });
     if let Some(glob) = glob_filter {
         let mut overrides = OverrideBuilder::new(override_root);
         overrides
@@ -706,6 +713,14 @@ pub(super) fn exec_grep_search(
                     SEARCH_TIMEOUT_SECS
                 ));
             }
+            if fallback.truncated {
+                // Matches existed but the very first result region exceeded
+                // the output budget; "No matches" would be a false negative.
+                return Ok(format!(
+                    "Matches were found but the results exceeded the {} byte output budget; narrow the pattern, path, or context_lines.",
+                    FALLBACK_MAX_OUTPUT_BYTES
+                ));
+            }
             return Ok("No matches found.".into());
         }
         let mut out = fallback.lines.join("\n");
@@ -916,7 +931,8 @@ mod fallback_tests {
         let total: usize = out.lines.iter().map(|l| l.len() + 1).sum();
         assert!(
             total <= FALLBACK_MAX_OUTPUT_BYTES,
-            "accumulated output {total} exceeds budget"
+            "accumulated output {} exceeds budget",
+            total
         );
     }
 

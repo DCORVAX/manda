@@ -1657,27 +1657,31 @@ fn upsert_response_item(
         .filter(|value| !value.is_empty())
         .or_else(|| item["call_id"].as_str().filter(|value| !value.is_empty()));
     if let Some(id) = id {
-        if let Some(existing) = items.iter_mut().find(|existing| {
+        if let Some(position) = items.iter().position(|existing| {
             existing["id"].as_str() == Some(id) || existing["call_id"].as_str() == Some(id)
         }) {
-            *existing = item.clone();
+            items[position] = item.clone();
+            if let Some(index) = output_index {
+                indexless_positions.insert(index, position);
+            }
             return Ok(());
         }
-    } else if let Some(index) = output_index {
-        // Custom `/responses` endpoints may omit item ids. `.added` and
-        // `.done` still fire for the same `output_index`, so key on it to
-        // replace rather than duplicate (positions are stable: parsing only
-        // appends or replaces in place).
+    }
+    // Custom `/responses` endpoints may omit item ids on either the `.added`
+    // or the `.done` event. `output_index` is stable across both, so track it
+    // for every stored item; whichever identity the later event carries, it
+    // replaces instead of duplicating (positions are stable: parsing only
+    // appends or replaces in place).
+    if let Some(index) = output_index {
         if let Some(&position) = indexless_positions.get(&index) {
             items[position] = item.clone();
             return Ok(());
         }
-        validate_response_item_count(items.len() + 1, "Responses API")?;
-        indexless_positions.insert(index, items.len());
-        items.push(item.clone());
-        return Ok(());
     }
     validate_response_item_count(items.len() + 1, "Responses API")?;
+    if let Some(index) = output_index {
+        indexless_positions.insert(index, items.len());
+    }
     items.push(item.clone());
     Ok(())
 }
@@ -2476,6 +2480,31 @@ mod tests {
         assert_eq!(input[0], reasoning);
         assert_eq!(input[1], function_call);
         assert_eq!(input[2]["type"], "function_call_output");
+    }
+
+    #[test]
+    fn upsert_response_item_replaces_across_mixed_identity_events() {
+        let added = serde_json::json!({ "type": "message", "id": "msg_1", "content": [] });
+        let done = serde_json::json!({
+            "type": "message",
+            "content": [{ "type": "output_text", "text": "hi" }]
+        });
+
+        // added carries an id, done does not: output_index must still dedup.
+        let mut items = Vec::new();
+        let mut positions = std::collections::HashMap::new();
+        super::upsert_response_item(&mut items, &added, Some(0), &mut positions).unwrap();
+        super::upsert_response_item(&mut items, &done, Some(0), &mut positions).unwrap();
+        assert_eq!(items.len(), 1, "mixed-identity events must not duplicate");
+        assert_eq!(items[0], done);
+
+        // Reverse order: added without id, done with id.
+        let mut items = Vec::new();
+        let mut positions = std::collections::HashMap::new();
+        super::upsert_response_item(&mut items, &done, Some(0), &mut positions).unwrap();
+        super::upsert_response_item(&mut items, &added, Some(0), &mut positions).unwrap();
+        assert_eq!(items.len(), 1, "mixed-identity events must not duplicate");
+        assert_eq!(items[0], added);
     }
 
     #[test]

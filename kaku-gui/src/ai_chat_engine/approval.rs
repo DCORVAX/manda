@@ -9,6 +9,21 @@ pub fn approval_summary(name: &str, args: &serde_json::Value) -> Option<String> 
         "fs_mkdir" => Some(format!("mkdir: {}", s("path"))),
         "fs_delete" => Some(format!("delete: {}", s("path"))),
         "http_request" => http_request_approval_summary(args),
+        // Reads are normally silent, but credential-named source files
+        // (credentials.py, prod_credentials.ts, ...) often hold real secrets:
+        // keep them readable only behind an explicit per-file approval.
+        "fs_read" => {
+            let path = args["path"].as_str().unwrap_or("");
+            let name = std::path::Path::new(path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            if crate::ai_tools::paths::is_credential_named_source_file(name) {
+                Some(format!("read credential-named file: {}", s("path")))
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }
@@ -606,6 +621,16 @@ mod tests {
     use super::{approval_summary, shell_command_requires_approval};
 
     #[test]
+    fn fs_read_prompts_only_for_credential_named_source_files() {
+        let gated = serde_json::json!({ "path": "/proj/src/credentials.py" });
+        let summary = approval_summary("fs_read", &gated).expect("credential-named source prompts");
+        assert!(summary.contains("credentials.py"), "{}", summary);
+
+        let plain = serde_json::json!({ "path": "/proj/src/main.py" });
+        assert!(approval_summary("fs_read", &plain).is_none());
+    }
+
+    #[test]
     fn http_request_summary_flattens_control_characters() {
         let args = serde_json::json!({
             "method": "GET",
@@ -614,11 +639,13 @@ mod tests {
         let summary = approval_summary("http_request", &args).expect("GET now prompts");
         assert!(
             !summary.contains('\n'),
-            "newline must not survive: {summary}"
+            "newline must not survive: {}",
+            summary
         );
         assert!(
             !summary.contains('\u{1b}'),
-            "ESC must not survive: {summary}"
+            "ESC must not survive: {}",
+            summary
         );
     }
 

@@ -204,6 +204,14 @@ fn has_source_or_doc_extension(lower_name: &str) -> bool {
     )
 }
 
+/// Credential-named source/doc files (`credentials.py`, `credentials.md`)
+/// are readable, but only behind a per-file approval prompt: they often hold
+/// real secrets in source form, so a prompt-injected read must not be silent.
+pub(crate) fn is_credential_named_source_file(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.contains("credentials") && has_source_or_doc_extension(&lower)
+}
+
 fn is_sensitive_directory_name(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
@@ -491,7 +499,8 @@ mod tests {
             std::fs::write(&path, "code").unwrap();
             assert!(
                 reject_if_sensitive(&path).is_ok(),
-                "{name} is source/doc, must stay readable"
+                "{} is source/doc, must stay readable",
+                name
             );
         }
         for name in ["credentials", "credentials.json", "aws_credentials.toml"] {
@@ -499,7 +508,8 @@ mod tests {
             std::fs::write(&path, "secret").unwrap();
             assert!(
                 reject_if_sensitive(&path).is_err(),
-                "{name} is a credential data file, must stay blocked"
+                "{} is a credential data file, must stay blocked",
+                name
             );
         }
     }

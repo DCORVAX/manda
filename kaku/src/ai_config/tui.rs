@@ -1424,12 +1424,12 @@ fn write_kaku_assistant_config_preserving(
         .context("parse generated assistant config")?;
 
     for key in TUI_MANAGED_KEYS {
-        match canonical_doc.get(*key) {
+        match canonical_doc.get(key) {
             Some(item) => {
                 original[*key] = item.clone();
             }
             None => {
-                original.remove(*key);
+                original.remove(key);
             }
         }
     }
@@ -5545,12 +5545,17 @@ provider = "managed:kimi-code"
         save_kaku_assistant_field_to_path(&path, "Simple Model", "gpt-5.4").expect("save model");
         let saved = std::fs::read_to_string(&path).expect("read saved config");
 
-        assert!(saved.contains("# Kaku assistant configuration"), "{saved}");
+        assert!(
+            saved.contains("# Kaku assistant configuration"),
+            "{}",
+            saved
+        );
         assert!(
             saved.contains("# Custom option kept across saves"),
-            "{saved}"
+            "{}",
+            saved
         );
-        assert!(saved.contains("model = \"gpt-5.4\""), "{saved}");
+        assert!(saved.contains("model = \"gpt-5.4\""), "{}", saved);
     }
 
     #[test]

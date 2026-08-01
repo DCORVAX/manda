@@ -183,6 +183,12 @@ persist_config_version() {
 				return
 			fi
 			rm -f "$repair_tmp"
+		elif ! grep -q '"' "$STATE_FILE"; then
+			# Empty object ({} or { }): nothing to preserve, and inserting a
+			# key with a trailing comma would produce invalid JSON.
+			printf '{\n  "config_version": %s\n}\n' "$target_version" >"$STATE_FILE"
+			printf '%s\n' "$target_version" >"$LEGACY_VERSION_FILE"
+			return
 		elif ! grep -q '"config_version"' "$STATE_FILE"; then
 			if awk -v v="$target_version" 'NR==1 && /^\{/ { print "{"; print "  \"config_version\": " v ","; sub(/^\{/, ""); if (length($0)) print; next } { print }' "$STATE_FILE" >"$repair_tmp"; then
 				mv "$repair_tmp" "$STATE_FILE"

@@ -1121,7 +1121,7 @@ mod tests {
 
     #[test]
     fn unadvertised_tool_calls_are_outside_the_allowed_set() {
-        let calls = vec![ToolCall {
+        let calls = [ToolCall {
             id: "call-1".to_string(),
             name: "fs_delete".to_string(),
             arguments: "{}".to_string(),

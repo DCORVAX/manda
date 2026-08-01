@@ -93,16 +93,15 @@ pub fn persisted_managed_shell() -> Option<ManagedShell> {
 pub fn persist_managed_shell(shell: ManagedShell) -> Result<()> {
     persist_managed_shell_to_path(&managed_shell_state_path(), shell)?;
     // A shell-only XDG_CONFIG_HOME is invisible to Finder-launched GUI
-    // processes, which then read ~/.config/kaku instead. Mirror the choice
-    // into that file when it exists so every entry point agrees on the shell.
+    // processes, which then read ~/.config/kaku instead. Always mirror the
+    // choice there (creating the file on fresh installs) so every entry
+    // point agrees on the shell and first-run does not repeat.
     if let Some(default_path) = default_managed_shell_state_path() {
-        if default_path.exists() {
-            if let Err(error) = persist_managed_shell_to_path(&default_path, shell) {
-                log::warn!(
-                    "could not mirror managed shell to {}: {error:#}",
-                    default_path.display()
-                );
-            }
+        if let Err(error) = persist_managed_shell_to_path(&default_path, shell) {
+            log::warn!(
+                "could not mirror managed shell to {}: {error:#}",
+                default_path.display()
+            );
         }
     }
     Ok(())
