@@ -1,13 +1,19 @@
 use crate::quad::TripleLayerQuadAllocator;
 use crate::utilsprites::RenderMetrics;
 use ::window::ULength;
-use config::{ConfigHandle, Dimension, DimensionContext, TabBarColors};
+use config::{Config, ConfigHandle, Dimension, DimensionContext, TabBarColors};
 use window::color::LinearRgba;
 
-const INTEGRATED_BUTTONS_TOP_INSET_POINTS: f32 = 16.0;
+const INTEGRATED_BUTTONS_TOP_TAB_INSET_POINTS: f32 = 3.0;
+const INTEGRATED_BUTTONS_TOP_CLEARANCE_POINTS: f32 = 16.0;
 
-fn integrated_buttons_top_inset_pixels(dpi: f32) -> usize {
-    Dimension::Points(INTEGRATED_BUTTONS_TOP_INSET_POINTS).evaluate_as_pixels(DimensionContext {
+fn integrated_buttons_top_inset_pixels(dpi: f32, top_tab_bar_visible: bool) -> usize {
+    let points = if top_tab_bar_visible {
+        INTEGRATED_BUTTONS_TOP_TAB_INSET_POINTS
+    } else {
+        INTEGRATED_BUTTONS_TOP_CLEARANCE_POINTS
+    };
+    Dimension::Points(points).evaluate_as_pixels(DimensionContext {
         dpi,
         pixel_max: 0.0,
         pixel_cell: 0.0,
@@ -15,9 +21,9 @@ fn integrated_buttons_top_inset_pixels(dpi: f32) -> usize {
 }
 
 pub(crate) fn integrated_buttons_top_inset(
-    config: &ConfigHandle,
+    config: &Config,
     is_fullscreen: bool,
-    _top_tab_bar_visible: bool,
+    top_tab_bar_visible: bool,
     dpi: f32,
 ) -> usize {
     if !is_fullscreen
@@ -25,7 +31,7 @@ pub(crate) fn integrated_buttons_top_inset(
             .window_decorations
             .contains(::window::WindowDecorations::INTEGRATED_BUTTONS)
     {
-        integrated_buttons_top_inset_pixels(dpi)
+        integrated_buttons_top_inset_pixels(dpi, top_tab_bar_visible)
     } else {
         0
     }
@@ -311,10 +317,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn integrated_buttons_top_inset_is_state_sensitive() {
+        let mut config = Config::default_config();
+        config.window_decorations =
+            ::window::WindowDecorations::INTEGRATED_BUTTONS | ::window::WindowDecorations::RESIZE;
+
+        assert_eq!(integrated_buttons_top_inset(&config, false, true, 144.0), 6);
+        assert_eq!(
+            integrated_buttons_top_inset(&config, false, false, 144.0),
+            32
+        );
+        assert_eq!(integrated_buttons_top_inset(&config, true, true, 144.0), 0);
+
+        config.window_decorations =
+            ::window::WindowDecorations::TITLE | ::window::WindowDecorations::RESIZE;
+        assert_eq!(integrated_buttons_top_inset(&config, false, true, 144.0), 0);
+    }
+
+    #[test]
     fn integrated_buttons_top_inset_scales_with_dpi() {
-        assert_eq!(integrated_buttons_top_inset_pixels(72.0), 16);
-        assert_eq!(integrated_buttons_top_inset_pixels(110.0), 24);
-        assert_eq!(integrated_buttons_top_inset_pixels(144.0), 32);
+        assert_eq!(integrated_buttons_top_inset_pixels(72.0, true), 3);
+        assert_eq!(integrated_buttons_top_inset_pixels(144.0, true), 6);
+        assert_eq!(integrated_buttons_top_inset_pixels(72.0, false), 16);
+        assert_eq!(integrated_buttons_top_inset_pixels(110.0, false), 24);
+        assert_eq!(integrated_buttons_top_inset_pixels(144.0, false), 32);
     }
 
     /// The bundled padding is expressed in device pixels on purpose. Switching

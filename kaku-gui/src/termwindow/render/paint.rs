@@ -369,8 +369,8 @@ impl crate::TermWindow {
                     // Only cover the OS border area; the tab bar paints its own
                     // transparent background in paint_tab_bar(), so including
                     // tab_bar_height here would double-paint that region.
-                    // When tab bar is at top, it starts at y=0 and covers the
-                    // titlebar area completely, so no top fill needed.
+                    // When the tab bar is at top, it owns the titlebar strip
+                    // and paints that area itself, so no separate top fill is needed.
                     // paint_window_borders() repaints the full top OS border
                     // with the pane background (on a higher layer) whenever the
                     // integrated-buttons inset is active. Filling it here too
