@@ -97,6 +97,19 @@ needed. Keep `chat_completions` for providers that only implement
 
 ---
 
+## Terminal Interactions
+
+Cmd+Click opens URLs and file paths, and also bare domains such as
+`github.com` that have no scheme prefix. The matcher is tuned to leave code
+identifiers alone: method calls like `df.info()` and namespaces like
+`System.Net` never turn into links.
+
+Option+Click moves the shell cursor within the current input line, including
+across soft-wrapped continuation rows. It never crosses a hard newline, so
+clicks into scrollback are ignored rather than mangling history.
+
+---
+
 ## Window Snapshots
 
 Kaku saves multi-tab and multi-pane window layouts automatically when you close

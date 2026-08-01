@@ -70,3 +70,7 @@
 31	行内 AI（# 请求与报错修复）在 zsh 下恢复可靠工作，Kaku 之外的 # 注释不再卡住回车
 31	File links can now open in your chosen editor with config.file_link_editor
 31	文件链接现在可通过 config.file_link_editor 使用你指定的编辑器打开
+31	Bare domains like github.com are now Cmd+Click-able without a scheme prefix
+31	github.com 这类不带协议前缀的裸域名现在也可以 Cmd+Click 打开
+31	Option+Click moves the shell cursor within the current input line
+31	Option+Click 可在当前输入行内移动光标
