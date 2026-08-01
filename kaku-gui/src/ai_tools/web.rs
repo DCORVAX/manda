@@ -200,12 +200,30 @@ fn pinned_web_client(destination: &ValidatedHttpDestination) -> Result<reqwest::
     let mut builder = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(30))
         .timeout(Duration::from_secs(60))
-        .redirect(reqwest::redirect::Policy::none())
-        // A proxy would resolve the hostname again and detach the validated IP
-        // set from the actual connection, reopening DNS-rebinding SSRF.
-        .no_proxy();
-    if let Some(domain) = destination.domain.as_deref() {
-        builder = builder.resolve_to_addrs(domain, &destination.addresses);
+        .redirect(reqwest::redirect::Policy::none());
+
+    // https may honor the user's system proxy: the origin is still
+    // authenticated by TLS through the CONNECT tunnel, so a DNS swap behind
+    // the proxy cannot impersonate the validated host, and a blanket
+    // `no_proxy` would break `http_request` on every proxied network.
+    // Plaintext http stays direct and IP-pinned: through a proxy the name is
+    // re-resolved, detaching the validated address set with no TLS to catch
+    // the swap (DNS-rebinding SSRF).
+    let https_proxy = if destination.url.scheme() == "https" {
+        crate::ai_client::system_proxy_with_private_bypass()
+    } else {
+        None
+    };
+    match https_proxy {
+        Some(proxy) => {
+            builder = builder.proxy(proxy);
+        }
+        None => {
+            builder = builder.no_proxy();
+            if let Some(domain) = destination.domain.as_deref() {
+                builder = builder.resolve_to_addrs(domain, &destination.addresses);
+            }
+        }
     }
     builder.build().context("build pinned http_request client")
 }
@@ -236,6 +254,8 @@ fn ipv4_is_public(address: Ipv4Addr) -> bool {
         || (octets[0] == 192 && octets[1] == 0 && octets[2] == 2)
         || (octets[0] == 198 && octets[1] == 51 && octets[2] == 100)
         || (octets[0] == 203 && octets[1] == 0 && octets[2] == 113)
+        // 6to4 relay anycast (RFC 7526): a relay would forward onward.
+        || (octets[0] == 192 && octets[1] == 88 && octets[2] == 99)
         || octets[0] >= 240)
 }
 
@@ -244,6 +264,31 @@ fn ipv6_is_public(address: Ipv6Addr) -> bool {
         return ipv4_is_public(mapped);
     }
     let segments = address.segments();
+
+    // IPv4-embedding transition prefixes: a NAT64/6to4 gateway forwards the
+    // request to the embedded IPv4 address, so judge that address, not the
+    // IPv6 wrapper. Covers the well-known NAT64 prefix 64:ff9b::/96
+    // (RFC 6052) and 6to4 2002::/16 (RFC 3056); without this, on a DNS64
+    // network `[64:ff9b::a9fe:a9fe]` reaches 169.254.169.254.
+    if segments[0] == 0x0064 && segments[1] == 0xff9b && segments[2..6] == [0, 0, 0, 0] {
+        let embedded = Ipv4Addr::new(
+            (segments[6] >> 8) as u8,
+            segments[6] as u8,
+            (segments[7] >> 8) as u8,
+            segments[7] as u8,
+        );
+        return ipv4_is_public(embedded);
+    }
+    if segments[0] == 0x2002 {
+        let embedded = Ipv4Addr::new(
+            (segments[1] >> 8) as u8,
+            segments[1] as u8,
+            (segments[2] >> 8) as u8,
+            segments[2] as u8,
+        );
+        return ipv4_is_public(embedded);
+    }
+
     !(address.is_loopback()
         || address.is_unspecified()
         || address.is_multicast()
@@ -428,10 +473,20 @@ mod tests {
         assert!(ipv4_is_public("8.8.8.8".parse().unwrap()));
         assert!(!ipv4_is_public("192.168.1.2".parse().unwrap()));
         assert!(!ipv4_is_public("100.127.255.254".parse().unwrap()));
+        assert!(!ipv4_is_public("192.88.99.1".parse().unwrap()));
         assert!(!ipv6_is_public("fe80::1".parse().unwrap()));
         assert!(!ipv6_is_public("fec0::1".parse().unwrap()));
         assert!(!ipv6_is_public("64:ff9b:1::1".parse().unwrap()));
         assert!(ipv6_is_public("2606:4700:4700::1111".parse().unwrap()));
+        // Well-known NAT64 prefix (RFC 6052): judge the embedded IPv4.
+        // 64:ff9b::a9fe:a9fe embeds 169.254.169.254 (metadata endpoint).
+        assert!(!ipv6_is_public("64:ff9b::a9fe:a9fe".parse().unwrap()));
+        assert!(!ipv6_is_public("64:ff9b::7f00:1".parse().unwrap()));
+        assert!(ipv6_is_public("64:ff9b::101:101".parse().unwrap()));
+        // 6to4 (RFC 3056): 2002:V4ADDR::/48 embeds the IPv4 in segments 1-2.
+        assert!(!ipv6_is_public("2002:a9fe:a9fe::1".parse().unwrap()));
+        assert!(!ipv6_is_public("2002:c0a8:101::1".parse().unwrap()));
+        assert!(ipv6_is_public("2002:101:101::1".parse().unwrap()));
     }
 
     #[test]

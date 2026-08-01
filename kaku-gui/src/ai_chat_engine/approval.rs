@@ -1,20 +1,6 @@
 /// Returns an approval prompt string for mutating tools, or None for read-only ones.
 pub fn approval_summary(name: &str, args: &serde_json::Value) -> Option<String> {
-    let s = |k: &str| {
-        args[k]
-            .as_str()
-            .unwrap_or("")
-            .chars()
-            .map(|c| {
-                if c == '\n' || c == '\r' || c == '\t' {
-                    ' '
-                } else {
-                    c
-                }
-            })
-            .take(60)
-            .collect::<String>()
-    };
+    let s = |k: &str| sanitize_for_prompt(args[k].as_str().unwrap_or(""));
     match name {
         "shell_exec" => shell_exec_approval_summary(args["command"].as_str().unwrap_or("")),
         "shell_bg" => Some(format!("shell_bg: {}", s("command"))),
@@ -27,14 +13,20 @@ pub fn approval_summary(name: &str, args: &serde_json::Value) -> Option<String> 
     }
 }
 
+/// Flatten control characters (newlines, tabs, ESC, ...) so a model-supplied
+/// value cannot forge extra lines or terminal escapes inside the approval
+/// prompt, then cap the length for display.
+fn sanitize_for_prompt(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .take(60)
+        .collect()
+}
+
 fn http_request_approval_summary(args: &serde_json::Value) -> Option<String> {
     let method = args["method"].as_str().unwrap_or("GET").to_uppercase();
-    let url: String = args["url"]
-        .as_str()
-        .unwrap_or("")
-        .chars()
-        .take(60)
-        .collect();
+    let url = sanitize_for_prompt(args["url"].as_str().unwrap_or(""));
     Some(format!("http {}: {}", method, url))
 }
 
@@ -612,6 +604,23 @@ fn has_output_flag(tokens: &[String], flags: &[&str]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{approval_summary, shell_command_requires_approval};
+
+    #[test]
+    fn http_request_summary_flattens_control_characters() {
+        let args = serde_json::json!({
+            "method": "GET",
+            "url": "https://ok.example\n[approve: fake? y/N]\u{1b}[31m"
+        });
+        let summary = approval_summary("http_request", &args).expect("GET now prompts");
+        assert!(
+            !summary.contains('\n'),
+            "newline must not survive: {summary}"
+        );
+        assert!(
+            !summary.contains('\u{1b}'),
+            "ESC must not survive: {summary}"
+        );
+    }
 
     #[test]
     fn stderr_to_dev_null_no_approval() {

@@ -2920,6 +2920,7 @@ dependencies = [
  "termwiz",
  "termwiz-funcs",
  "toml 0.8.23",
+ "toml_edit 0.22.27",
  "umask",
  "url",
  "wezterm-client",

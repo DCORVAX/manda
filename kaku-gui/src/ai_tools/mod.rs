@@ -132,9 +132,11 @@ pub fn execute(
             let pattern = args["pattern"].as_str().context("missing pattern")?;
             let search_path = paths::optional_path_arg(args, cwd);
             paths::resolve_checked_path(search_path, cwd)?;
-            let context_lines = args["context_lines"].as_u64().unwrap_or(2) as usize;
+            // Clamp model-supplied sizes: unbounded values would make ripgrep
+            // (or the in-process fallback) materialize entire trees as output.
+            let context_lines = args["context_lines"].as_u64().unwrap_or(2).min(100) as usize;
             let case_insensitive = args["case_insensitive"].as_bool().unwrap_or(false);
-            let max_results = args["max_results"].as_u64().unwrap_or(100) as usize;
+            let max_results = args["max_results"].as_u64().unwrap_or(100).min(1000) as usize;
             let glob_filter = args["glob"].as_str();
             search::exec_grep_search(
                 pattern,

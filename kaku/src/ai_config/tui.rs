@@ -1412,30 +1412,30 @@ fn write_kaku_assistant_config_preserving(
     ];
 
     let canonical = render_kaku_assistant_config(cfg);
-    let Ok(mut original) = original_raw.parse::<toml::Value>() else {
+    // toml_edit keeps the user's comments, ordering, and formatting for every
+    // line the TUI does not own; plain `toml` re-serialization stripped all
+    // template comments on each save.
+    let Ok(mut original) = original_raw.parse::<toml_edit::DocumentMut>() else {
         return write_atomic(path, canonical.as_bytes())
             .with_context(|| format!("write {}", path.display()));
     };
-    let canonical_value = canonical
-        .parse::<toml::Value>()
+    let canonical_doc = canonical
+        .parse::<toml_edit::DocumentMut>()
         .context("parse generated assistant config")?;
-    let Some(original_table) = original.as_table_mut() else {
-        return write_atomic(path, canonical.as_bytes())
-            .with_context(|| format!("write {}", path.display()));
-    };
-    let canonical_table = canonical_value
-        .as_table()
-        .context("generated assistant config is not a TOML table")?;
 
     for key in TUI_MANAGED_KEYS {
-        original_table.remove(*key);
-    }
-    for (key, value) in canonical_table {
-        original_table.insert(key.clone(), value.clone());
+        match canonical_doc.get(*key) {
+            Some(item) => {
+                original[*key] = item.clone();
+            }
+            None => {
+                original.remove(*key);
+            }
+        }
     }
 
-    let out = toml::to_string_pretty(&original).context("serialize assistant config")?;
-    write_atomic(path, out.as_bytes()).with_context(|| format!("write {}", path.display()))
+    write_atomic(path, original.to_string().as_bytes())
+        .with_context(|| format!("write {}", path.display()))
 }
 
 fn save_kaku_assistant_field(field_key: &str, new_val: &str) -> anyhow::Result<()> {
@@ -5524,6 +5524,33 @@ provider = "managed:kimi-code"
                 saved
             );
         }
+    }
+
+    #[test]
+    fn kaku_assistant_tui_save_preserves_comments() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("assistant.toml");
+        std::fs::write(
+            &path,
+            concat!(
+                "# Kaku assistant configuration\n",
+                "enabled = true\n",
+                "model = \"gpt-5.4-mini\"\n",
+                "# Custom option kept across saves\n",
+                "future_provider_option = \"keep-me\"\n",
+            ),
+        )
+        .expect("write temp config");
+
+        save_kaku_assistant_field_to_path(&path, "Simple Model", "gpt-5.4").expect("save model");
+        let saved = std::fs::read_to_string(&path).expect("read saved config");
+
+        assert!(saved.contains("# Kaku assistant configuration"), "{saved}");
+        assert!(
+            saved.contains("# Custom option kept across saves"),
+            "{saved}"
+        );
+        assert!(saved.contains("model = \"gpt-5.4\""), "{saved}");
     }
 
     #[test]

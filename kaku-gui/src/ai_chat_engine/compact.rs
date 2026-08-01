@@ -77,10 +77,19 @@ fn compact_tool_content(tool_name: &str, content: &str) -> Option<String> {
     }
 }
 
-fn save_original(outputs_dir: Option<&Path>, round: usize, idx: usize, content: &str) {
+/// `namespace` separates the two index spaces that share a round: "m" for
+/// message-list indexes, "i" for responses-item indexes. Without it the two
+/// loops overwrite each other's saved originals within a round.
+fn save_original(
+    outputs_dir: Option<&Path>,
+    namespace: &str,
+    round: usize,
+    idx: usize,
+    content: &str,
+) {
     if let Some(dir) = outputs_dir {
         if std::fs::create_dir_all(dir).is_ok() {
-            let fname = format!("r{}-{}.txt", round, idx);
+            let fname = format!("r{}{}-{}.txt", round, namespace, idx);
             let _ = std::fs::write(dir.join(fname), content.as_bytes());
         }
     }
@@ -110,7 +119,7 @@ fn compact_response_values(
                 let Some(compacted) = compact_tool_content(tool_name, &content) else {
                     continue;
                 };
-                save_original(outputs_dir, round, idx, &content);
+                save_original(outputs_dir, "i", round, idx, &content);
                 item["output"] = serde_json::Value::String(compacted);
             }
             _ => {}
@@ -139,7 +148,7 @@ pub(crate) fn micro_compact(messages: &mut [ApiMessage], round: usize, outputs_d
             continue;
         };
 
-        save_original(outputs_dir, round, idx, &content);
+        save_original(outputs_dir, "m", round, idx, &content);
 
         if let Some(obj) = msg.0.as_object_mut() {
             obj.insert("content".to_string(), serde_json::Value::String(compacted));

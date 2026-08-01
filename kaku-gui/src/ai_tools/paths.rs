@@ -132,7 +132,11 @@ fn is_sensitive_filename(name: &str) -> bool {
         return true;
     }
 
-    if lower.contains("credentials") {
+    // Credential stores: block data/config shapes ("credentials",
+    // "aws_credentials.json", ...) but keep source code and docs that merely
+    // have "credentials" in the name (credentials.rs, credentials_test.go,
+    // docs/credentials.md) readable.
+    if lower.contains("credentials") && !has_source_or_doc_extension(&lower) {
         return true;
     }
 
@@ -148,6 +152,55 @@ fn is_sensitive_filename(name: &str) -> bool {
     matches!(
         lower.as_str(),
         "id_rsa" | "id_dsa" | "id_ecdsa" | "id_ed25519"
+    )
+}
+
+/// Extensions that indicate source code or documentation rather than a
+/// credential data file. Data/config extensions (json, toml, yml, ini, csv,
+/// txt, no extension, ...) deliberately stay outside this list so they remain
+/// blocked when the name mentions credentials.
+fn has_source_or_doc_extension(lower_name: &str) -> bool {
+    let Some((_, ext)) = lower_name.rsplit_once('.') else {
+        return false;
+    };
+    matches!(
+        ext,
+        "rs" | "go"
+            | "py"
+            | "ts"
+            | "tsx"
+            | "js"
+            | "jsx"
+            | "mjs"
+            | "cjs"
+            | "java"
+            | "kt"
+            | "swift"
+            | "c"
+            | "h"
+            | "cpp"
+            | "hpp"
+            | "cc"
+            | "cs"
+            | "rb"
+            | "php"
+            | "ex"
+            | "exs"
+            | "erl"
+            | "hs"
+            | "ml"
+            | "scala"
+            | "lua"
+            | "md"
+            | "mdx"
+            | "rst"
+            | "html"
+            | "css"
+            | "scss"
+            | "vue"
+            | "svelte"
+            | "sql"
+            | "proto"
     )
 }
 
@@ -428,6 +481,27 @@ mod tests {
     fn reject_if_sensitive_allows_normal_paths() {
         // /tmp is not in the blocked list; resolve_if_sensitive must Ok it.
         assert!(reject_if_sensitive(&PathBuf::from("/tmp")).is_ok());
+    }
+
+    #[test]
+    fn credentials_named_source_files_stay_readable() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["credentials.rs", "credentials_test.go", "credentials.md"] {
+            let path = dir.path().join(name);
+            std::fs::write(&path, "code").unwrap();
+            assert!(
+                reject_if_sensitive(&path).is_ok(),
+                "{name} is source/doc, must stay readable"
+            );
+        }
+        for name in ["credentials", "credentials.json", "aws_credentials.toml"] {
+            let path = dir.path().join(name);
+            std::fs::write(&path, "secret").unwrap();
+            assert!(
+                reject_if_sensitive(&path).is_err(),
+                "{name} is a credential data file, must stay blocked"
+            );
+        }
     }
 
     #[test]

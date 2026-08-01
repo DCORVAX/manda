@@ -295,6 +295,7 @@ fn fallback_regex_search(
     let started = Instant::now();
     let timeout = Duration::from_secs(SEARCH_TIMEOUT_SECS);
     let mut output = Vec::new();
+    let mut output_bytes = 0usize;
     let mut match_count = 0usize;
     let mut truncated = false;
     let mut timed_out = false;
@@ -380,12 +381,18 @@ fn fallback_regex_search(
                 } else {
                     '-'
                 };
-                output.push(format!(
+                let rendered = format!(
                     "{}{marker}{}{marker}{}",
                     entry.path().display(),
                     index + 1,
                     line
-                ));
+                );
+                output_bytes += rendered.len() + 1;
+                if output_bytes > FALLBACK_MAX_OUTPUT_BYTES {
+                    truncated = true;
+                    break 'entries;
+                }
+                output.push(rendered);
             }
         }
     }
@@ -414,6 +421,79 @@ fn sort_symbol_lines(lines: &mut [String]) {
     });
 }
 
+/// Output ceiling for the in-process fallback. Unlike the ripgrep path, the
+/// buffer lives in the GUI process, so accumulation must be bounded even when
+/// the caller passes huge `context_lines` / `max_results`.
+const FALLBACK_MAX_OUTPUT_BYTES: usize = 512 * 1024;
+
+/// Build the ripgrep argument vector for grep_search. Kept pure so tests can
+/// pin the `--` flag-parsing barrier: the model-supplied pattern must never
+/// be consumed as a ripgrep option (`--pre=<cmd>` would run a program per
+/// file, and an injected `--iglob` would override the sensitive-file
+/// exclusions because rg's override matcher is last-match-wins).
+#[allow(clippy::too_many_arguments)]
+fn grep_rg_args(
+    pattern: &str,
+    abs_path: &str,
+    context_lines: usize,
+    max_results: usize,
+    case_insensitive: bool,
+    glob_filter: Option<&str>,
+    sensitive_globs: &[String],
+) -> Vec<String> {
+    let mut args = vec![
+        "--line-number".to_string(),
+        "--no-heading".to_string(),
+        "--color=never".to_string(),
+        format!("--context={context_lines}"),
+        format!("--max-count={max_results}"),
+    ];
+    if case_insensitive {
+        args.push("--ignore-case".to_string());
+    }
+    if let Some(glob) = glob_filter {
+        args.push("--glob".to_string());
+        args.push(glob.to_string());
+    }
+    for glob in sensitive_globs {
+        args.push("--iglob".to_string());
+        args.push(glob.clone());
+    }
+    args.push("--".to_string());
+    args.push(pattern.to_string());
+    args.push(abs_path.to_string());
+    args
+}
+
+/// Build the ripgrep argument vector for symbol_search. Same `--` barrier as
+/// [`grep_rg_args`]; the combined pattern is code-built today, but the
+/// barrier keeps that assumption out of the safety argument.
+fn symbol_rg_args(
+    combined_pattern: &str,
+    abs_path: &str,
+    glob_filter: Option<&str>,
+    sensitive_globs: &[String],
+) -> Vec<String> {
+    let mut args = vec![
+        "--line-number".to_string(),
+        "--no-heading".to_string(),
+        "--color=never".to_string(),
+        "--max-count=50".to_string(),
+    ];
+    if let Some(glob) = glob_filter {
+        args.push("--glob".to_string());
+        args.push(glob.to_string());
+    }
+    for glob in sensitive_globs {
+        args.push("--iglob".to_string());
+        args.push(glob.clone());
+    }
+    args.push("--".to_string());
+    args.push(combined_pattern.to_string());
+    args.push(abs_path.to_string());
+    args
+}
+
 pub(super) fn exec_symbol_search(
     query: &str,
     kind: &str,
@@ -422,7 +502,7 @@ pub(super) fn exec_symbol_search(
     cwd: &str,
     cancel: &Arc<AtomicBool>,
 ) -> Result<String> {
-    let resolved_path = super::paths::resolve(search_path, cwd)?;
+    let resolved_path = super::paths::resolve_checked_path(search_path, cwd)?;
     let sensitive_globs = super::paths::sensitive_search_globs(&resolved_path);
     let abs_path = resolved_path.to_string_lossy().into_owned();
 
@@ -502,17 +582,12 @@ pub(super) fn exec_symbol_search(
     }
 
     let mut cmd = std::process::Command::new("rg");
-    cmd.arg("--line-number")
-        .arg("--no-heading")
-        .arg("--color=never")
-        .arg("--max-count=50");
-    if let Some(g) = glob_filter {
-        cmd.arg("--glob").arg(g);
-    }
-    for glob in &sensitive_globs {
-        cmd.arg("--iglob").arg(glob);
-    }
-    cmd.arg(&combined).arg(&abs_path);
+    cmd.args(symbol_rg_args(
+        &combined,
+        &abs_path,
+        glob_filter,
+        &sensitive_globs,
+    ));
 
     cmd.stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -609,7 +684,7 @@ pub(super) fn exec_grep_search(
             .status()
             .is_ok()
     });
-    let resolved_path = super::paths::resolve(search_path, cwd)?;
+    let resolved_path = super::paths::resolve_checked_path(search_path, cwd)?;
     let sensitive_globs = super::paths::sensitive_search_globs(&resolved_path);
     let abs_path = resolved_path.to_string_lossy().into_owned();
 
@@ -647,21 +722,15 @@ pub(super) fn exec_grep_search(
     }
 
     let mut cmd = std::process::Command::new("rg");
-    cmd.arg("--line-number")
-        .arg("--no-heading")
-        .arg("--color=never")
-        .arg(format!("--context={}", context_lines))
-        .arg(format!("--max-count={}", max_results));
-    if case_insensitive {
-        cmd.arg("--ignore-case");
-    }
-    if let Some(g) = glob_filter {
-        cmd.arg("--glob").arg(g);
-    }
-    for glob in &sensitive_globs {
-        cmd.arg("--iglob").arg(glob);
-    }
-    cmd.arg(pattern).arg(&abs_path);
+    cmd.args(grep_rg_args(
+        pattern,
+        &abs_path,
+        context_lines,
+        max_results,
+        case_insensitive,
+        glob_filter,
+        &sensitive_globs,
+    ));
 
     cmd.stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -797,6 +866,59 @@ pub(super) fn exec_grep_search(
 #[cfg(test)]
 mod fallback_tests {
     use super::*;
+
+    #[test]
+    fn grep_rg_args_keeps_flag_barrier_before_pattern() {
+        let globs = vec!["!**/.env".to_string()];
+        let args = grep_rg_args(
+            "--pre=/bin/sh",
+            "/tmp/probe",
+            2,
+            100,
+            false,
+            Some("*.rs"),
+            &globs,
+        );
+        let barrier = args.iter().position(|a| a == "--").expect("has `--`");
+        assert_eq!(args[barrier + 1], "--pre=/bin/sh");
+        assert_eq!(args[barrier + 2], "/tmp/probe");
+        assert_eq!(barrier + 3, args.len(), "pattern and path are last");
+        assert!(!args[..barrier].iter().any(|a| a == "--pre=/bin/sh"));
+    }
+
+    #[test]
+    fn symbol_rg_args_keeps_flag_barrier_before_pattern() {
+        let args = symbol_rg_args("--pre=/bin/sh", "/tmp/probe", None, &[]);
+        let barrier = args.iter().position(|a| a == "--").expect("has `--`");
+        assert_eq!(args[barrier + 1], "--pre=/bin/sh");
+        assert_eq!(args[barrier + 2], "/tmp/probe");
+        assert_eq!(barrier + 3, args.len(), "pattern and path are last");
+    }
+
+    #[test]
+    fn fallback_search_bounds_total_output_bytes() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let line = format!("needle {}\n", "x".repeat(120));
+        std::fs::write(root.path().join("big.txt"), line.repeat(20_000)).unwrap();
+        let cancel = AtomicBool::new(false);
+        let out = fallback_regex_search(
+            "needle",
+            root.path(),
+            None,
+            100,
+            false,
+            usize::MAX,
+            &cancel,
+            "grep_search",
+        )
+        .expect("search ok");
+        assert!(out.truncated, "huge output must report truncation");
+        let total: usize = out.lines.iter().map(|l| l.len() + 1).sum();
+        assert!(
+            total <= FALLBACK_MAX_OUTPUT_BYTES,
+            "accumulated output {total} exceeds budget"
+        );
+    }
 
     #[test]
     fn in_process_search_preserves_recursive_secret_exclusions() {

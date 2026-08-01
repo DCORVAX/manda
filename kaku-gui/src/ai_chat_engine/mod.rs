@@ -335,7 +335,11 @@ pub(crate) const MAX_AGENT_ROUNDS: usize = 25;
 const SOFT_ROUND_WARN: usize = MAX_AGENT_ROUNDS - 5;
 const MAX_HISTORY_BYTES: usize = 120_000;
 const MAX_RESPONSES_STATE_BYTES: usize = MAX_HISTORY_BYTES;
-const MAX_STREAMED_OUTPUT_BYTES: usize = MAX_HISTORY_BYTES;
+/// Ceiling for text + reasoning streamed to the UI across one user turn
+/// (all tool rounds). Verbose reasoning models burn tens of KB per round,
+/// so this is deliberately larger than the history budget; hitting it
+/// truncates the turn instead of erroring it.
+const MAX_STREAMED_OUTPUT_BYTES: usize = 4 * MAX_HISTORY_BYTES;
 
 fn reserve_streamed_output(total: &std::cell::Cell<usize>, chunk_bytes: usize) -> bool {
     let Some(next) = total.get().checked_add(chunk_bytes) else {
@@ -394,7 +398,7 @@ pub(crate) fn run_agent(
 
     let mut summarize_cooldown: usize = 0;
     let responses_mode = client.config().effective_api_mode() == ApiMode::Responses;
-    let mut responses_state = Vec::new();
+    let mut responses_state = ResponsesTranscript::default();
     // Bound the entire user turn before chunks reach the overlay, where each
     // grapheme is queued separately for paced rendering.
     let streamed_output_bytes = std::cell::Cell::new(0usize);
@@ -486,34 +490,34 @@ pub(crate) fn run_agent(
             }
         };
         if streamed_output_exceeded.get() {
-            let _ = tx.send(StreamMsg::Err(format!(
-                "model output exceeded {} bytes",
+            // Budget hit: end the turn as a visible truncation instead of an
+            // error, keeping everything streamed so far. Tool work already
+            // done this turn stays recorded in the conversation.
+            if !sent_start.get() {
+                let _ = tx.send(StreamMsg::AssistantStart);
+            }
+            let _ = tx.send(StreamMsg::Token(format!(
+                "\n[output truncated: turn exceeded {} streamed bytes]",
                 MAX_STREAMED_OUTPUT_BYTES
             )));
+            let _ = tx.send(StreamMsg::Done);
             return;
         }
 
         let response_items = step.response_items;
         if responses_mode {
-            responses_state.extend(response_items.iter().cloned());
-            if let Err(error) = compact_and_validate_responses_state(&mut responses_state, round) {
-                let _ = tx.send(StreamMsg::Err(error.to_string()));
-                return;
-            }
+            responses_state.absorb(&response_items, round);
         }
 
         if step.tool_calls.is_empty() {
-            if !responses_state.is_empty() {
-                let _ = tx.send(StreamMsg::ResponsesState(responses_state));
+            if let Some(items) = responses_state.take_for_persistence() {
+                let _ = tx.send(StreamMsg::ResponsesState(items));
             }
             let _ = tx.send(StreamMsg::Done);
             return;
         }
 
-        if let Err(error) = validate_requested_tools(&step.tool_calls, &tools) {
-            let _ = tx.send(StreamMsg::Err(error.to_string()));
-            return;
-        }
+        let allowed_tools = advertised_tool_names(&tools);
 
         let tool_calls = step.tool_calls;
 
@@ -547,12 +551,35 @@ pub(crate) fn run_agent(
                 break;
             }
 
+            // Never execute a tool that was not advertised this round, but
+            // answer with an error tool_result instead of killing the turn:
+            // models imitate replayed history (e.g. a third-party
+            // `web_search` call recorded before native search was enabled)
+            // and self-correct on the error.
+            if !allowed_tools.contains(tc.name.as_str()) {
+                let err = format!(
+                    "tool '{}' is not available; use only the currently advertised tools",
+                    tc.name
+                );
+                let _ = tx.send(StreamMsg::ToolFailed { error: err.clone() });
+                record_tool_result(
+                    &mut messages,
+                    &mut responses_state,
+                    responses_mode,
+                    round,
+                    tc.id.clone(),
+                    tc.name.clone(),
+                    format!("Error: {}", err),
+                );
+                continue;
+            }
+
             let args: serde_json::Value = match serde_json::from_str(&tc.arguments) {
                 Ok(v) => v,
                 Err(e) => {
                     let err = format!("tool '{}' arguments were not valid JSON: {}", tc.name, e);
                     let _ = tx.send(StreamMsg::ToolFailed { error: err.clone() });
-                    if let Err(error) = record_tool_result(
+                    record_tool_result(
                         &mut messages,
                         &mut responses_state,
                         responses_mode,
@@ -560,10 +587,7 @@ pub(crate) fn run_agent(
                         tc.id.clone(),
                         tc.name.clone(),
                         format!("Error: {}", err),
-                    ) {
-                        let _ = tx.send(StreamMsg::Err(error.to_string()));
-                        return;
-                    }
+                    );
                     continue;
                 }
             };
@@ -596,7 +620,7 @@ pub(crate) fn run_agent(
                     let _ = tx.send(StreamMsg::ToolFailed {
                         error: "Operation rejected by user.".into(),
                     });
-                    if let Err(error) = record_tool_result(
+                    record_tool_result(
                         &mut messages,
                         &mut responses_state,
                         responses_mode,
@@ -604,10 +628,7 @@ pub(crate) fn run_agent(
                         tc.id.clone(),
                         tc.name.clone(),
                         "Error: user rejected the operation.".to_string(),
-                    ) {
-                        let _ = tx.send(StreamMsg::Err(error.to_string()));
-                        return;
-                    }
+                    );
                     continue;
                 }
             }
@@ -623,7 +644,7 @@ pub(crate) fn run_agent(
                     let _ = tx.send(StreamMsg::ToolDone {
                         result_preview: preview,
                     });
-                    if let Err(error) = record_tool_result(
+                    record_tool_result(
                         &mut messages,
                         &mut responses_state,
                         responses_mode,
@@ -631,17 +652,14 @@ pub(crate) fn run_agent(
                         tc.id.clone(),
                         tc.name.clone(),
                         result,
-                    ) {
-                        let _ = tx.send(StreamMsg::Err(error.to_string()));
-                        return;
-                    }
+                    );
                 }
                 Err(e) => {
                     let err_str = e.to_string();
                     let _ = tx.send(StreamMsg::ToolFailed {
                         error: err_str.clone(),
                     });
-                    if let Err(error) = record_tool_result(
+                    record_tool_result(
                         &mut messages,
                         &mut responses_state,
                         responses_mode,
@@ -649,10 +667,7 @@ pub(crate) fn run_agent(
                         tc.id.clone(),
                         tc.name.clone(),
                         format!("Error: {}", err_str),
-                    ) {
-                        let _ = tx.send(StreamMsg::Err(error.to_string()));
-                        return;
-                    }
+                    );
                 }
             }
         }
@@ -666,46 +681,86 @@ pub(crate) fn run_agent(
     let _ = tx.send(StreamMsg::Done);
 }
 
-fn validate_requested_tools(
-    tool_calls: &[crate::ai_client::ToolCall],
+/// Names the model may call this round. Anything outside this set is answered
+/// with an error tool_result (never executed, never a turn-kill).
+fn advertised_tool_names(
     advertised_tools: &[serde_json::Value],
-) -> anyhow::Result<()> {
-    let allowed = advertised_tools
+) -> std::collections::HashSet<String> {
+    advertised_tools
         .iter()
         .filter_map(|tool| tool["function"]["name"].as_str())
-        .collect::<std::collections::HashSet<_>>();
-    if let Some(call) = tool_calls
-        .iter()
-        .find(|call| !allowed.contains(call.name.as_str()))
-    {
-        anyhow::bail!("model requested unadvertised tool '{}'", call.name);
+        .map(str::to_string)
+        .collect()
+}
+
+/// Raw Responses-API items accumulated across one user turn for persistence.
+///
+/// When the compacted transcript still exceeds its byte budget, the whole
+/// transcript is dropped for this turn (the next turn replays plain text,
+/// exactly like the mid-turn error paths) instead of killing a turn whose
+/// tool work already happened. Once dropped it stays dropped: a partial
+/// transcript would replay protocol-inconsistent state.
+#[derive(Default)]
+struct ResponsesTranscript {
+    items: Vec<serde_json::Value>,
+    dropped: bool,
+}
+
+impl ResponsesTranscript {
+    fn absorb(&mut self, new_items: &[serde_json::Value], round: usize) {
+        if self.dropped {
+            return;
+        }
+        self.items.extend(new_items.iter().cloned());
+        self.compact_or_drop(round);
     }
-    Ok(())
+
+    fn push_tool_output(&mut self, call_id: &str, output: &str, round: usize) {
+        if self.dropped {
+            return;
+        }
+        self.items.push(serde_json::json!({
+            "type": "function_call_output",
+            "call_id": call_id,
+            "output": output,
+        }));
+        self.compact_or_drop(round);
+    }
+
+    fn compact_or_drop(&mut self, round: usize) {
+        if let Err(error) = compact_and_validate_responses_state(&mut self.items, round) {
+            log::warn!("dropping responses transcript for this turn: {error}");
+            self.items.clear();
+            self.dropped = true;
+        }
+    }
+
+    fn take_for_persistence(self) -> Option<Vec<serde_json::Value>> {
+        if self.dropped || self.items.is_empty() {
+            None
+        } else {
+            Some(self.items)
+        }
+    }
 }
 
 fn record_tool_result(
     messages: &mut Vec<ApiMessage>,
-    responses_state: &mut Vec<serde_json::Value>,
+    responses_state: &mut ResponsesTranscript,
     responses_mode: bool,
     round: usize,
     call_id: String,
     name: String,
     content: String,
-) -> anyhow::Result<()> {
+) {
     messages.push(ApiMessage::tool_result(
         call_id.clone(),
         name,
         content.clone(),
     ));
     if responses_mode {
-        responses_state.push(serde_json::json!({
-            "type": "function_call_output",
-            "call_id": call_id,
-            "output": content,
-        }));
-        compact_and_validate_responses_state(responses_state, round)?;
+        responses_state.push_tool_output(&call_id, &content, round);
     }
-    Ok(())
 }
 
 // ── Summary generation ────────────────────────────────────────────────────────
@@ -1065,7 +1120,7 @@ mod tests {
     use crate::ai_client::{ApiMode, AssistantConfig, ToolCall};
 
     #[test]
-    fn rejects_model_tool_calls_that_were_not_advertised() {
+    fn unadvertised_tool_calls_are_outside_the_allowed_set() {
         let calls = vec![ToolCall {
             id: "call-1".to_string(),
             name: "fs_delete".to_string(),
@@ -1076,8 +1131,10 @@ mod tests {
             "function": { "name": "pwd" }
         })];
 
-        assert!(validate_requested_tools(&calls, &advertised).is_err());
-        assert!(validate_requested_tools(&calls, &[]).is_err());
+        let allowed = advertised_tool_names(&advertised);
+        assert!(allowed.contains("pwd"));
+        assert!(!allowed.contains(calls[0].name.as_str()));
+        assert!(advertised_tool_names(&[]).is_empty());
     }
 
     #[test]

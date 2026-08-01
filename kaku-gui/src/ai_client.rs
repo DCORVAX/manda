@@ -26,7 +26,11 @@ const MAX_RESPONSE_BODY_BYTES: usize = 8 * 1024 * 1024;
 const MAX_MODELS_BODY_BYTES: usize = 1024 * 1024;
 const MAX_RESPONSE_SSE_LINE_BYTES: usize = 1024 * 1024;
 const MAX_RESPONSE_STREAM_BYTES: usize = 16 * 1024 * 1024;
-const MAX_RESPONSE_STREAM_EVENTS: usize = 16_384;
+// Guards against runaway/looping streams, not against legitimate length:
+// reasoning-heavy providers (DeepSeek/GLM) emit one small delta per SSE
+// event, so a single long response can pass 16K events. Memory stays bounded
+// by MAX_RESPONSE_STREAM_BYTES either way.
+const MAX_RESPONSE_STREAM_EVENTS: usize = 65_536;
 const MAX_RESPONSE_TOOL_CALLS: usize = 32;
 const MAX_RESPONSE_TOOL_ARGUMENT_BYTES: usize = 64 * 1024;
 const MAX_RESPONSE_OUTPUT_ITEMS: usize = 128;
@@ -42,13 +46,17 @@ pub enum ApiMode {
 }
 
 impl ApiMode {
-    fn from_config(value: Option<&str>) -> Result<Self> {
+    fn from_config(value: Option<&str>) -> Self {
         match value.unwrap_or("chat_completions") {
-            "chat_completions" => Ok(Self::ChatCompletions),
-            "responses" => Ok(Self::Responses),
-            other => anyhow::bail!(
-                "Invalid api_mode `{other}` in assistant.toml; expected `chat_completions` or `responses`"
-            ),
+            "chat_completions" => Self::ChatCompletions,
+            "responses" => Self::Responses,
+            other => {
+                // Same tolerant policy as the `kaku ai` TUI, which coerces
+                // unknown values to chat_completions: a typo in assistant.toml
+                // must degrade to the default, not disable AI entirely.
+                log::warn!("unknown api_mode `{other}` in assistant.toml; using chat_completions");
+                Self::ChatCompletions
+            }
         }
     }
 
@@ -124,7 +132,7 @@ impl AssistantConfig {
             .unwrap_or("api_key")
             .to_string();
 
-        let api_mode = ApiMode::from_config(parsed.get("api_mode").and_then(|v| v.as_str()))?;
+        let api_mode = ApiMode::from_config(parsed.get("api_mode").and_then(|v| v.as_str()));
 
         // The Gemini provider was removed in V0.10.0. Surface a clear migration
         // path instead of letting the OpenAI-compatible code path silently
@@ -512,6 +520,25 @@ fn build_client_with_proxy_redirects(
             .build()
             .expect("default reqwest client configuration must be valid")
     })
+}
+
+/// Detected system proxy with the private-range bypass applied, for callers
+/// that build their own client (e.g. the pinned `http_request` client, which
+/// may only route https through a proxy because TLS still authenticates the
+/// origin through the CONNECT tunnel).
+pub(crate) fn system_proxy_with_private_bypass() -> Option<reqwest::Proxy> {
+    let proxy_url = config::proxy::detect_system_proxy()?;
+    match reqwest::Proxy::all(&proxy_url) {
+        Ok(proxy) => Some(proxy.no_proxy(build_no_proxy())),
+        Err(error) => {
+            log::warn!(
+                "Failed to apply detected system proxy {}: {}; continuing without proxy",
+                proxy_url,
+                error
+            );
+            None
+        }
+    }
 }
 
 /// Hosts and ranges that must bypass any system proxy and connect directly.
@@ -929,8 +956,12 @@ impl AiClient {
         if !responses_tools.is_empty() {
             body["tools"] = Value::Array(responses_tools);
             body["tool_choice"] = Value::String("auto".to_string());
-            body["include"] = json!(["reasoning.encrypted_content"]);
         }
+        // Always ask for encrypted reasoning payloads, not only when tools
+        // are enabled: reasoning models emit reasoning items regardless, the
+        // stubs are persisted for replay, and under `store: false` a replayed
+        // reasoning item without its encrypted content is rejected.
+        body["include"] = json!(["reasoning.encrypted_content"]);
 
         let req = self
             .client
@@ -984,8 +1015,12 @@ impl AiClient {
         if !responses_tools.is_empty() {
             body["tools"] = Value::Array(responses_tools);
             body["tool_choice"] = Value::String("auto".to_string());
-            body["include"] = json!(["reasoning.encrypted_content"]);
         }
+        // Always ask for encrypted reasoning payloads, not only when tools
+        // are enabled: reasoning models emit reasoning items regardless, the
+        // stubs are persisted for replay, and under `store: false` a replayed
+        // reasoning item without its encrypted content is rejected.
+        body["include"] = json!(["reasoning.encrypted_content"]);
 
         let build = |auth: &ai_auth::CodexAuth| -> reqwest::blocking::RequestBuilder {
             let mut req = self
@@ -1035,6 +1070,14 @@ fn translate_responses_messages(messages: &[ApiMessage]) -> (String, Vec<serde_j
     let mut input = Vec::new();
     for ApiMessage(message) in messages {
         if let Some(item) = message.get("kaku_responses_output_item") {
+            // A reasoning stub without its encrypted payload cannot be
+            // replayed under `store: false` (providers reject it). Skip the
+            // stub, keep the rest of the transcript.
+            if item["type"].as_str() == Some("reasoning")
+                && item["encrypted_content"].as_str().is_none()
+            {
+                continue;
+            }
             input.push(item.clone());
             continue;
         }
@@ -1312,6 +1355,7 @@ fn parse_responses_sse<R: BufRead>(
     let mut streamed_text = String::new();
     let mut completed_output_text = String::new();
     let mut response_items = Vec::new();
+    let mut indexless_item_positions = std::collections::HashMap::new();
     let mut completed = false;
     let mut stream_bytes = 0usize;
     let mut stream_events = 0usize;
@@ -1359,7 +1403,12 @@ fn parse_responses_sse<R: BufRead>(
             }
             Some("response.output_item.added") | Some("response.output_item.done") => {
                 let item = &event["item"];
-                upsert_response_item(&mut response_items, item)?;
+                upsert_response_item(
+                    &mut response_items,
+                    item,
+                    event["output_index"].as_u64(),
+                    &mut indexless_item_positions,
+                )?;
                 if item["type"] == "function_call" {
                     upsert_response_call(&mut calls, item)?;
                 } else if item["type"] == "message" {
@@ -1600,6 +1649,8 @@ fn upsert_response_call(
 fn upsert_response_item(
     items: &mut Vec<serde_json::Value>,
     item: &serde_json::Value,
+    output_index: Option<u64>,
+    indexless_positions: &mut std::collections::HashMap<u64, usize>,
 ) -> Result<()> {
     let id = item["id"]
         .as_str()
@@ -1612,6 +1663,19 @@ fn upsert_response_item(
             *existing = item.clone();
             return Ok(());
         }
+    } else if let Some(index) = output_index {
+        // Custom `/responses` endpoints may omit item ids. `.added` and
+        // `.done` still fire for the same `output_index`, so key on it to
+        // replace rather than duplicate (positions are stable: parsing only
+        // appends or replaces in place).
+        if let Some(&position) = indexless_positions.get(&index) {
+            items[position] = item.clone();
+            return Ok(());
+        }
+        validate_response_item_count(items.len() + 1, "Responses API")?;
+        indexless_positions.insert(index, items.len());
+        items.push(item.clone());
+        return Ok(());
     }
     validate_response_item_count(items.len() + 1, "Responses API")?;
     items.push(item.clone());
@@ -1767,13 +1831,15 @@ fn collect_response_annotation(
     let Some(url) = annotation["url"].as_str().filter(|url| !url.is_empty()) else {
         return;
     };
-    if citations.iter().any(|(_, existing)| existing == url) {
-        return;
-    }
+    // Truncate before deduplicating so stored (truncated) URLs compare
+    // against the same shape.
     let url = url
         .chars()
         .take(MAX_RESPONSE_CITATION_URL_CHARS)
         .collect::<String>();
+    if citations.iter().any(|(_, existing)| existing == &url) {
+        return;
+    }
     let title = annotation["title"]
         .as_str()
         .filter(|title| !title.is_empty())
@@ -2410,6 +2476,33 @@ mod tests {
         assert_eq!(input[0], reasoning);
         assert_eq!(input[1], function_call);
         assert_eq!(input[2]["type"], "function_call_output");
+    }
+
+    #[test]
+    fn responses_translation_skips_reasoning_stubs_without_encrypted_content() {
+        let stub = serde_json::json!({
+            "type": "reasoning",
+            "id": "rs_1",
+            "summary": []
+        });
+        let message_item = serde_json::json!({
+            "type": "message",
+            "id": "msg_1",
+            "role": "assistant",
+            "content": [{ "type": "output_text", "text": "hi" }]
+        });
+        let messages = vec![
+            ApiMessage::responses_output_item(stub),
+            ApiMessage::responses_output_item(message_item.clone()),
+        ];
+
+        let (_, input) = translate_responses_messages(&messages);
+        assert_eq!(
+            input.len(),
+            1,
+            "content-less reasoning stub must be dropped"
+        );
+        assert_eq!(input[0], message_item);
     }
 
     #[test]
