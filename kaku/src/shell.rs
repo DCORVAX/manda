@@ -85,11 +85,27 @@ pub fn preferred_managed_shell() -> ManagedShell {
 }
 
 pub fn persisted_managed_shell() -> Option<ManagedShell> {
-    read_managed_shell_from_path(&managed_shell_state_path())
+    read_managed_shell_from_path(&managed_shell_state_path()).or_else(|| {
+        default_managed_shell_state_path().and_then(|path| read_managed_shell_from_path(&path))
+    })
 }
 
 pub fn persist_managed_shell(shell: ManagedShell) -> Result<()> {
-    persist_managed_shell_to_path(&managed_shell_state_path(), shell)
+    persist_managed_shell_to_path(&managed_shell_state_path(), shell)?;
+    // A shell-only XDG_CONFIG_HOME is invisible to Finder-launched GUI
+    // processes, which then read ~/.config/kaku instead. Mirror the choice
+    // into that file when it exists so every entry point agrees on the shell.
+    if let Some(default_path) = default_managed_shell_state_path() {
+        if default_path.exists() {
+            if let Err(error) = persist_managed_shell_to_path(&default_path, shell) {
+                log::warn!(
+                    "could not mirror managed shell to {}: {error:#}",
+                    default_path.display()
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 fn managed_shell_state_path() -> PathBuf {
@@ -98,6 +114,16 @@ fn managed_shell_state_path() -> PathBuf {
         .map(Path::to_path_buf)
         .unwrap_or_else(|| config::HOME_DIR.join(".config").join("kaku"))
         .join("state.json")
+}
+
+/// The non-XDG default state location, or None when it already is the
+/// primary path (no XDG override in this environment).
+fn default_managed_shell_state_path() -> Option<PathBuf> {
+    let default = config::HOME_DIR
+        .join(".config")
+        .join("kaku")
+        .join("state.json");
+    (default != managed_shell_state_path()).then_some(default)
 }
 
 fn read_managed_shell_from_path(path: &Path) -> Option<ManagedShell> {

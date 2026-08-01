@@ -618,13 +618,16 @@ struct PersistedWindowPosition {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct PersistedState {
-    #[serde(default)]
+    // Never serialize an absent version as `null`: the bundled kaku.lua
+    // treats a non-numeric config_version as a corrupted state file and
+    // rewrites it with defaults, wiping fields this writer preserved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     config_version: Option<u64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     managed_shell: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     window_geometry: Option<PersistedWindowSize>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     window_position: Option<PersistedWindowPosition>,
     #[serde(default, flatten)]
     extra: BTreeMap<String, serde_json::Value>,

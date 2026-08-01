@@ -44,6 +44,17 @@ mod imp {
 
     pub fn run(update_only: bool, shell: Option<ManagedShell>) -> anyhow::Result<()> {
         let shell = select_shell(update_only, shell)?;
+        if find_shell_executable(shell).is_none() {
+            bail!(
+                "cannot configure {name}: no `{name}` executable found on PATH or in \
+                 standard locations. Install it, or pick the other shell with \
+                 `kaku init --shell <shell>`.",
+                name = shell.name()
+            );
+        }
+        // Record the selection before running setup so a partially failed run
+        // retries against the same shell instead of re-detecting from $SHELL.
+        persist_managed_shell(shell).context("remember selected shell")?;
         ensure_user_config().context("ensure user config exists")?;
 
         install_kaku_wrapper(shell).context("install kaku wrapper")?;
@@ -68,7 +79,6 @@ mod imp {
             .with_context(|| format!("run {}", script.display()))?;
 
         if status.success() {
-            persist_managed_shell(shell).context("remember selected shell")?;
             return Ok(());
         }
 

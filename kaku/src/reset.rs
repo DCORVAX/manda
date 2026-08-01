@@ -281,6 +281,26 @@ mod imp {
             "removed legacy Kaku window geometry marker",
             &mut report,
         )?;
+        // With XDG_CONFIG_HOME set, GUI processes launched outside the shell
+        // may have written state to the default location as well; clean both.
+        if home_kaku_dir() != config_home() {
+            for (name, label) in [
+                (
+                    "state.json",
+                    "removed persisted Kaku state (default location)",
+                ),
+                (
+                    ".kaku_config_version",
+                    "removed legacy Kaku config version marker (default location)",
+                ),
+                (
+                    ".kaku_window_geometry",
+                    "removed legacy Kaku window geometry marker (default location)",
+                ),
+            ] {
+                remove_file_if_exists(home_kaku_dir().join(name), label, &mut report)?;
+            }
+        }
         remove_file_if_exists(
             home_kaku_dir().join("lazygit_state.json"),
             "removed Lazygit hint state",

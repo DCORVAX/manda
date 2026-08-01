@@ -4952,8 +4952,15 @@ wezterm.on('gui-startup', function(cmd)
 
   local user_version = nil
   local managed_shell = nil
+  local persisted_geometry = nil
   local state_file_exists = false
   local sf = io.open(state_file, "r")
+  if not sf and kaku_config_dir ~= kaku_state_dir then
+    -- Pre-XDG releases stored state at ~/.config/kaku regardless of
+    -- XDG_CONFIG_HOME. Fall back so existing users are not re-onboarded;
+    -- the next write_state migrates the data to the XDG location.
+    sf = io.open(kaku_state_dir .. "/state.json", "r")
+  end
   if sf then
     state_file_exists = true
     local raw_state = sf:read("*all")
@@ -4965,6 +4972,9 @@ wezterm.on('gui-startup', function(cmd)
         if state.managed_shell == 'zsh' or state.managed_shell == 'fish' then
           managed_shell = state.managed_shell
         end
+        if type(state.window_geometry) == "table" then
+          persisted_geometry = state.window_geometry
+        end
       end
     end
   end
@@ -4972,8 +4982,9 @@ wezterm.on('gui-startup', function(cmd)
   if not state_file_exists then
     is_first_run = true
   elseif user_version == nil then
-    -- Corrupted or manually edited state file: repair with safe defaults.
-    write_state(current_version, nil, managed_shell)
+    -- Corrupted or manually edited state file: repair with safe defaults,
+    -- keeping any readable geometry instead of discarding it.
+    write_state(current_version, persisted_geometry, managed_shell)
     user_version = current_version
   elseif user_version < current_version then
     needs_update = true

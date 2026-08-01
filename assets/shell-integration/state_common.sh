@@ -168,6 +168,31 @@ persist_config_version() {
 		return
 	fi
 
+	# A state file with a null or missing config_version (e.g. written by the
+	# GUI before any update ran) still carries window_position and future
+	# fields worth keeping. Repair the version key in place instead of
+	# rebuilding the object from the subset this helper knows about.
+	if [[ -f "$STATE_FILE" && ! -f "$LEGACY_GEOMETRY_FILE" ]] &&
+		head -c 1 "$STATE_FILE" | grep -q '{'; then
+		local repair_tmp
+		repair_tmp="${STATE_FILE}.tmp.$$"
+		if grep -Eq '"config_version"[[:space:]]*:[[:space:]]*null' "$STATE_FILE"; then
+			if sed -E "s/(\"config_version\"[[:space:]]*:[[:space:]]*)null/\\1${target_version}/" "$STATE_FILE" >"$repair_tmp"; then
+				mv "$repair_tmp" "$STATE_FILE"
+				printf '%s\n' "$target_version" >"$LEGACY_VERSION_FILE"
+				return
+			fi
+			rm -f "$repair_tmp"
+		elif ! grep -q '"config_version"' "$STATE_FILE"; then
+			if awk -v v="$target_version" 'NR==1 && /^\{/ { print "{"; print "  \"config_version\": " v ","; sub(/^\{/, ""); if (length($0)) print; next } { print }' "$STATE_FILE" >"$repair_tmp"; then
+				mv "$repair_tmp" "$STATE_FILE"
+				printf '%s\n' "$target_version" >"$LEGACY_VERSION_FILE"
+				return
+			fi
+			rm -f "$repair_tmp"
+		fi
+	fi
+
 	local width height geometry_json managed_shell managed_shell_json
 	width=""
 	height=""

@@ -276,7 +276,17 @@ fn build_environment_group(
                 )
             }
             (Some(selected), None) => format!("Selected {} via --shell", selected.name()),
-            (None, Some(value)) if shell_supported => format!("SHELL is {value}"),
+            (None, Some(value)) if shell_supported => {
+                // Diagnosis follows the persisted selection, not $SHELL; say
+                // so when they disagree (e.g. chsh to bash after `kaku init`).
+                match crate::shell::persisted_managed_shell() {
+                    Some(persisted) if !value.ends_with(persisted.name()) => format!(
+                        "Checking selected {} integration (SHELL is {value})",
+                        persisted.name()
+                    ),
+                    _ => format!("SHELL is {value}"),
+                }
+            }
             (None, Some(value)) => format!("SHELL is {value} (zsh and fish are supported)"),
             (None, None) => "SHELL is not set".to_string(),
         },
