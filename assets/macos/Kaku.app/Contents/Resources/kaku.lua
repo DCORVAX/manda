@@ -4902,21 +4902,12 @@ wezterm.on('gui-startup', function(cmd)
     os.execute(string.format("mkdir -p %q", kaku_config_dir))
   end
 
-  local function write_state(version, geometry, managed_shell)
+  local function write_state(version, state)
     ensure_state_dir()
-    local state = {
-      config_version = version,
-    }
-    if managed_shell == 'zsh' or managed_shell == 'fish' then
-      state.managed_shell = managed_shell
-    end
-    if geometry and geometry.width and geometry.height then
-      state.window_geometry = {
-        width = geometry.width,
-        height = geometry.height,
-      }
-    end
-
+    state = type(state) == "table" and state or {}
+    state.config_version = version
+    local geometry = state.window_geometry
+    local managed_shell = state.managed_shell
     local encoded = nil
     local ok, value = pcall(wezterm.json_encode, state)
     if ok and type(value) == "string" and value ~= "" then
@@ -4952,14 +4943,16 @@ wezterm.on('gui-startup', function(cmd)
 
   local user_version = nil
   local managed_shell = nil
-  local persisted_geometry = nil
+  local persisted_state = nil
   local state_file_exists = false
+  local loaded_legacy_state = false
   local sf = io.open(state_file, "r")
   if not sf and kaku_config_dir ~= kaku_state_dir then
     -- Pre-XDG releases stored state at ~/.config/kaku regardless of
     -- XDG_CONFIG_HOME. Fall back so existing users are not re-onboarded;
     -- the next write_state migrates the data to the XDG location.
     sf = io.open(kaku_state_dir .. "/state.json", "r")
+    loaded_legacy_state = sf ~= nil
   end
   if sf then
     state_file_exists = true
@@ -4968,12 +4961,10 @@ wezterm.on('gui-startup', function(cmd)
     if raw_state and raw_state ~= "" then
       local ok, state = pcall(wezterm.json_parse, raw_state)
       if ok and type(state) == "table" then
+        persisted_state = state
         user_version = tonumber(state.config_version)
         if state.managed_shell == 'zsh' or state.managed_shell == 'fish' then
           managed_shell = state.managed_shell
-        end
-        if type(state.window_geometry) == "table" then
-          persisted_geometry = state.window_geometry
         end
       end
     end
@@ -4982,12 +4973,18 @@ wezterm.on('gui-startup', function(cmd)
   if not state_file_exists then
     is_first_run = true
   elseif user_version == nil then
-    -- Corrupted or manually edited state file: repair with safe defaults,
-    -- keeping any readable geometry instead of discarding it.
-    write_state(current_version, persisted_geometry, managed_shell)
-    user_version = current_version
+    -- A GUI window writer or interrupted shell setup may have created useful
+    -- state without completing initialization. Keep it incomplete so first
+    -- run retries instead of manufacturing a successful current version.
+    is_first_run = true
   elseif user_version < current_version then
     needs_update = true
+  end
+
+  if loaded_legacy_state and user_version ~= nil then
+    -- Move the complete legacy object to XDG, including fields introduced by
+    -- newer writers that this bundled config does not know about.
+    write_state(user_version, persisted_state)
   end
 
   if is_first_run then

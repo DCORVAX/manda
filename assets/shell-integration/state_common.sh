@@ -124,7 +124,7 @@ read_config_version() {
 	fi
 
 	local version
-	version="$(sed -nE 's/.*"config_version"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' "$STATE_FILE" | head -n 1)"
+	version="$(/usr/bin/plutil -extract config_version raw -expect integer -o - -- "$STATE_FILE" 2>/dev/null || true)"
 	if [[ "$version" =~ ^[0-9]+$ ]]; then
 		printf '%s\n' "$version"
 	else
@@ -138,10 +138,61 @@ read_managed_shell() {
 	fi
 
 	local managed_shell
-	managed_shell="$(sed -nE 's/.*"managed_shell"[[:space:]]*:[[:space:]]*"(zsh|fish)".*/\1/p' "$STATE_FILE" | head -n 1)"
+	managed_shell="$(/usr/bin/plutil -extract managed_shell raw -expect string -o - -- "$STATE_FILE" 2>/dev/null || true)"
 	case "$managed_shell" in
 		zsh|fish) printf '%s\n' "$managed_shell" ;;
 	esac
+}
+
+mirror_completed_state_to_default() {
+	local target_version="$1"
+	local managed_shell="${2:-}"
+	local default_config_dir="${HOME:-}/.config/kaku"
+	local default_state_file="$default_config_dir/state.json"
+
+	if [[ -z "${HOME:-}" || "$CONFIG_DIR" == "$default_config_dir" ]]; then
+		return
+	fi
+
+	mkdir -p "$default_config_dir"
+	local mirror_tmp
+	mirror_tmp="${default_state_file}.tmp.$$"
+	if [[ -f "$default_state_file" ]] &&
+		/usr/bin/plutil -convert json -o "$mirror_tmp" -- "$default_state_file" 2>/dev/null; then
+		:
+	else
+		printf '{"config_version":%s}\n' "$target_version" >"$mirror_tmp"
+	fi
+
+	if ! /usr/bin/plutil -replace config_version -integer "$target_version" "$mirror_tmp" 2>/dev/null; then
+		if ! /usr/bin/plutil -insert config_version -integer "$target_version" "$mirror_tmp" 2>/dev/null; then
+			if [[ "$(tr -d '[:space:]' <"$mirror_tmp")" == "{}" ]]; then
+				printf '{"config_version":%s}\n' "$target_version" >"$mirror_tmp"
+			else
+				rm -f "$mirror_tmp"
+				return 1
+			fi
+		fi
+	fi
+	if [[ "$managed_shell" == "zsh" || "$managed_shell" == "fish" ]]; then
+		if ! /usr/bin/plutil -replace managed_shell -string "$managed_shell" "$mirror_tmp" 2>/dev/null; then
+			/usr/bin/plutil -insert managed_shell -string "$managed_shell" "$mirror_tmp" 2>/dev/null || {
+				rm -f "$mirror_tmp"
+				return 1
+			}
+		fi
+	fi
+	/usr/bin/plutil -convert json -r "$mirror_tmp" >/dev/null
+	mv "$mirror_tmp" "$default_state_file"
+}
+
+record_config_version_success() {
+	local target_version="$1"
+	printf '%s\n' "$target_version" >"$LEGACY_VERSION_FILE"
+	if ! mirror_completed_state_to_default "$target_version" "$(read_managed_shell || true)"; then
+		printf 'warning: could not mirror completed Kaku state to the default config path\n' >&2
+	fi
+	return 0
 }
 
 persist_config_version() {
@@ -152,51 +203,30 @@ persist_config_version() {
 		return 1
 	fi
 
-	# Normal updates only change config_version. Preserve managed_shell,
-	# window_position, and any future state fields byte-for-byte instead of
-	# rebuilding the object from the subset this shell helper knows about.
-	if [[ -f "$STATE_FILE" && ! -f "$LEGACY_GEOMETRY_FILE" ]] &&
-		grep -Eq '"config_version"[[:space:]]*:[[:space:]]*[0-9]+' "$STATE_FILE"; then
+	# Treat state as structured JSON. Text regexes can accidentally update a
+	# nested config_version or discard fields when whitespace precedes `{`.
+	# plutil ships with macOS and preserves every unknown object member while
+	# replacing or inserting the top-level version.
+	if [[ -f "$STATE_FILE" && ! -f "$LEGACY_GEOMETRY_FILE" ]]; then
 		local state_tmp
 		state_tmp="${STATE_FILE}.tmp.$$"
-		if ! sed -E "s/(\"config_version\"[[:space:]]*:[[:space:]]*)[0-9]+/\\1${target_version}/" "$STATE_FILE" >"$state_tmp"; then
-			rm -f "$state_tmp"
-			return 1
-		fi
-		mv "$state_tmp" "$STATE_FILE"
-		printf '%s\n' "$target_version" >"$LEGACY_VERSION_FILE"
-		return
-	fi
-
-	# A state file with a null or missing config_version (e.g. written by the
-	# GUI before any update ran) still carries window_position and future
-	# fields worth keeping. Repair the version key in place instead of
-	# rebuilding the object from the subset this helper knows about.
-	if [[ -f "$STATE_FILE" && ! -f "$LEGACY_GEOMETRY_FILE" ]] &&
-		head -c 1 "$STATE_FILE" | grep -q '{'; then
-		local repair_tmp
-		repair_tmp="${STATE_FILE}.tmp.$$"
-		if grep -Eq '"config_version"[[:space:]]*:[[:space:]]*null' "$STATE_FILE"; then
-			if sed -E "s/(\"config_version\"[[:space:]]*:[[:space:]]*)null/\\1${target_version}/" "$STATE_FILE" >"$repair_tmp"; then
-				mv "$repair_tmp" "$STATE_FILE"
-				printf '%s\n' "$target_version" >"$LEGACY_VERSION_FILE"
-				return
+		if /usr/bin/plutil -convert json -o "$state_tmp" -- "$STATE_FILE" 2>/dev/null; then
+			if ! /usr/bin/plutil -replace config_version -integer "$target_version" "$state_tmp" 2>/dev/null; then
+				if ! /usr/bin/plutil -insert config_version -integer "$target_version" "$state_tmp" 2>/dev/null; then
+					if [[ "$(tr -d '[:space:]' <"$state_tmp")" == "{}" ]]; then
+						printf '{"config_version":%s}\n' "$target_version" >"$state_tmp"
+					else
+						rm -f "$state_tmp"
+						return 1
+					fi
+				fi
 			fi
-			rm -f "$repair_tmp"
-		elif ! grep -q '"' "$STATE_FILE"; then
-			# Empty object ({} or { }): nothing to preserve, and inserting a
-			# key with a trailing comma would produce invalid JSON.
-			printf '{\n  "config_version": %s\n}\n' "$target_version" >"$STATE_FILE"
-			printf '%s\n' "$target_version" >"$LEGACY_VERSION_FILE"
+			/usr/bin/plutil -convert json -r "$state_tmp" >/dev/null
+			mv "$state_tmp" "$STATE_FILE"
+			record_config_version_success "$target_version"
 			return
-		elif ! grep -q '"config_version"' "$STATE_FILE"; then
-			if awk -v v="$target_version" 'NR==1 && /^\{/ { print "{"; print "  \"config_version\": " v ","; sub(/^\{/, ""); if (length($0)) print; next } { print }' "$STATE_FILE" >"$repair_tmp"; then
-				mv "$repair_tmp" "$STATE_FILE"
-				printf '%s\n' "$target_version" >"$LEGACY_VERSION_FILE"
-				return
-			fi
-			rm -f "$repair_tmp"
 		fi
+		rm -f "$state_tmp"
 	fi
 
 	local width height geometry_json managed_shell managed_shell_json
@@ -236,7 +266,7 @@ persist_config_version() {
 
 	# Keep a legacy version marker for users still loading older bundled kaku.lua.
 	# This avoids repeated first-run onboarding after upgrades.
-	printf '%s\n' "$target_version" >"$LEGACY_VERSION_FILE"
+	record_config_version_success "$target_version"
 	rm -f "$LEGACY_GEOMETRY_FILE"
 }
 

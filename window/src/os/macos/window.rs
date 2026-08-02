@@ -618,9 +618,9 @@ struct PersistedWindowPosition {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct PersistedState {
-    // Never serialize an absent version as `null`: the bundled kaku.lua
-    // treats a non-numeric config_version as a corrupted state file and
-    // rewrites it with defaults, wiping fields this writer preserved.
+    // Never serialize an absent version as `null`. A missing version marks an
+    // incomplete initialization that bundled kaku.lua will retry while
+    // preserving the window fields written here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     config_version: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

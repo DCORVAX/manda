@@ -59,7 +59,7 @@ read_persisted_managed_shell() {
   if [[ ! -f "$state_file" ]]; then
     return
   fi
-  managed_shell="$(sed -nE 's/.*"managed_shell"[[:space:]]*:[[:space:]]*"(zsh|fish)".*/\1/p' "$state_file" | head -n 1)"
+  managed_shell="$(/usr/bin/plutil -extract managed_shell raw -expect string -o - -- "$state_file" 2>/dev/null || true)"
   case "$managed_shell" in
     zsh|fish) printf '%s\n' "$managed_shell" ;;
   esac

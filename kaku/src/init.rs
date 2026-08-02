@@ -38,7 +38,8 @@ mod imp {
 mod imp {
     use super::*;
     use crate::shell::{
-        find_shell_executable, persist_managed_shell, preferred_managed_shell, ManagedShell,
+        find_shell_executable, persist_initialized_state, persist_managed_shell,
+        preferred_managed_shell, ManagedShell,
     };
     use std::os::unix::fs::PermissionsExt;
 
@@ -79,6 +80,9 @@ mod imp {
             .with_context(|| format!("run {}", script.display()))?;
 
         if status.success() {
+            let config_version = read_setup_config_version(&script)?;
+            persist_initialized_state(shell, config_version)
+                .context("record completed shell initialization")?;
             return Ok(());
         }
 
@@ -409,6 +413,18 @@ exit 127
         candidates.into_iter().find(|p| p.exists())
     }
 
+    fn read_setup_config_version(setup_script: &Path) -> anyhow::Result<u64> {
+        let version_file = setup_script
+            .parent()
+            .context("setup script has no resource directory")?
+            .join("config_version.txt");
+        let raw = fs::read_to_string(&version_file)
+            .with_context(|| format!("read {}", version_file.display()))?;
+        raw.trim()
+            .parse::<u64>()
+            .with_context(|| format!("parse bundled config version in {}", version_file.display()))
+    }
+
     fn ensure_user_config() -> anyhow::Result<()> {
         config::ensure_user_config_exists().context("ensure user config exists")?;
         Ok(())
@@ -433,6 +449,16 @@ exit 127
                 Some(ManagedShell::Fish)
             );
             assert_eq!(parse_shell_selection("bash", ManagedShell::Zsh), None);
+        }
+
+        #[test]
+        fn setup_version_comes_from_the_setup_resource_directory() {
+            let root = tempfile::tempdir().unwrap();
+            let script = root.path().join("setup_zsh.sh");
+            fs::write(&script, "#!/bin/bash\n").unwrap();
+            fs::write(root.path().join("config_version.txt"), "31\n").unwrap();
+
+            assert_eq!(read_setup_config_version(&script).unwrap(), 31);
         }
     }
 }

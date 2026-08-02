@@ -91,15 +91,20 @@ pub fn persisted_managed_shell() -> Option<ManagedShell> {
 }
 
 pub fn persist_managed_shell(shell: ManagedShell) -> Result<()> {
-    persist_managed_shell_to_path(&managed_shell_state_path(), shell)?;
-    // A shell-only XDG_CONFIG_HOME is invisible to Finder-launched GUI
-    // processes, which then read ~/.config/kaku instead. Always mirror the
-    // choice there (creating the file on fresh installs) so every entry
-    // point agrees on the shell and first-run does not repeat.
+    persist_managed_shell_to_path(&managed_shell_state_path(), shell)
+}
+
+/// Mark shell initialization complete and mirror that completed state to the
+/// default config path used by Finder-launched processes. The mirror happens
+/// only after setup succeeds so a partial XDG initialization cannot suppress
+/// first-run recovery in a GUI process that does not inherit XDG_CONFIG_HOME.
+pub fn persist_initialized_state(shell: ManagedShell, config_version: u64) -> Result<()> {
+    persist_initialized_state_to_path(&managed_shell_state_path(), shell, config_version)?;
     if let Some(default_path) = default_managed_shell_state_path() {
-        if let Err(error) = persist_managed_shell_to_path(&default_path, shell) {
+        if let Err(error) = persist_initialized_state_to_path(&default_path, shell, config_version)
+        {
             log::warn!(
-                "could not mirror managed shell to {}: {error:#}",
+                "could not mirror initialized shell state to {}: {error:#}",
                 default_path.display()
             );
         }
@@ -132,6 +137,22 @@ fn read_managed_shell_from_path(path: &Path) -> Option<ManagedShell> {
 }
 
 fn persist_managed_shell_to_path(path: &Path, shell: ManagedShell) -> Result<()> {
+    update_shell_state_to_path(path, shell, None)
+}
+
+fn persist_initialized_state_to_path(
+    path: &Path,
+    shell: ManagedShell,
+    config_version: u64,
+) -> Result<()> {
+    update_shell_state_to_path(path, shell, Some(config_version))
+}
+
+fn update_shell_state_to_path(
+    path: &Path,
+    shell: ManagedShell,
+    config_version: Option<u64>,
+) -> Result<()> {
     let parent = path.parent().context("managed shell state has no parent")?;
     std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     let mut state = match std::fs::read_to_string(path) {
@@ -147,6 +168,12 @@ fn persist_managed_shell_to_path(path: &Path, shell: ManagedShell) -> Result<()>
         "managed_shell".to_string(),
         serde_json::Value::String(shell.name().to_string()),
     );
+    if let Some(config_version) = config_version {
+        object.insert(
+            "config_version".to_string(),
+            serde_json::Value::Number(config_version.into()),
+        );
+    }
     let bytes = serde_json::to_vec_pretty(&state).context("serialize Kaku state")?;
     crate::utils::write_atomic(path, &bytes)
         .with_context(|| format!("write managed shell to {}", path.display()))
@@ -249,5 +276,25 @@ mod tests {
         let path = dir.path().join("state.json");
         std::fs::write(&path, r#"{"managed_shell":"bash"}"#).unwrap();
         assert_eq!(read_managed_shell_from_path(&path), None);
+    }
+
+    #[test]
+    fn completed_shell_state_sets_version_without_dropping_future_fields() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        std::fs::write(
+            &path,
+            r#"{"window_position":{"x":10,"y":20},"future":{"enabled":true}}"#,
+        )
+        .unwrap();
+
+        persist_initialized_state_to_path(&path, ManagedShell::Zsh, 31).unwrap();
+
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["managed_shell"], "zsh");
+        assert_eq!(saved["config_version"], 31);
+        assert_eq!(saved["window_position"]["x"], 10);
+        assert_eq!(saved["future"]["enabled"], true);
     }
 }
