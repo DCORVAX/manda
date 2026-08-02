@@ -1,27 +1,27 @@
-# V0.16.0 Trusted
+# V0.17.0 Linked
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/tw93/Kaku/main/assets/logo.png" alt="Kaku Logo" width="120" height="120" />
-  <h1 style="margin: 12px 0 6px;">Kaku V0.16.0</h1>
+  <h1 style="margin: 12px 0 6px;">Kaku V0.17.0</h1>
   <p><em>A fast, out-of-the-box terminal built for AI coding.</em></p>
 </div>
 
 ### Changelog
 
-1. **Inline AI Uses Your Provider**: The `#` prompt and the automatic quick-fix now go through the same transport as Cmd+L, so Codex, Copilot, and API-key setups all just work.
-2. **Authenticated Controls**: Shell control messages now carry a local capability, so terminal output can no longer borrow your configured credentials to fire assistant requests.
-3. **Close Tabs From The Navigator**: Press Backspace on a highlighted tab to close it, with the same confirmation you get everywhere else.
-4. **Display Fixes**: Titlebar spacing follows the display, AI chat picks up a live appearance switch, overlays resize after a pane split, and link underlines survive hover.
-5. **Fixes**: Starship setup stays inside Kaku instead of taking over your other terminals, white backgrounds stay readable, and menu commands run the bundled CLI.
+1. **Responses API and Native Search**: Choose `api_mode = "responses"` for Responses-compatible endpoints, and turn on provider-hosted web search without a separate search key.
+2. **Pick Your Managed Shell**: `kaku init` can install zsh or fish on purpose, and Kaku keeps that choice across XDG config paths instead of only trusting `$SHELL`.
+3. **Richer Terminal Clicks**: Cmd+Click opens bare domains like `github.com`, file links can launch your editor via `config.file_link_editor`, and Option+Click moves the cursor inside the current input line.
+4. **Safer AI Tools**: Tool paths, web requests, and code search are harder to abuse; incomplete streams no longer look like successful turns.
+5. **Stability Fixes**: Launch no longer dies on oversized draw batches, windows stay below the menu bar, top tabs line up with traffic lights, font fallback is safer, and shell state plus drag-select scroll behave more predictably.
 
 ### 更新日志
 
-1. **内联 AI 走你的模型**：`#` 生成和自动修复现在与 Cmd+L 走同一条链路，Codex、Copilot 和 API key 三种配置都能直接用。
-2. **控制消息需要认证**：Shell 发给终端的控制消息带上了本地凭据，终端里的输出无法再借用你配置的密钥触发助手请求。
-3. **在标签导航里关标签**：选中标签按退格即可关闭，确认提示与别处一致。
-4. **显示修复**：标题栏间距随显示器调整，AI 聊天会跟随系统外观切换，分屏后浮层尺寸正确，链接下划线在悬停时不再丢失。
-5. **问题修复**：Starship 配置只在 Kaku 内生效，不再接管你的其他终端；白色背景上的文字保持可读；菜单命令改用随包分发的 CLI。
+1. **Responses API 与原生搜索**：兼容端点可选 `api_mode = "responses"`，并开启服务商托管的 web search，不必再配单独搜索 Key。
+2. **自选托管 Shell**：`kaku init` 可明确安装 zsh 或 fish，选择会写入状态并在 XDG 路径间保持一致，不再只听 `$SHELL`。
+3. **更完整的点击交互**：Cmd+Click 可打开 `github.com` 这类裸域名；文件链接可用 `config.file_link_editor` 指定编辑器；Option+Click 可在当前输入行内移动光标。
+4. **更安全的 AI 工具**：路径、网络请求与代码搜索边界更严；流式被截断时不会再被当成成功回合。
+5. **稳定性修复**：超大绘制批次不再导致启动崩溃，窗口不会拖进菜单栏后方，顶栏标签与红绿灯对齐，字体回退更安全，Shell 状态与拖选滚动也更稳。
 
-Special thanks to @zwrong and @mortalYoung for their contributions to this release.
+Special thanks to @ddotz and @F1Justin for their contributions to this release.
 
 > https://github.com/tw93/Kaku
