@@ -1450,10 +1450,7 @@ mod tests {
             .split("event == \"restart-to-update\"")
             .nth(1)
             .expect("frontend restart-to-update arm");
-        let fe_restart_body = fe_restart
-            .split("KeyAssignment::EmitEvent")
-            .next()
-            .unwrap();
+        let fe_restart_body = fe_restart.split("KeyAssignment::EmitEvent").next().unwrap();
         assert!(
             fe_restart_body.contains("confirm_and_apply_update()"),
             "frontend restart-to-update must confirm"
