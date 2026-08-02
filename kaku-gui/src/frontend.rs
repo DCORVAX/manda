@@ -233,22 +233,40 @@ pub fn open_kaku_config() {
     });
 }
 
+/// Menu "Check for Updates...". When a staged package is already ready, ask
+/// before restarting (same overlay as toast). Otherwise open a tab that runs
+/// `kaku update` interactively so the CLI can prompt before install.
+pub fn check_for_updates_from_menu() {
+    if crate::update::staged_update_available().is_some() {
+        confirm_and_apply_update();
+    } else {
+        run_kaku_update_in_tab(/* auto_confirm */ false);
+    }
+}
+
+/// Open a terminal tab running `kaku update` without pre-confirming install.
+/// Used by the menu check path and by staged-update failure fallbacks.
 pub fn run_kaku_update_from_menu() {
+    run_kaku_update_in_tab(/* auto_confirm */ false);
+}
+
+fn run_kaku_update_in_tab(auto_confirm: bool) {
     static UPDATE_RUNNING: AtomicBool = AtomicBool::new(false);
     if UPDATE_RUNNING
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
-        log::info!("run_kaku_update_from_menu: update already running, ignoring");
+        log::info!("run_kaku_update_in_tab: update already running, ignoring");
         return;
     }
-    run_kaku_subcommand_in_new_tab("update", Some(&UPDATE_RUNNING));
+    run_kaku_subcommand_in_new_tab("update", Some(&UPDATE_RUNNING), auto_confirm);
 }
 
-/// Entry point for the update toast click. Routes to the front GUI window and
-/// shows a confirmation overlay before anything destructive happens, so a
-/// stray click can no longer kill running tasks. Falls back to applying
-/// directly only when there is no GUI window to host the overlay.
+/// Entry point for toast click and menu "Restart to Update". Routes to the
+/// front GUI window and shows a confirmation overlay before anything
+/// destructive happens, so a stray click can no longer kill running tasks.
+/// Falls back to applying directly only when there is no GUI window to host
+/// the overlay.
 pub fn confirm_and_apply_update() {
     promise::spawn::spawn_into_main_thread(async move {
         if let Some(fe) = try_front_end() {
@@ -266,12 +284,13 @@ pub fn confirm_and_apply_update() {
 
 /// Apply the pending update now. Called only after the user confirms in the
 /// update overlay (or as a fallback when no window can host the overlay).
-/// Uses the staged fast-path when available, else the terminal-tab flow.
+/// Uses the staged fast-path when available, else the terminal-tab flow with
+/// auto-confirm (user already approved the restart in the overlay).
 pub(crate) fn apply_update_now() {
     if crate::update::staged_update_available().is_some() {
         restart_to_update();
     } else {
-        run_kaku_update_from_menu();
+        run_kaku_update_in_tab(/* auto_confirm */ true);
     }
 }
 
@@ -370,10 +389,14 @@ pub fn restart_to_update() {
 }
 
 pub fn run_kaku_doctor_in_new_tab() {
-    run_kaku_subcommand_in_new_tab("doctor", None);
+    run_kaku_subcommand_in_new_tab("doctor", None, false);
 }
 
-fn run_kaku_subcommand_in_new_tab(subcommand: &str, running_flag: Option<&'static AtomicBool>) {
+fn run_kaku_subcommand_in_new_tab(
+    subcommand: &str,
+    running_flag: Option<&'static AtomicBool>,
+    auto_confirm: bool,
+) {
     let subcommand = subcommand.to_string();
     let kaku_bin = kaku_cli_program_for_spawn();
     let fallback_bin = shlex::try_quote(&kaku_bin)
@@ -392,9 +415,10 @@ fn run_kaku_subcommand_in_new_tab(subcommand: &str, running_flag: Option<&'stati
     // environment) is inherited and ~/.zprofile is never loaded, so curl hits
     // api.github.com without a proxy -- causing 30+ second timeouts on Chinese
     // networks. The extra few hundred ms of profile loading is negligible.
-    // When launched from the GUI for `update`, set KAKU_UPDATE_AUTO_CONFIRM=1
-    // so the CLI skips the interactive "Press Enter" confirmation.
-    let env_prefix = if subcommand == "update" {
+    // Only set KAKU_UPDATE_AUTO_CONFIRM after the user already confirmed in the
+    // GUI overlay. Menu "Check for Updates" leaves this unset so the CLI still
+    // prompts before replacing the app and quitting.
+    let env_prefix = if subcommand == "update" && auto_confirm {
         "KAKU_UPDATE_AUTO_CONFIRM=1 "
     } else {
         ""
@@ -986,7 +1010,10 @@ impl GuiFrontEnd {
                     KeyAssignment::EmitEvent(event)
                         if event == "update-kaku" || event == "run-kaku-update" =>
                     {
-                        run_kaku_update_from_menu();
+                        check_for_updates_from_menu();
+                    }
+                    KeyAssignment::EmitEvent(event) if event == "restart-to-update" => {
+                        confirm_and_apply_update();
                     }
                     KeyAssignment::EmitEvent(event) if event == "run-kaku-cli" => {
                         let kaku_cli = kaku_cli_program_for_spawn();

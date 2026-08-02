@@ -794,8 +794,8 @@ mod imp {
     }
 
     fn confirm_apply_update(update_label: &str, assume_yes: bool) -> anyhow::Result<bool> {
-        // When launched from the GUI (menu / notification), the env var is set
-        // so the update proceeds without interactive confirmation.
+        // Set only after the GUI overlay already confirmed the restart. Menu
+        // "Check for Updates" does not set this, so the CLI still prompts.
         if std::env::var_os("KAKU_UPDATE_AUTO_CONFIRM").is_some() {
             println!("Auto-confirming update (KAKU_UPDATE_AUTO_CONFIRM is set).");
             return Ok(true);

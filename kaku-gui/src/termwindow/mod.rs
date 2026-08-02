@@ -4050,7 +4050,8 @@ impl TermWindow {
 
     /// Show a confirmation overlay before applying a pending update, since
     /// applying closes every window and stops running tasks. Routed here from
-    /// the update toast click via the front window.
+    /// the update toast click, menu "Restart to Update", and menu "Check for
+    /// Updates" when a staged package is already ready.
     pub(crate) fn show_update_confirmation(&mut self) {
         let mux = Mux::get();
         let tab = match mux.get_active_tab_for_window(self.mux_window_id) {
@@ -4747,9 +4748,9 @@ impl TermWindow {
                 } else if name == "kaku-ai-chat" {
                     ai_chat::toggle_overlay(self, pane);
                 } else if name == "update-kaku" || name == "run-kaku-update" {
-                    crate::frontend::run_kaku_update_from_menu();
+                    crate::frontend::check_for_updates_from_menu();
                 } else if name == "restart-to-update" {
-                    crate::frontend::restart_to_update();
+                    crate::frontend::confirm_and_apply_update();
                 } else if name == "run-kaku-cli" {
                     let command = format!("{}\n", crate::frontend::kaku_cli_shell_invocation());
                     let result = pane.writer().write_all(command.as_bytes());
