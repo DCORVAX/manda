@@ -337,8 +337,9 @@ const MAX_HISTORY_BYTES: usize = 120_000;
 const MAX_RESPONSES_STATE_BYTES: usize = MAX_HISTORY_BYTES;
 /// Ceiling for text + reasoning streamed to the UI across one user turn
 /// (all tool rounds). Verbose reasoning models burn tens of KB per round,
-/// so this is deliberately larger than the history budget; hitting it
-/// truncates the turn instead of erroring it.
+/// so this is deliberately larger than the history budget. Hitting it is an
+/// explicit partial-turn error: unseen tool calls must never be reported as a
+/// successful completion.
 const MAX_STREAMED_OUTPUT_BYTES: usize = 4 * MAX_HISTORY_BYTES;
 
 fn reserve_streamed_output(total: &std::cell::Cell<usize>, chunk_bytes: usize) -> bool {
@@ -350,6 +351,16 @@ fn reserve_streamed_output(total: &std::cell::Cell<usize>, chunk_bytes: usize) -
     }
     total.set(next);
     true
+}
+
+fn send_streamed_output_limit(tx: &Sender<StreamMsg>, sent_start: bool) {
+    if !sent_start {
+        let _ = tx.send(StreamMsg::AssistantStart);
+    }
+    let _ = tx.send(StreamMsg::Err(format!(
+        "output truncated after {} streamed bytes; the turn is partial and no remaining tool calls were executed",
+        MAX_STREAMED_OUTPUT_BYTES
+    )));
 }
 
 fn compact_and_validate_responses_state(
@@ -490,17 +501,10 @@ pub(crate) fn run_agent(
             }
         };
         if streamed_output_exceeded.get() {
-            // Budget hit: end the turn as a visible truncation instead of an
-            // error, keeping everything streamed so far. Tool work already
-            // done this turn stays recorded in the conversation.
-            if !sent_start.get() {
-                let _ = tx.send(StreamMsg::AssistantStart);
-            }
-            let _ = tx.send(StreamMsg::Token(format!(
-                "\n[output truncated: turn exceeded {} streamed bytes]",
-                MAX_STREAMED_OUTPUT_BYTES
-            )));
-            let _ = tx.send(StreamMsg::Done);
+            // The provider may have returned tool calls after the visible
+            // text. Fail the turn explicitly so the UI cannot announce
+            // success or run completion-only memory work for a partial turn.
+            send_streamed_output_limit(&tx, sent_start.get());
             return;
         }
 
@@ -574,7 +578,7 @@ pub(crate) fn run_agent(
                 continue;
             }
 
-            let args: serde_json::Value = match serde_json::from_str(&tc.arguments) {
+            let mut args: serde_json::Value = match serde_json::from_str(&tc.arguments) {
                 Ok(v) => v,
                 Err(e) => {
                     let err = format!("tool '{}' arguments were not valid JSON: {}", tc.name, e);
@@ -592,6 +596,23 @@ pub(crate) fn run_agent(
                 }
             };
 
+            if tc.name == "fs_read" {
+                if let Err(error) = crate::ai_tools::paths::pin_read_arg(&mut args, &cwd) {
+                    let err = error.to_string();
+                    let _ = tx.send(StreamMsg::ToolFailed { error: err.clone() });
+                    record_tool_result(
+                        &mut messages,
+                        &mut responses_state,
+                        responses_mode,
+                        round,
+                        tc.id.clone(),
+                        tc.name.clone(),
+                        format!("Error: {}", err),
+                    );
+                    continue;
+                }
+            }
+
             let args_preview = args
                 .get("query")
                 .or_else(|| args.get("path"))
@@ -603,7 +624,7 @@ pub(crate) fn run_agent(
                 .map(|s| middle_truncate(s, 80))
                 .unwrap_or_default();
 
-            if let Some(summary) = approval::approval_summary(&tc.name, &args) {
+            if let Some(summary) = approval::approval_summary_in_cwd(&tc.name, &args, &cwd) {
                 const APPROVAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
                 let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel::<bool>(0);
                 let _ = tx.send(StreamMsg::ApprovalRequired { summary, reply_tx });
@@ -1155,6 +1176,17 @@ mod tests {
         assert!(!reserve_streamed_output(&total, 1));
         assert_eq!(total.get(), MAX_STREAMED_OUTPUT_BYTES);
         assert!(!reserve_streamed_output(&total, usize::MAX));
+    }
+
+    #[test]
+    fn streamed_output_limit_is_an_error_not_success() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        send_streamed_output_limit(&tx, false);
+        assert!(matches!(rx.recv().unwrap(), StreamMsg::AssistantStart));
+        assert!(
+            matches!(rx.recv().unwrap(), StreamMsg::Err(message) if message.contains("truncated"))
+        );
+        assert!(rx.try_recv().is_err(), "truncation must not also emit Done");
     }
 
     #[test]

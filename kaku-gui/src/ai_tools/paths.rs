@@ -212,6 +212,20 @@ pub(crate) fn is_credential_named_source_file(name: &str) -> bool {
     lower.contains("credentials") && has_source_or_doc_extension(&lower)
 }
 
+/// Credential-named source and documentation files are allowed by the hard
+/// path guard, but reading them must be visible to the user. Check both the
+/// requested path and its canonical target so a harmless-looking symlink
+/// cannot turn an approved-path decision into a different read at execution.
+pub(crate) fn requires_read_approval(path: &Path) -> bool {
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    [path, canonical.as_path()].iter().any(|candidate| {
+        candidate
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(is_credential_named_source_file)
+    })
+}
+
 fn is_sensitive_directory_name(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
@@ -370,6 +384,17 @@ pub(crate) fn resolve_checked_arg(args: &serde_json::Value, cwd: &str) -> Result
     resolve_checked_path(raw_path, cwd)
 }
 
+/// Resolve a read path once before approval and replace the model-supplied
+/// argument with its canonical target. Approval text and execution then refer
+/// to the same file rather than following a symlink twice across the prompt.
+pub(crate) fn pin_read_arg(args: &mut serde_json::Value, cwd: &str) -> Result<()> {
+    let path = resolve_checked_arg(args, cwd)?;
+    let canonical = std::fs::canonicalize(&path)
+        .with_context(|| format!("resolve read target '{}'", path.display()))?;
+    args["path"] = serde_json::Value::String(canonical.to_string_lossy().into_owned());
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -437,6 +462,25 @@ mod tests {
         let args = serde_json::json!({});
         let err = resolve_checked_arg(&args, "/tmp").unwrap_err();
         assert!(err.to_string().contains("missing path"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pin_read_arg_replaces_symlink_with_approved_target() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("prod_credentials.py");
+        let link = root.path().join("safe.py");
+        std::fs::write(&target, "TOKEN = 'secret'\n").unwrap();
+        symlink(&target, &link).unwrap();
+        let mut args = serde_json::json!({ "path": link });
+
+        pin_read_arg(&mut args, root.path().to_str().unwrap()).unwrap();
+
+        let canonical_target = std::fs::canonicalize(&target).unwrap();
+        assert_eq!(args["path"].as_str(), canonical_target.to_str());
+        assert!(requires_read_approval(&target));
     }
 
     #[test]
@@ -675,6 +719,21 @@ mod tests {
             reject_if_sensitive(&env_file).is_err(),
             "a project-local .env must be refused"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_approval_follows_symlink_to_credential_source() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("prod_credentials.py");
+        let link = root.path().join("safe.py");
+        std::fs::write(&target, "TOKEN = 'secret'\n").unwrap();
+        symlink(&target, &link).unwrap();
+
+        assert!(requires_read_approval(&target));
+        assert!(requires_read_approval(&link));
     }
 
     #[test]

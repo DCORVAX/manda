@@ -147,6 +147,16 @@ struct ValidatedHttpDestination {
     addresses: Vec<SocketAddr>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HttpRequestRoute {
+    DirectPinned,
+}
+
+fn http_request_route(scheme: &str) -> HttpRequestRoute {
+    debug_assert!(matches!(scheme, "http" | "https"));
+    HttpRequestRoute::DirectPinned
+}
+
 fn validate_external_http_url(raw: &str) -> Result<ValidatedHttpDestination> {
     let parsed = url::Url::parse(raw).context("invalid http_request URL")?;
     if !matches!(parsed.scheme(), "http" | "https") {
@@ -202,28 +212,15 @@ fn pinned_web_client(destination: &ValidatedHttpDestination) -> Result<reqwest::
         .timeout(Duration::from_secs(60))
         .redirect(reqwest::redirect::Policy::none());
 
-    // https may honor the user's system proxy: the origin is still
-    // authenticated by TLS through the CONNECT tunnel, so a DNS swap behind
-    // the proxy cannot impersonate the validated host, and a blanket
-    // `no_proxy` would break `http_request` on every proxied network.
-    // Plaintext http stays direct and IP-pinned: through a proxy the name is
-    // re-resolved, detaching the validated address set with no TLS to catch
-    // the swap (DNS-rebinding SSRF).
-    let https_proxy = if destination.url.scheme() == "https" {
-        crate::ai_client::system_proxy_with_private_bypass()
-    } else {
-        None
-    };
-    match https_proxy {
-        Some(proxy) => {
-            builder = builder.proxy(proxy);
-        }
-        None => {
-            builder = builder.no_proxy();
-            if let Some(domain) = destination.domain.as_deref() {
-                builder = builder.resolve_to_addrs(domain, &destination.addresses);
-            }
-        }
+    // The security decision and the connection must use the same address set.
+    // A proxy would re-resolve the hostname after validation, reopening DNS
+    // rebinding against private services. This tool therefore stays direct
+    // and pinned for both HTTP and HTTPS; chat and fetch clients retain their
+    // normal system-proxy behavior.
+    let HttpRequestRoute::DirectPinned = http_request_route(destination.url.scheme());
+    builder = builder.no_proxy();
+    if let Some(domain) = destination.domain.as_deref() {
+        builder = builder.resolve_to_addrs(domain, &destination.addresses);
     }
     builder.build().context("build pinned http_request client")
 }
@@ -499,6 +496,15 @@ mod tests {
             "8.8.8.8".parse::<IpAddr>().unwrap()
         );
         assert_eq!(destination.addresses[0].port(), 443);
+    }
+
+    #[test]
+    fn https_http_request_uses_direct_pinned_routing() {
+        assert_eq!(
+            http_request_route("https"),
+            HttpRequestRoute::DirectPinned,
+            "validated HTTPS destinations must not be re-resolved by a proxy"
+        );
     }
 
     #[test]

@@ -522,25 +522,6 @@ fn build_client_with_proxy_redirects(
     })
 }
 
-/// Detected system proxy with the private-range bypass applied, for callers
-/// that build their own client (e.g. the pinned `http_request` client, which
-/// may only route https through a proxy because TLS still authenticates the
-/// origin through the CONNECT tunnel).
-pub(crate) fn system_proxy_with_private_bypass() -> Option<reqwest::Proxy> {
-    let proxy_url = config::proxy::detect_system_proxy()?;
-    match reqwest::Proxy::all(&proxy_url) {
-        Ok(proxy) => Some(proxy.no_proxy(build_no_proxy())),
-        Err(error) => {
-            log::warn!(
-                "Failed to apply detected system proxy {}: {}; continuing without proxy",
-                proxy_url,
-                error
-            );
-            None
-        }
-    }
-}
-
 /// Hosts and ranges that must bypass any system proxy and connect directly.
 ///
 /// A user with a global SOCKS/HTTP proxy still needs to reach a self-hosted
@@ -957,12 +938,9 @@ impl AiClient {
             body["tools"] = Value::Array(responses_tools);
             body["tool_choice"] = Value::String("auto".to_string());
         }
-        // Always ask for encrypted reasoning payloads, not only when tools
-        // are enabled: reasoning models emit reasoning items regardless, the
-        // stubs are persisted for replay, and under `store: false` a replayed
-        // reasoning item without its encrypted content is rejected.
-        body["include"] = json!(["reasoning.encrypted_content"]);
-
+        if supports_encrypted_reasoning_include(&self.config.base_url) {
+            body["include"] = json!(["reasoning.encrypted_content"]);
+        }
         let req = self
             .client
             .post(&url)
@@ -1356,6 +1334,8 @@ fn parse_responses_sse<R: BufRead>(
     let mut completed_output_text = String::new();
     let mut response_items = Vec::new();
     let mut indexless_item_positions = std::collections::HashMap::new();
+    let mut call_alias_positions = std::collections::HashMap::new();
+    let mut call_output_positions = std::collections::HashMap::new();
     let mut completed = false;
     let mut stream_bytes = 0usize;
     let mut stream_events = 0usize;
@@ -1410,14 +1390,26 @@ fn parse_responses_sse<R: BufRead>(
                     &mut indexless_item_positions,
                 )?;
                 if item["type"] == "function_call" {
-                    upsert_response_call(&mut calls, item)?;
+                    upsert_response_call(
+                        &mut calls,
+                        item,
+                        event["output_index"].as_u64(),
+                        &mut call_alias_positions,
+                        &mut call_output_positions,
+                    )?;
                 } else if item["type"] == "message" {
                     collect_response_citations(item, &mut citations);
                 }
             }
             Some("response.function_call_arguments.delta") => {
                 let item_id = event["item_id"].as_str().unwrap_or("");
-                let updated_arguments = if let Some(buffer) = upsert_call(&mut calls, item_id)? {
+                let updated_arguments = if let Some(buffer) = upsert_stream_call(
+                    &mut calls,
+                    item_id,
+                    event["output_index"].as_u64(),
+                    &mut call_alias_positions,
+                    &mut call_output_positions,
+                )? {
                     if let Some(delta) = event["delta"].as_str() {
                         append_tool_arguments(&mut buffer.arguments, delta, provider_label)?;
                     }
@@ -1431,7 +1423,13 @@ fn parse_responses_sse<R: BufRead>(
             }
             Some("response.function_call_arguments.done") => {
                 let item_id = event["item_id"].as_str().unwrap_or("");
-                let updated_arguments = if let Some(buffer) = upsert_call(&mut calls, item_id)? {
+                let updated_arguments = if let Some(buffer) = upsert_stream_call(
+                    &mut calls,
+                    item_id,
+                    event["output_index"].as_u64(),
+                    &mut call_alias_positions,
+                    &mut call_output_positions,
+                )? {
                     if let Some(arguments) = event["arguments"].as_str() {
                         set_tool_arguments(&mut buffer.arguments, arguments, provider_label)?;
                     }
@@ -1606,10 +1604,18 @@ fn response_calls(
     provider_label: &str,
 ) -> Result<Vec<(String, ToolCallBuf)>> {
     let mut calls = Vec::new();
+    let mut aliases = std::collections::HashMap::new();
+    let mut output_positions = std::collections::HashMap::new();
     if let Some(output) = response["output"].as_array() {
-        for item in output {
+        for (output_index, item) in output.iter().enumerate() {
             if item["type"] == "function_call" {
-                upsert_response_call(&mut calls, item)?;
+                upsert_response_call(
+                    &mut calls,
+                    item,
+                    Some(output_index as u64),
+                    &mut aliases,
+                    &mut output_positions,
+                )?;
             }
         }
     }
@@ -1620,19 +1626,26 @@ fn response_calls(
 fn upsert_response_call(
     calls: &mut Vec<(String, ToolCallBuf)>,
     item: &serde_json::Value,
+    output_index: Option<u64>,
+    aliases: &mut std::collections::HashMap<String, usize>,
+    output_positions: &mut std::collections::HashMap<u64, usize>,
 ) -> Result<()> {
-    let item_id = item["id"]
-        .as_str()
-        .filter(|value| !value.is_empty())
-        .or_else(|| item["call_id"].as_str())
-        .unwrap_or("");
-    if !item_id.is_empty()
-        && !calls.iter().any(|(id, _)| id == item_id)
-        && calls.len() >= MAX_RESPONSE_TOOL_CALLS
-    {
-        anyhow::bail!("Responses API returned too many function calls");
+    let item_id = item["id"].as_str().filter(|value| !value.is_empty());
+    let call_id = item["call_id"].as_str().filter(|value| !value.is_empty());
+    let mut aliases_for_item = Vec::with_capacity(2);
+    if let Some(item_id) = item_id {
+        aliases_for_item.push(item_id);
     }
-    if let Some(buffer) = upsert_call(calls, item_id)? {
+    if let Some(call_id) = call_id {
+        aliases_for_item.push(call_id);
+    }
+    if let Some(buffer) = upsert_call_identity(
+        calls,
+        &aliases_for_item,
+        output_index,
+        aliases,
+        output_positions,
+    )? {
         if let Some(call_id) = item["call_id"].as_str().filter(|value| !value.is_empty()) {
             buffer.id = call_id.to_string();
         }
@@ -1644,6 +1657,59 @@ fn upsert_response_call(
         }
     }
     Ok(())
+}
+
+fn upsert_stream_call<'a>(
+    calls: &'a mut Vec<(String, ToolCallBuf)>,
+    item_id: &str,
+    output_index: Option<u64>,
+    aliases: &mut std::collections::HashMap<String, usize>,
+    output_positions: &mut std::collections::HashMap<u64, usize>,
+) -> Result<Option<&'a mut ToolCallBuf>> {
+    let identities = (!item_id.is_empty())
+        .then_some(item_id)
+        .into_iter()
+        .collect::<Vec<_>>();
+    upsert_call_identity(calls, &identities, output_index, aliases, output_positions)
+}
+
+fn upsert_call_identity<'a>(
+    calls: &'a mut Vec<(String, ToolCallBuf)>,
+    identities: &[&str],
+    output_index: Option<u64>,
+    aliases: &mut std::collections::HashMap<String, usize>,
+    output_positions: &mut std::collections::HashMap<u64, usize>,
+) -> Result<Option<&'a mut ToolCallBuf>> {
+    let position = identities
+        .iter()
+        .find_map(|identity| aliases.get(*identity).copied())
+        .or_else(|| output_index.and_then(|index| output_positions.get(&index).copied()));
+
+    let position = match position {
+        Some(position) => position,
+        None => {
+            if identities.is_empty() && output_index.is_none() {
+                return Ok(None);
+            }
+            if calls.len() >= MAX_RESPONSE_TOOL_CALLS {
+                anyhow::bail!("Responses API returned too many function calls");
+            }
+            let storage_id = identities
+                .first()
+                .map(|identity| (*identity).to_string())
+                .unwrap_or_else(|| format!("output_index:{}", output_index.unwrap_or_default()));
+            calls.push((storage_id, ToolCallBuf::default()));
+            calls.len() - 1
+        }
+    };
+
+    for identity in identities {
+        aliases.insert((*identity).to_string(), position);
+    }
+    if let Some(index) = output_index {
+        output_positions.insert(index, position);
+    }
+    Ok(Some(&mut calls[position].1))
 }
 
 fn upsert_response_item(
@@ -1980,29 +2046,6 @@ struct ToolCallBuf {
     arguments: String,
 }
 
-/// Find (or create) the buffer for a Responses function-call item, keyed by its
-/// streaming item id. Returns None for an empty id so malformed events are
-/// ignored rather than collapsed onto one bogus call.
-fn upsert_call<'a>(
-    calls: &'a mut Vec<(String, ToolCallBuf)>,
-    item_id: &str,
-) -> Result<Option<&'a mut ToolCallBuf>> {
-    if item_id.is_empty() {
-        return Ok(None);
-    }
-    let pos = match calls.iter().position(|(id, _)| id == item_id) {
-        Some(pos) => pos,
-        None => {
-            if calls.len() >= MAX_RESPONSE_TOOL_CALLS {
-                anyhow::bail!("Responses API returned too many function calls");
-            }
-            calls.push((item_id.to_string(), ToolCallBuf::default()));
-            calls.len() - 1
-        }
-    };
-    Ok(Some(&mut calls[pos].1))
-}
-
 fn reasoning_delta_text<'a>(
     choice: &'a serde_json::Value,
     delta: &'a serde_json::Value,
@@ -2238,6 +2281,15 @@ fn skip_ascii_whitespace(bytes: &[u8], mut i: usize) -> usize {
     i
 }
 
+fn supports_encrypted_reasoning_include(base_url: &str) -> bool {
+    url::Url::parse(base_url).ok().is_some_and(|url| {
+        url.scheme() == "https"
+            && url
+                .host_str()
+                .is_some_and(|host| host.eq_ignore_ascii_case("api.openai.com"))
+    })
+}
+
 /// Maps (base_url, auth_type) to a display provider name.
 ///
 /// Single source of truth for provider naming. The `kaku` binary used to
@@ -2260,10 +2312,11 @@ mod tests {
         add_stream_bytes, add_stream_event, build_no_proxy_list, content_type_is_json,
         detect_provider_with_auth, parse_custom_headers, parse_responses_sse,
         parse_responses_value, read_body_capped, read_sse_line_capped, reasoning_delta_text,
-        should_roundtrip_reasoning_content, sse_data_payload, translate_responses_messages,
-        translate_responses_tools, AiClient, ApiMessage, ApiMode, AssistantConfig,
-        InlineThinkFilter, ThinkSegment, MAX_MODELS_BODY_BYTES, MAX_RESPONSE_SSE_LINE_BYTES,
-        MAX_RESPONSE_STREAM_BYTES, MAX_RESPONSE_STREAM_EVENTS, MAX_RESPONSE_TOOL_ARGUMENT_BYTES,
+        should_roundtrip_reasoning_content, sse_data_payload, supports_encrypted_reasoning_include,
+        translate_responses_messages, translate_responses_tools, AiClient, ApiMessage, ApiMode,
+        AssistantConfig, InlineThinkFilter, ThinkSegment, MAX_MODELS_BODY_BYTES,
+        MAX_RESPONSE_SSE_LINE_BYTES, MAX_RESPONSE_STREAM_BYTES, MAX_RESPONSE_STREAM_EVENTS,
+        MAX_RESPONSE_TOOL_ARGUMENT_BYTES,
     };
     use reqwest::header::{AUTHORIZATION, USER_AGENT};
     use std::io::{Cursor, Read, Write};
@@ -2346,6 +2399,22 @@ mod tests {
             "Custom"
         );
         assert_eq!(detect_provider_with_auth("", "api_key"), "Custom");
+    }
+
+    #[test]
+    fn encrypted_reasoning_include_is_only_sent_to_openai() {
+        assert!(supports_encrypted_reasoning_include(
+            "https://api.openai.com/v1"
+        ));
+        assert!(!supports_encrypted_reasoning_include(
+            "https://responses.example.com/v1"
+        ));
+        assert!(!supports_encrypted_reasoning_include(
+            "https://api.openai.com.evil.example/v1"
+        ));
+        assert!(!supports_encrypted_reasoning_include(
+            "http://api.openai.com/v1"
+        ));
     }
 
     #[test]
@@ -2508,6 +2577,54 @@ mod tests {
     }
 
     #[test]
+    fn responses_sse_deduplicates_function_calls_across_mixed_identities() {
+        let stream = concat!(
+            "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"fs_write\",\"arguments\":\"{}\"}}\n\n",
+            "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"fs_write\",\"arguments\":\"{}\"}}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n"
+        );
+        let result = parse_responses_sse(
+            Cursor::new(stream),
+            &AtomicBool::new(false),
+            &mut |_| {},
+            &mut |_| {},
+            "test",
+        )
+        .unwrap();
+
+        assert_eq!(result.response_items.len(), 1);
+        assert_eq!(
+            result.tool_calls.len(),
+            1,
+            "one output item must execute once"
+        );
+        assert_eq!(result.tool_calls[0].id, "call_1");
+    }
+
+    #[test]
+    fn responses_sse_uses_output_index_for_late_item_id_deltas() {
+        let stream = concat!(
+            "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"fs_write\",\"arguments\":\"\"}}\n\n",
+            "data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"item_id\":\"fc_1\",\"delta\":\"{}\"}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n"
+        );
+        let result = parse_responses_sse(
+            Cursor::new(stream),
+            &AtomicBool::new(false),
+            &mut |_| {},
+            &mut |_| {},
+            "test",
+        )
+        .unwrap();
+
+        assert_eq!(result.tool_calls.len(), 1);
+        assert_eq!(result.tool_calls[0].id, "call_1");
+        assert_eq!(result.tool_calls[0].arguments, "{}");
+        assert_eq!(result.response_items.len(), 1);
+        assert_eq!(result.response_items[0]["arguments"], "{}");
+    }
+
+    #[test]
     fn responses_translation_skips_reasoning_stubs_without_encrypted_content() {
         let stub = serde_json::json!({
             "type": "reasoning",
@@ -2655,9 +2772,9 @@ mod tests {
             .expect("responses tools")
             .iter()
             .any(|tool| tool["type"] == "function" && tool["name"] == "pwd"));
-        assert_eq!(
-            body["include"],
-            serde_json::json!(["reasoning.encrypted_content"])
+        assert!(
+            body.get("include").is_none(),
+            "custom Responses endpoints must not receive OpenAI-only include values"
         );
     }
 

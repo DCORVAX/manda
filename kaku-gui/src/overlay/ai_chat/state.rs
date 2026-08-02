@@ -1687,7 +1687,9 @@ impl App {
         if self.grapheme_queue.is_empty()
             && (self.stream_pending_done || self.stream_pending_err.is_some())
         {
-            if let Some(e) = self.stream_pending_err.take() {
+            let stream_error = self.stream_pending_err.take();
+            let had_error = stream_error.is_some();
+            if let Some(e) = stream_error {
                 // If there's no incomplete text message, push a new error entry.
                 let needs_new = self
                     .messages
@@ -1701,7 +1703,11 @@ impl App {
                         false,
                     ));
                 } else if let Some(last) = self.messages.last_mut() {
-                    last.content = format!("[error: {}]", e);
+                    if last.content.is_empty() {
+                        last.content = format!("[error: {}]", e);
+                    } else {
+                        last.content.push_str(&format!("\n[error: {}]", e));
+                    }
                     last.complete = true;
                 }
             } else {
@@ -1734,7 +1740,7 @@ impl App {
             self.is_streaming = false;
             let was_transient = self.stream_is_transient;
             self.stream_is_transient = false;
-            if !was_transient && self.stream_pending_err.is_none() {
+            if !was_transient && !had_error {
                 send_unfocused_notification(
                     &strings::task_complete_notification_title(),
                     &strings::task_complete_notification_body(),
@@ -1744,7 +1750,7 @@ impl App {
                 self.save_history();
             }
             // Auto-extract memories after successful completions (skip for /btw).
-            if self.stream_pending_err.is_none() && !was_transient {
+            if !had_error && !was_transient {
                 let client = self.client.clone();
                 let msgs = self.collect_persisted_messages();
 

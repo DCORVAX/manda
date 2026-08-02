@@ -255,8 +255,14 @@ fn escape_regex(s: &str) -> String {
 
 struct FallbackSearchOutput {
     lines: Vec<String>,
-    truncated: bool,
+    truncation: Option<FallbackTruncation>,
     timed_out: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FallbackTruncation {
+    ResultLimit,
+    OutputBytes,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -304,7 +310,7 @@ fn fallback_regex_search(
     let mut output = Vec::new();
     let mut output_bytes = 0usize;
     let mut match_count = 0usize;
-    let mut truncated = false;
+    let mut truncation = None;
     let mut timed_out = false;
 
     'entries: for entry in walker.build() {
@@ -335,6 +341,7 @@ fn fallback_regex_search(
         let text = String::from_utf8_lossy(&bytes);
         let file_lines: Vec<&str> = text.lines().collect();
         let mut matches = Vec::new();
+        let mut result_limit_reached = false;
 
         for (index, line) in file_lines.iter().enumerate() {
             if index % 256 == 0 {
@@ -350,14 +357,18 @@ fn fallback_regex_search(
                 continue;
             }
             if match_count >= max_results {
-                truncated = true;
-                break 'entries;
+                truncation = Some(FallbackTruncation::ResultLimit);
+                result_limit_reached = true;
+                break;
             }
             match_count += 1;
             matches.push(index);
         }
 
         if matches.is_empty() {
+            if result_limit_reached {
+                break;
+            }
             continue;
         }
 
@@ -378,9 +389,6 @@ fn fallback_regex_search(
         }
 
         for (region_index, (start, end)) in regions.into_iter().enumerate() {
-            if region_index > 0 {
-                output.push("--".to_string());
-            }
             for (offset, line) in file_lines[start..=end].iter().enumerate() {
                 let index = start + offset;
                 let marker = if matched_lines.contains(&index) {
@@ -394,21 +402,66 @@ fn fallback_regex_search(
                     index + 1,
                     line
                 );
-                output_bytes += rendered.len() + 1;
-                if output_bytes > FALLBACK_MAX_OUTPUT_BYTES {
-                    truncated = true;
+                let rendered_bytes = rendered.len() + 1;
+                let separator_bytes = usize::from(region_index > 0 && offset == 0) * 3;
+                if output_bytes
+                    .checked_add(separator_bytes)
+                    .and_then(|next| next.checked_add(rendered_bytes))
+                    .is_none_or(|next| next > FALLBACK_MAX_OUTPUT_BYTES)
+                {
+                    truncation = Some(FallbackTruncation::OutputBytes);
                     break 'entries;
                 }
+                if separator_bytes > 0 {
+                    output_bytes += separator_bytes;
+                    output.push("--".to_string());
+                }
+                output_bytes += rendered_bytes;
                 output.push(rendered);
             }
+        }
+        if result_limit_reached {
+            break;
         }
     }
 
     Ok(FallbackSearchOutput {
         lines: output,
-        truncated,
+        truncation,
         timed_out,
     })
+}
+
+fn fallback_truncation_notice(
+    truncation: Option<FallbackTruncation>,
+    max_results: usize,
+) -> Option<String> {
+    match truncation {
+        Some(FallbackTruncation::ResultLimit) => {
+            Some(format!("[... truncated at {} results]", max_results))
+        }
+        Some(FallbackTruncation::OutputBytes) => Some(format!(
+            "[... truncated at {} byte output budget]",
+            FALLBACK_MAX_OUTPUT_BYTES
+        )),
+        None => None,
+    }
+}
+
+fn fallback_empty_truncation_message(
+    truncation: Option<FallbackTruncation>,
+    result_kind: &str,
+) -> Option<String> {
+    match truncation {
+        Some(FallbackTruncation::ResultLimit) => Some(format!(
+            "{result_kind} were found but max_results was zero; increase max_results."
+        )),
+        Some(FallbackTruncation::OutputBytes) => Some(format!(
+            "{result_kind} were found but the first result exceeded the {} byte output budget; narrow the pattern, path, or context_lines.",
+            FALLBACK_MAX_OUTPUT_BYTES
+        )),
+        None => None,
+    }
 }
 
 fn sort_symbol_lines(lines: &mut [String]) {
@@ -572,12 +625,18 @@ pub(super) fn exec_symbol_search(
                     SEARCH_TIMEOUT_SECS, query
                 ));
             }
+            if let Some(message) =
+                fallback_empty_truncation_message(fallback.truncation, "Symbol definitions")
+            {
+                return Ok(message);
+            }
             return Ok(format!("No symbol definitions found for '{}'.", query));
         }
         sort_symbol_lines(&mut fallback.lines);
         let mut out = fallback.lines.join("\n");
-        if fallback.truncated {
-            out.push_str("\n[... truncated at 100 results]");
+        if let Some(notice) = fallback_truncation_notice(fallback.truncation, 100) {
+            out.push('\n');
+            out.push_str(&notice);
         }
         if fallback.timed_out {
             out.push_str(&format!(
@@ -713,19 +772,16 @@ pub(super) fn exec_grep_search(
                     SEARCH_TIMEOUT_SECS
                 ));
             }
-            if fallback.truncated {
-                // Matches existed but the very first result region exceeded
-                // the output budget; "No matches" would be a false negative.
-                return Ok(format!(
-                    "Matches were found but the results exceeded the {} byte output budget; narrow the pattern, path, or context_lines.",
-                    FALLBACK_MAX_OUTPUT_BYTES
-                ));
+            if let Some(message) = fallback_empty_truncation_message(fallback.truncation, "Matches")
+            {
+                return Ok(message);
             }
             return Ok("No matches found.".into());
         }
         let mut out = fallback.lines.join("\n");
-        if fallback.truncated {
-            out.push_str(&format!("\n[... truncated at {} results]", max_results));
+        if let Some(notice) = fallback_truncation_notice(fallback.truncation, max_results) {
+            out.push('\n');
+            out.push_str(&notice);
         }
         if fallback.timed_out {
             out.push_str(&format!(
@@ -927,13 +983,39 @@ mod fallback_tests {
             "grep_search",
         )
         .expect("search ok");
-        assert!(out.truncated, "huge output must report truncation");
+        assert_eq!(out.truncation, Some(FallbackTruncation::OutputBytes));
         let total: usize = out.lines.iter().map(|l| l.len() + 1).sum();
         assert!(
             total <= FALLBACK_MAX_OUTPUT_BYTES,
             "accumulated output {} exceeds budget",
             total
         );
+    }
+
+    #[test]
+    fn fallback_search_keeps_matches_collected_before_result_limit() {
+        let root = tempfile::tempdir().expect("tempdir");
+        std::fs::write(root.path().join("two.txt"), "needle first\nneedle second\n").unwrap();
+        let cancel = AtomicBool::new(false);
+        let out = fallback_regex_search(
+            "needle",
+            root.path(),
+            None,
+            0,
+            false,
+            1,
+            &cancel,
+            "grep_search",
+        )
+        .expect("search ok");
+
+        assert_eq!(
+            out.lines.len(),
+            1,
+            "the first accepted match must be rendered"
+        );
+        assert!(out.lines[0].contains("needle first"));
+        assert_eq!(out.truncation, Some(FallbackTruncation::ResultLimit));
     }
 
     #[test]
