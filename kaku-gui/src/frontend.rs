@@ -233,6 +233,15 @@ pub fn open_kaku_config() {
     });
 }
 
+// Update entry matrix (every user-facing path must confirm before app replace):
+// - Toast click              -> confirm_and_apply_update (overlay)
+// - Menu Restart to Update  -> confirm_and_apply_update (overlay)
+// - Menu Check (staged)     -> confirm_and_apply_update (overlay)
+// - Menu Check (download)   -> run_kaku_update_in_tab(auto_confirm=false) -> CLI prompt
+// - Overlay confirmed       -> apply_update_now -> staged restart or tab(auto_confirm=true)
+// - CLI direct / brew       -> confirm_apply_update in kaku/src/update.rs
+// AUTO_CONFIRM is set only after overlay confirm, never for exploratory menu check.
+
 /// Menu "Check for Updates...". When a staged package is already ready, ask
 /// before restarting (same overlay as toast). Otherwise open a tab that runs
 /// `kaku update` interactively so the CLI can prompt before install.
@@ -1398,5 +1407,68 @@ mod tests {
         let program = "/Applications/Kaku Nightly.app/Contents/MacOS/kaku";
         let quoted = shell_quote_program(program);
         assert_eq!(shlex::split(&quoted), Some(vec![program.to_string()]));
+    }
+
+    /// User-facing update events must not call `restart_to_update` directly.
+    /// Regression for toast-only confirm (d9e8500e) + menu sibling (06cbdc00).
+    #[test]
+    fn user_facing_update_events_route_through_confirm() {
+        let termwindow = include_str!("termwindow/mod.rs");
+        let frontend = include_str!("frontend.rs");
+        let update = include_str!("update.rs");
+
+        // Window-scoped EmitEvent handlers.
+        assert!(
+            termwindow.contains("check_for_updates_from_menu()"),
+            "run-kaku-update must go through check_for_updates_from_menu"
+        );
+        assert!(
+            termwindow.contains("confirm_and_apply_update()"),
+            "restart-to-update must go through confirm_and_apply_update"
+        );
+        // Direct restart from the event arm is the original bug.
+        let restart_arm = termwindow
+            .split("name == \"restart-to-update\"")
+            .nth(1)
+            .expect("restart-to-update arm");
+        let restart_body = restart_arm.split("} else if name ==").next().unwrap();
+        assert!(
+            restart_body.contains("confirm_and_apply_update()"),
+            "restart-to-update arm must confirm"
+        );
+        assert!(
+            !restart_body.contains("restart_to_update()"),
+            "restart-to-update arm must not call restart_to_update directly"
+        );
+
+        // Menubar path when no window has focus.
+        assert!(
+            frontend.contains("check_for_updates_from_menu()"),
+            "menubar run-kaku-update must confirm-or-prompt"
+        );
+        let fe_restart = frontend
+            .split("event == \"restart-to-update\"")
+            .nth(1)
+            .expect("frontend restart-to-update arm");
+        let fe_restart_body = fe_restart
+            .split("KeyAssignment::EmitEvent")
+            .next()
+            .unwrap();
+        assert!(
+            fe_restart_body.contains("confirm_and_apply_update()"),
+            "frontend restart-to-update must confirm"
+        );
+
+        // Toast click callback.
+        assert!(
+            update.contains("confirm_and_apply_update()"),
+            "toast update click must confirm"
+        );
+
+        // AUTO_CONFIRM only when auto_confirm is true (post-overlay).
+        assert!(
+            frontend.contains("if subcommand == \"update\" && auto_confirm"),
+            "AUTO_CONFIRM must require auto_confirm flag, not every update tab"
+        );
     }
 }
