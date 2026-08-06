@@ -1,7 +1,7 @@
 ---
 name: product-docs
-description: "Keep the MANDA website (manda-term.vercel.app) accurate and user-facing: gather verified features from the current commit, refresh the EN and ES pages in web/, and verify before handing the diff to the maintainer."
-when_to_use: "update website, update docs, 更新官网, 完善官网, 产品说明, 使用文档, 上手指南, product guide, document a feature, refresh manda-term.vercel.app, write user docs, site docs, 写文档, 写官网"
+description: "Keep the MANDA website (wilfredy-x.github.io/manda) accurate and user-facing: gather verified features from the current commit, refresh the EN and ES pages in web/, and verify before handing the diff to the maintainer."
+when_to_use: "update website, update docs, 更新官网, 完善官网, 产品说明, 使用文档, 上手指南, product guide, document a feature, refresh wilfredy-x.github.io/manda, write user docs, site docs, 写文档, 写官网"
 ---
 
 # MANDA Product Docs
@@ -16,7 +16,7 @@ The audience is normal users, not contributors. Explain what each feature **is**
   - `index.html` (EN home — keep short: hero, three highlights, compact Why/AI teasers, download), `features.html` (full feature grid + AI section), `shortcuts.html` (full keybinding table), `faq.html` (accordion with the top 6 FAQs distilled from `docs/faq.md`).
   - `es/` — Spanish mirrors of the same four pages, kept in lockstep (same structure, section order, and anchors).
   - Shared `web/style.css` (design system) and `web/script.js` (theme toggle + mobile nav).
-  - Deploys to `manda-term.vercel.app`; point the Vercel project root at the `web/` directory.
+  - Deploys to GitHub Pages at `https://wilfredy-x.github.io/manda/` (gh-pages branch from `web/`); point the Vercel project root at the `web/` directory.
 - **Design system**: warm monochrome editorial. Light is the primary theme; dark is secondary via the theme toggle (persisted in localStorage). Tokens live at the top of `web/style.css`: warm cream `#faf9f6` surface, ink `#121212`, sand/stone dividers, Hedvig Letters Serif for display headings, Hedvig Letters Sans for body/UI, monospace for code. Flat surfaces (no shadows), radius 12–16px cards, pill buttons. Reuse the existing tokens and components; do not invent new ones.
 - **Bilingual parity**: every EN page has an ES twin under `es/`. Update both together; mirror anchors and copy tone.
 - **Content source of truth**: `README.md`, `docs/`, and the bundled config in `assets/`. Verify every claim against the code before publishing.
