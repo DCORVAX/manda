@@ -43,6 +43,7 @@ ALLOW_FILES=(
   'manda/src/shell\.rs'
   'manda/src/chat\.rs'
   'manda/src/tui_splash\.rs'
+  'manda/src/ai_config/'
   'manda-gui/src/bin/'
   'manda-gui/src/cli_chat/'
   'manda-gui/src/startup_trace\.rs'
