@@ -20,7 +20,6 @@ use clap_complete::{generate as generate_completion, shells, Generator as Comple
 use config::{wezterm_version, ConfigHandle};
 use mux::Mux;
 use std::ffi::OsString;
-use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use umask::UmaskSaver;
 use wezterm_gui_subcommands::*;
@@ -324,8 +323,6 @@ fn run() -> anyhow::Result<()> {
 
     let cmd = if let Some(cmd) = opts.cmd.as_ref().cloned() {
         Some(cmd)
-    } else if should_show_main_menu(&opts) {
-        select_main_menu_command()?
     } else {
         Some(SubCommand::Start(StartCommand::default()))
     };
@@ -380,186 +377,6 @@ fn run() -> anyhow::Result<()> {
         ),
         SubCommand::Chat(cmd) => cmd.run(),
         SubCommand::Provider(cmd) => cmd.run(),
-    }
-}
-
-fn should_show_main_menu(opts: &Opt) -> bool {
-    opts.cmd.is_none()
-        && !opts.skip_config
-        && opts.config_file.is_none()
-        && opts.config_override.is_empty()
-        && std::io::stdin().is_terminal()
-        && std::io::stdout().is_terminal()
-}
-
-fn select_main_menu_command() -> anyhow::Result<Option<SubCommand>> {
-    use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
-    use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-
-    const GREEN: &str = "\x1b[0;32m";
-    const PURPLE_BOLD: &str = "\x1b[1;35m";
-    const GRAY: &str = "\x1b[0;90m";
-    const RESET: &str = "\x1b[0m";
-
-    #[derive(Clone, Copy)]
-    enum MenuChoice {
-        Chat,
-        Ai,
-        Config,
-        Init,
-        Doctor,
-        Update,
-        Reset,
-    }
-
-    const MENU_ITEMS: [(&str, &str, MenuChoice); 7] = [
-        ("chat", "Start AI chat in this terminal", MenuChoice::Chat),
-        ("ai", "Manage AI tools and MANDA Assistant", MenuChoice::Ai),
-        (
-            "config",
-            "Manage terminal and assistant settings",
-            MenuChoice::Config,
-        ),
-        ("init", "Initialize shell integration", MenuChoice::Init),
-        (
-            "doctor",
-            "Run diagnostics for shell and runtime health",
-            MenuChoice::Doctor,
-        ),
-        (
-            "update",
-            "Check and install latest version",
-            MenuChoice::Update,
-        ),
-        (
-            "reset",
-            "Remove MANDA shell integration and managed defaults",
-            MenuChoice::Reset,
-        ),
-    ];
-
-    fn render_menu(
-        selected: usize,
-        green: &str,
-        purple_bold: &str,
-        gray: &str,
-        reset: &str,
-    ) -> anyhow::Result<()> {
-        use crossterm::cursor::MoveTo;
-        use crossterm::queue;
-        use crossterm::terminal::{Clear, ClearType};
-
-        let mut stdout = std::io::stdout();
-        queue!(stdout, MoveTo(0, 0), Clear(ClearType::All)).context("clear main menu")?;
-
-        let mut out = String::new();
-        out.push_str("\r\n");
-        out.push_str(&format!("{green}  _  __      _          {reset}\r\n"));
-        out.push_str(&format!("{green} | |/ /     | |         {reset}\r\n"));
-        out.push_str(&format!("{green} | ' / __ _ | | __ _   _ {reset}\r\n"));
-        out.push_str(&format!("{green} |  < / _` || |/ /| | | |{reset}\r\n"));
-        out.push_str(&format!(
-            "{green} | . \\ (_| ||   < | |_| |{reset}  {purple_bold}https://github.com/WILFREDY-X/manda{reset}\r\n"
-        ));
-        out.push_str(&format!(
-            "{green} |_|\\_\\__,_||_|\\_\\ \\__,_|{reset}  {green}A fast, out-of-the-box terminal built for AI coding.{reset}\r\n"
-        ));
-        out.push_str("\r\n");
-        for (idx, (name, desc, _)) in MENU_ITEMS.iter().enumerate() {
-            let is_selected = idx == selected;
-            let number = idx + 1;
-            if is_selected {
-                out.push_str(&format!(
-                    "{purple_bold}➤ {number}. {:<7}     {desc}{reset}\r\n",
-                    name
-                ));
-            } else {
-                out.push_str(&format!("  {number}. {:<7}     {desc}\r\n", name));
-            }
-        }
-        out.push_str("\r\n");
-        out.push_str(&format!(
-            "  {gray}↑↓  |  Enter  |  1-7  |  Q Quit  |  Esc Exit{reset}\r\n"
-        ));
-
-        stdout
-            .write_all(out.as_bytes())
-            .context("write main menu")?;
-        stdout.flush().context("flush stdout")
-    }
-
-    fn to_subcommand(choice: MenuChoice) -> SubCommand {
-        match choice {
-            MenuChoice::Chat => SubCommand::Chat(chat::ChatCommand::default()),
-            MenuChoice::Ai => SubCommand::Ai(ai_config::AiConfigCommand::default()),
-            MenuChoice::Config => SubCommand::Config(config_cmd::ConfigCommand::default()),
-            MenuChoice::Init => SubCommand::Init(init::InitCommand::default()),
-            MenuChoice::Doctor => SubCommand::Doctor(doctor::DoctorCommand::default()),
-            MenuChoice::Update => SubCommand::Update(update::UpdateCommand::default()),
-            MenuChoice::Reset => SubCommand::Reset(reset::ResetCommand::default()),
-        }
-    }
-
-    fn can_use_menu_char_shortcut(modifiers: KeyModifiers) -> bool {
-        !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
-    }
-
-    struct RawModeGuard;
-    impl Drop for RawModeGuard {
-        fn drop(&mut self) {
-            let _ = disable_raw_mode();
-        }
-    }
-
-    enable_raw_mode().context("enable raw mode for main menu")?;
-    let _raw_guard = RawModeGuard;
-
-    let mut selected = 0usize;
-    render_menu(selected, GREEN, PURPLE_BOLD, GRAY, RESET)?;
-
-    loop {
-        match event::read().context("read main menu input")? {
-            Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
-                KeyCode::Up | KeyCode::Char('k') => {
-                    if selected > 0 {
-                        selected -= 1;
-                        render_menu(selected, GREEN, PURPLE_BOLD, GRAY, RESET)?;
-                    }
-                }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    if selected + 1 < MENU_ITEMS.len() {
-                        selected += 1;
-                        render_menu(selected, GREEN, PURPLE_BOLD, GRAY, RESET)?;
-                    }
-                }
-                KeyCode::Enter => return Ok(Some(to_subcommand(MENU_ITEMS[selected].2))),
-                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    return Ok(None);
-                }
-                KeyCode::Char(c @ '1'..='7') if can_use_menu_char_shortcut(key.modifiers) => {
-                    let idx = (c as usize) - ('1' as usize);
-                    return Ok(Some(to_subcommand(MENU_ITEMS[idx].2)));
-                }
-                // Letter shortcuts: first character of each menu item name.
-                KeyCode::Char(c) if can_use_menu_char_shortcut(key.modifiers) => {
-                    let lower = c.to_ascii_lowercase();
-                    if let Some((_, _, choice)) = MENU_ITEMS
-                        .iter()
-                        .find(|(name, _, _)| name.as_bytes().first().copied() == Some(lower as u8))
-                    {
-                        return Ok(Some(to_subcommand(*choice)));
-                    }
-                }
-                KeyCode::Char('q') | KeyCode::Char('Q')
-                    if can_use_menu_char_shortcut(key.modifiers) =>
-                {
-                    return Ok(None);
-                }
-                KeyCode::Esc => return Ok(None),
-                _ => {}
-            },
-            _ => {}
-        }
     }
 }
 
