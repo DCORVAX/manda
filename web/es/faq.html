@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FAQ — MANDA</title>
+<meta name="description" content="Preguntas frecuentes sobre MANDA: plataformas, configuración, el asistente de IA, CLI, Homebrew, integración de shell y problemas comunes.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23121212'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='13' fill='%23faf9f6' text-anchor='middle'%3E%26gt;_%3C/text%3E%3C/svg%3E">
+<script>try{if(localStorage.getItem('manda-theme')==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Sans:wght@400;500;600;700&family=Hedvig+Letters+Serif:opsz,wght@12..24,400;12..24,600;12..24,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="index.html" aria-label="Inicio de MANDA">
+      <span class="brand-mark">&gt;_</span>
+      <span class="brand-name">MANDA</span>
+    </a>
+    <div class="nav-links" id="nav-links">
+      <a href="features.html">Funciones</a>
+      <a href="shortcuts.html">Atajos</a>
+      <a class="active" href="faq.html" aria-current="page">FAQ</a>
+      <a href="https://github.com/WILFREDY-X/manda">GitHub</a>
+      <div class="nav-right">
+        <span class="lang"><a href="../faq.html">EN</a><a class="active" href="faq.html" aria-current="page">ES</a></span>
+        <button class="theme-btn" onclick="toggleTheme()" aria-label="Cambiar tema">
+          <span class="icon-moon">&#9789;</span><span class="icon-sun">&#9788;</span>
+        </button>
+      </div>
+    </div>
+    <button class="nav-toggle" onclick="toggleNav()" aria-label="Menú" aria-expanded="false">&#9776;</button>
+  </div>
+</nav>
+
+<header class="page-head wrap">
+  <span class="kicker">FAQ</span>
+  <h1 class="display">Respuestas, <em>sin buscarlas.</em></h1>
+  <p class="lead">Las preguntas que más surgen — plataformas, configuración, el asistente de IA, Homebrew y algunos detalles específicos de macOS. ¿No encuentras la tuya? Consulta el <a href="https://github.com/WILFREDY-X/manda/blob/main/docs/faq.md">FAQ completo</a> o abre un issue en GitHub.</p>
+</header>
+
+<section class="wrap section">
+  <div class="faq">
+    <details class="faq-item">
+      <summary>¿Hay una versión para Windows o Linux?<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Por ahora no. MANDA es solo para macOS mientras se pule la experiencia en macOS. Windows y Linux pueden llegar más adelante.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>¿Puedo usar una ventana transparente?<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Sí. Añade a <code>~/.config/manda/manda.lua</code>:</p>
+        <pre>local config = require("manda").config
+config.window_background_opacity = 0.92
+config.macos_window_background_blur = 20  -- desenfoque opcional, 0&ndash;100
+return config</pre>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>¿Cómo desactivo copiar al seleccionar?<span class="chev">+</span></summary>
+      <div class="answer">
+        <pre>config.copy_on_select = false</pre>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>¿Cómo personalizo los atajos de teclado?<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Añade a <code>config.keys</code>, no lo reemplaces:</p>
+        <pre>config.keys[#config.keys + 1] = {
+  key = "RightArrow",
+  mods = "CMD|SHIFT",
+  action = wezterm.action.ActivatePaneDirection("Right"),
+}</pre>
+        <p>Consulta <a href="https://github.com/WILFREDY-X/manda/blob/main/docs/keybindings.md">keybindings.md</a> y <a href="https://github.com/WILFREDY-X/manda/blob/main/docs/configuration.md">configuration.md</a> para más ejemplos.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>¿Puedo controlar la herencia del directorio de trabajo?<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Sí, individualmente para ventanas, pestañas y divisiones:</p>
+        <pre>config.window_inherit_working_directory = true
+config.tab_inherit_working_directory = true
+config.split_pane_inherit_working_directory = true</pre>
+        <p>Todas están activadas por defecto.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>¿Cómo desactivo MANDA Assistant?<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Ejecuta <code>manda ai</code>, abre los ajustes de MANDA Assistant y pon Enabled en Off. O edita <code>~/.config/manda/assistant.toml</code> directamente:</p>
+        <pre>enabled = false</pre>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>¿Cómo uso un proveedor de LLM personalizado?<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Ejecuta <code>manda ai</code>, mantén Auth Type en API key e introduce manualmente tu Base URL, API Key, Simple Model y Deep Model. Elige <strong>API Mode</strong> <code>chat_completions</code> para <code>/v1/chat/completions</code>, o <code>responses</code> para <code>/v1/responses</code>. Si el proveedor de Responses soporta búsqueda alojada, activa <strong>Native Web Search</strong>; no se necesita un proveedor de búsqueda ni una API key de búsqueda por separado.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>¿Cómo restauro la configuración por defecto?<span class="chev">+</span></summary>
+      <div class="answer">
+        <pre>manda reset</pre>
+        <p>Esto elimina la integración de shell y tmux gestionada por MANDA, los valores por defecto de git delta gestionados, el estado de MANDA seleccionado y los bloques de tema gestionados en <code>~/.config/manda/manda.lua</code>. El Lua escrito por el usuario fuera de los bloques gestionados se conserva. Ejecuta <code>manda init</code> de nuevo si quieres recuperar la integración de shell.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>El comando <code>manda</code> no aparece. ¿Cómo lo recupero?<span class="chev">+</span></summary>
+      <div class="answer">
+        <pre>/Applications/Manda.app/Contents/MacOS/manda init --update-only
+exec zsh -l</pre>
+        <p>Después ejecuta <code>manda doctor</code> para verificar que todo está en orden.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>¿Cómo uso la CLI de MANDA desde scripts?<span class="chev">+</span></summary>
+      <div class="answer">
+        <pre>manda cli split-pane
+manda cli split-pane -- bash -c "echo hello"
+manda cli --help</pre>
+        <p>Consulta <a href="https://github.com/WILFREDY-X/manda/blob/main/docs/cli.md">cli.md</a> para la referencia completa.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>¿Cómo activo la barra de desplazamiento?<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Abre <code>manda config</code> y alterna la opción de la barra de desplazamiento, o añade a <code>~/.config/manda/manda.lua</code>:</p>
+        <pre>config.enable_scroll_bar = true</pre>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>¿Cómo me desplazo dentro de nano, vim u otra app de pantalla completa?<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Activa el reenvío de la rueda en la pantalla alterna:</p>
+        <pre>config.alternate_screen_wheel_scrolls_terminal = true</pre>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>¿Cómo cambio la fuente? Mi cambio de fuente no tiene efecto.<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Los cambios de fuente requieren establecer explícitamente <code>config.font</code> en tu configuración:</p>
+        <pre>config.font = wezterm.font('Your Font Name')</pre>
+        <p>Nota: el sistema de pesos de fuente consciente del tema de MANDA solo se aplica a la pila por defecto de JetBrains Mono. Una vez que pongas una fuente personalizada, MANDA ya no ajustará su peso automáticamente.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Mi cambio de <code>window_padding</code> no funciona.<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Los valores de <code>window_padding</code> requieren el sufijo de unidad <code>'px'</code>:</p>
+        <pre>config.window_padding = { left = '24px', right = '24px', top = '40px', bottom = '20px' }</pre>
+        <p>Los números simples (sin <code>'px'</code>) se interpretan como unidades de celda de terminal, que pueden no coincidir con lo que pretendes.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>La pantalla salta arriba mientras Claude Code genera la salida.<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Es una interacción conocida entre el scroll del trackpad y la salida en streaming de Claude Code. Si haces scroll hasta arriba en mitad del stream, pulsar la flecha abajo o volver a bajar te devuelve a la salida actual. Se ha rastreado una corrección para el comportamiento de salto y se ha incluido en versiones recientes.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Cmd+Shift+Y envía una ruta local dentro de una sesión SSH.<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>La función de archivos remotos de yazi (<code>Cmd+Shift+R</code>) está pensada para sesiones SSH y monta el sistema de archivos remoto vía sshfs. <code>Cmd+Shift+Y</code> es para yazi local. Usa <code>Cmd+Shift+R</code> cuando estés dentro de un panel SSH.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>El wrapper de shell <code>y</code> no sincroniza mi directorio al salir.<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Asegúrate de que la integración de shell de MANDA para fish/zsh esté cargada. Compruébalo con <code>manda doctor</code>. El wrapper <code>y</code> requiere que el init del shell esté cargado. Una llamada simple a <code>yazi</code> no sincronizará el directorio.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Homebrew no encuentra el binario / se actualiza el MANDA equivocado.<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Hay un paquete antiguo sin relación llamado <code>manda</code> en Homebrew. Instala MANDA con el tap para evitar conflictos:</p>
+        <pre>brew install WILFREDY-X/manda/manda</pre>
+        <p>Si ves errores de checksum con <code>manda update</code>, usa <code>brew upgrade WILFREDY-X/manda/manda</code> directamente.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Las notificaciones de Claude Code no aparecen.<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Puede que el permiso de notificaciones de MANDA no esté concedido. Ve a Ajustes del Sistema &gt; Notificaciones &gt; MANDA y activa Permitir notificaciones. Después reinicia MANDA.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>El atajo global no funciona en teclados no QWERTY (p. ej. Colemak).<span class="chev">+</span></summary>
+      <div class="answer">
+        <p><code>Cmd + Opt + Ctrl + K</code> usa la posición física de la K en QWERTY. En Colemak corresponde a otra tecla. Remapéalo en tu configuración:</p>
+        <pre>table.insert(config.keys, {
+  key = 'k',  -- ajusta a la tecla física de tu distribución
+  mods = 'CMD|OPT|CTRL',
+  action = wezterm.action.EmitEvent('toggle-global-window'),
+})</pre>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Los códigos QR y los gráficos de terminal se ven estirados en vertical.<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>El valor por defecto <code>line_height = 1.28</code> de MANDA favorece un espaciado de texto cómodo. Los gráficos de terminal construidos con caracteres — como códigos QR, logos de <code>neofetch</code> y barras TUI — escalan con la altura de fila, por lo que se renderizan un ~28% más altos que en terminales sin espaciado extra. Es una decisión tipográfica, no un bug de renderizado: los caracteres de bloque deben llenar toda la celda para que los bordes TUI y las barras de progreso se vean continuos.</p>
+        <p>Si quieres gráficos casi cuadrados, baja el line height en <code>~/.config/manda/manda.lua</code>:</p>
+        <pre>config.line_height = 1.1  -- o 1.0 para igualar terminales sin espaciado extra</pre>
+        <p>Nota: ninguna terminal renderiza los códigos QR de medio bloque perfectamente cuadrados: con fuentes monoespaciadas comunes la celda es naturalmente un poco más alta que 2:1 incluso con <code>line_height = 1.0</code>.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>¿Puedo usar MANDA con gestores de ventanas por tiles (yabai, AeroSpace)?<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>MANDA es compatible con yabai y AeroSpace. Si ves parpadeos continuos, normalmente se debe a que el WM por tiles pelea con la lógica de pantalla completa/redimensionado de MANDA. Desactivar la pantalla completa nativa de MANDA (<code>config.native_macos_fullscreen_mode = false</code>) o excluir MANDA de la lista de ventanas gestionadas del WM por tiles suele resolverlo.</p>
+      </div>
+    </details>
+  </div>
+</section>
+
+<section class="wrap section">
+  <div class="panel">
+    <span class="kicker">Empieza ahora</span>
+    <h2>Descargar MANDA</h2>
+    <p>macOS 12+ &middot; Apple Silicon e Intel. Notarizado por Apple — en el primer arranque, MANDA configura tu entorno de shell automáticamente.</p>
+    <a class="btn btn-primary btn-lg" href="https://github.com/WILFREDY-X/manda/releases">&#8595;&nbsp; Descargar la última versión</a>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="footer-grid">
+      <div class="footer-col">
+        <h4>Producto</h4>
+        <a href="features.html">Funciones</a>
+        <a href="shortcuts.html">Atajos</a>
+        <a href="faq.html">FAQ</a>
+        <a href="index.html#download">Descargar</a>
+      </div>
+      <div class="footer-col">
+        <h4>Proyecto</h4>
+        <a href="https://github.com/WILFREDY-X/manda">GitHub</a>
+        <a href="https://github.com/WILFREDY-X/manda/blob/main/README.md">README</a>
+        <a href="https://github.com/WILFREDY-X/manda/blob/main/LICENSE.md">Licencia</a>
+      </div>
+      <div class="footer-col">
+        <h4>Idioma</h4>
+        <a href="../faq.html">English</a>
+        <a href="faq.html">Español</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>&copy; 2024&ndash;2026 WILFREDY-X &middot; Licencia MIT</span>
+      <span class="right"><a href="https://github.com/WILFREDY-X/manda">GitHub</a><a href="https://manda-term.vercel.app/">manda-term.vercel.app</a></span>
+    </div>
+  </div>
+</footer>
+
+<script src="../script.js"></script>
+</body>
+</html>
