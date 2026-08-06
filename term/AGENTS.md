@@ -1,0 +1,35 @@
+# Terminal Agent Guide
+
+## Scope
+
+`term/` contains terminal emulation core behavior, including screen state, escape sequence handling, selection, and PTY-facing terminal semantics.
+
+## Where to Look
+
+- `term/src/terminal.rs` - main terminal state and event handling
+- `term/src/terminalstate/` - detailed state transitions
+- `term/src/screen.rs` - screen buffer behavior
+- `term/src/selection.rs` - selection and copy behavior
+- `term/src/escape/` - escape sequence handling when present
+
+## Practical Rules
+
+- Treat terminal semantics as compatibility-sensitive.
+- Prefer existing parser and state helpers over ad hoc escape handling.
+- Keep GUI assumptions out of terminal core.
+- Preserve screen buffer invariants and add focused tests for behavior changes.
+- Keep normal-screen and alternate-screen behavior distinct; wheel scrolling and inline AI status must not corrupt terminal state.
+- Preserve selection and cursor invariants that GUI overlays and inline assistant status depend on.
+- For TUI re-render corruption, reduce the report to an ANSI transcript and cover cursor motion plus erasure in terminal-core tests before changing GUI code. Full-line erase of a physical row must also leave wrap state consistent, especially for styled prompts that previously wrapped.
+
+## Verification
+
+- Compile checks: run `make check`.
+- Terminal logic changes: run `make test` or the narrow cargo nextest filter for the affected behavior.
+- Cross-crate behavior: also inspect `mux/AGENTS.md` and `manda-gui/AGENTS.md`.
+
+## Cross-References
+
+- `../mux/AGENTS.md` - owns panes and terminal instances.
+- `../manda-gui/AGENTS.md` - renders terminal surfaces.
+- `../termwiz/AGENTS.md` - terminal UI primitives.

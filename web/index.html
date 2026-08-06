@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MANDA — A fast, out-of-the-box terminal built for AI coding</title>
+<meta name="description" content="MANDA is a fast, macOS-native terminal built for AI coding: zero-config defaults, curated shell suite, and built-in AI assistant with provider presets.">
+<meta property="og:title" content="MANDA — A fast terminal built for AI coding">
+<meta property="og:description" content="Zero-config defaults, curated shell suite, and a built-in AI assistant with presets for NVIDIA, Gemini, OpenRouter, Groq, and Cerebras.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d0f14'/%3E%3Cpath d='M20 22l12 10-12 10' stroke='%23a78bfa' stroke-width='5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M34 44h12' stroke='%2334d399' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0d0f14;
+    --bg-soft: #13161d;
+    --bg-card: #171b24;
+    --border: #232937;
+    --text: #e6e9ef;
+    --text-dim: #9aa3b2;
+    --text-faint: #6b7484;
+    --accent: #a78bfa;
+    --accent-2: #34d399;
+    --accent-3: #60a5fa;
+    --grad: linear-gradient(120deg, #a78bfa 0%, #60a5fa 55%, #34d399 100%);
+    --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  ::selection { background: rgba(167, 139, 250, 0.35); }
+  a { color: var(--accent-3); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Ambient glow */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(600px 300px at 15% -5%, rgba(167,139,250,0.14), transparent 60%),
+      radial-gradient(700px 340px at 85% 0%, rgba(96,165,250,0.12), transparent 60%),
+      radial-gradient(500px 300px at 50% 110%, rgba(52,211,153,0.08), transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrap { position: relative; z-index: 1; max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* Nav */
+  nav {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(13, 15, 20, 0.82);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  nav .wrap { display: flex; align-items: center; gap: 28px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: 0.04em; color: var(--text); }
+  .brand svg { width: 28px; height: 28px; }
+  .brand:hover { text-decoration: none; }
+  .brand span em { font-style: normal; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  nav .links { display: flex; gap: 22px; margin-left: auto; font-size: 14px; }
+  nav .links a { color: var(--text-dim); }
+  nav .links a:hover { color: var(--text); text-decoration: none; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 18px; border-radius: 10px; font-weight: 600; font-size: 14px;
+    border: 1px solid var(--border); background: var(--bg-card); color: var(--text);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  }
+  .btn:hover { text-decoration: none; transform: translateY(-1px); }
+  .btn-primary { background: var(--grad); border: none; color: #0b0c10; box-shadow: 0 4px 18px rgba(139, 122, 255, 0.35); }
+  .btn-primary:hover { box-shadow: 0 6px 26px rgba(139, 122, 255, 0.5); }
+  nav .btn { padding: 7px 14px; }
+
+  /* Hero */
+  header.hero { padding: 84px 0 40px; text-align: center; }
+  .hero .badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--text-dim);
+    border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px;
+    background: var(--bg-card); margin-bottom: 22px;
+  }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 10px var(--accent-2); }
+  h1 { font-size: clamp(38px, 6vw, 62px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.08; }
+  h1 em { font-style: normal; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { margin: 20px auto 0; max-width: 620px; font-size: 18px; color: var(--text-dim); }
+  .cta { display: flex; gap: 14px; justify-content: center; margin-top: 34px; flex-wrap: wrap; }
+  .meta { margin-top: 18px; font-size: 13px; color: var(--text-faint); }
+
+  /* Terminal mockup */
+  .term {
+    margin: 56px auto 0; max-width: 780px;
+    border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
+    background: #0a0c11;
+    box-shadow: 0 24px 70px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.03);
+    text-align: left;
+  }
+  .term .bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px; background: var(--bg-soft); border-bottom: 1px solid var(--border);
+  }
+  .term .bar i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  .term .bar i:nth-child(1) { background: #ff5f57; }
+  .term .bar i:nth-child(2) { background: #febc2e; }
+  .term .bar i:nth-child(3) { background: #28c840; }
+  .term .bar span { margin-left: 8px; font-size: 12px; color: var(--text-faint); font-family: var(--mono); }
+  .term .body { padding: 20px 22px 24px; font-family: var(--mono); font-size: 14px; line-height: 1.75; }
+  .term .body .p { color: var(--text-dim); }
+  .term .body .c { color: var(--text-faint); }
+  .term .body .ok { color: var(--accent-2); }
+  .term .body .q { color: var(--accent); }
+  .term .body .prompt { color: var(--accent-3); }
+  .term .body .in { color: var(--text); }
+  .term .body .cm { color: var(--accent); }
+  .term .body .dim { color: var(--text-faint); }
+  .term .body .blink { animation: blink 1.1s steps(2, start) infinite; color: var(--text); }
+  @keyframes blink { to { visibility: hidden; } }
+
+  /* Sections */
+  section { padding: 88px 0 20px; }
+  .kicker {
+    font-size: 13px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 12px;
+  }
+  h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 800; letter-spacing: -0.015em; }
+  .lead { margin-top: 12px; max-width: 640px; color: var(--text-dim); font-size: 16px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; margin-top: 44px; }
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 26px 24px; transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  }
+  .card:hover { transform: translateY(-3px); border-color: #303950; box-shadow: 0 14px 40px rgba(0,0,0,0.4); }
+  .card .icon { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; font-size: 20px; background: rgba(167,139,250,0.12); border: 1px solid rgba(167,139,250,0.25); margin-bottom: 16px; }
+  .card:nth-child(3n+2) .icon { background: rgba(96,165,250,0.12); border-color: rgba(96,165,250,0.25); }
+  .card:nth-child(3n) .icon { background: rgba(52,211,153,0.12); border-color: rgba(52,211,153,0.25); }
+  .card h3 { font-size: 17px; margin-bottom: 8px; }
+  .card p { font-size: 14.5px; color: var(--text-dim); }
+
+  /* AI section */
+  .ai { background: linear-gradient(180deg, transparent, rgba(167,139,250,0.05) 30%, rgba(96,165,250,0.05) 70%, transparent); }
+  .providers { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+  .providers span {
+    font-family: var(--mono); font-size: 13px; color: var(--text-dim);
+    border: 1px solid var(--border); background: var(--bg-card); border-radius: 999px; padding: 7px 14px;
+  }
+  .ai-steps { margin-top: 40px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+  .step { border: 1px solid var(--border); border-radius: 14px; padding: 24px; background: rgba(19,22,29,0.6); }
+  .step .num { font-family: var(--mono); font-size: 13px; color: var(--accent); font-weight: 700; }
+  .step h3 { font-size: 16px; margin: 8px 0; }
+  .step p { font-size: 14px; color: var(--text-dim); }
+  .step code { font-family: var(--mono); font-size: 12.5px; background: rgba(167,139,250,0.1); border: 1px solid rgba(167,139,250,0.2); border-radius: 6px; padding: 2px 7px; color: var(--accent); }
+
+  /* Keybindings */
+  table { width: 100%; border-collapse: collapse; margin-top: 36px; font-size: 14.5px; }
+  th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-faint); font-weight: 600; font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase; }
+  td:first-child { color: var(--text-dim); }
+  kbd {
+    font-family: var(--mono); font-size: 12.5px; color: var(--text);
+    background: var(--bg-soft); border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 6px; padding: 2px 8px; white-space: nowrap;
+  }
+  .docs-link { display: block; margin-top: 22px; font-size: 14px; }
+
+  /* Download */
+  .dl { text-align: center; }
+  .dl .card { max-width: 640px; margin: 40px auto 0; }
+  .dl h3 { font-size: 20px; }
+  .dl p { color: var(--text-dim); font-size: 15px; margin: 10px 0 22px; }
+
+  footer { border-top: 1px solid var(--border); margin-top: 90px; padding: 34px 0; }
+  footer .wrap { display: flex; align-items: center; gap: 18px; font-size: 13.5px; color: var(--text-faint); flex-wrap: wrap; }
+  footer .right { margin-left: auto; }
+
+  @media (max-width: 640px) {
+    nav .links { display: none; }
+    header.hero { padding: 56px 0 24px; }
+    section { padding: 64px 0 8px; }
+    .term .body { font-size: 12.5px; padding: 16px 14px; }
+    table { font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <svg viewBox="0 0 64 64" fill="none" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#171b24"/><path d="M20 22l12 10-12 10" stroke="#a78bfa" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M34 44h12" stroke="#34d399" stroke-width="5" stroke-linecap="round"/></svg>
+      <span>MAN<em>DA</em></span>
+    </a>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#ai">AI Assistant</a>
+      <a href="#keys">Shortcuts</a>
+      <a href="https://github.com/WILFREDY-X/manda">GitHub</a>
+    </div>
+    <a class="btn btn-primary" href="#download">Download</a>
+  </div>
+</nav>
+
+<header class="hero wrap" id="top">
+  <span class="badge"><span class="dot"></span> v0.1.0 &middot; macOS &middot; MIT</span>
+  <h1>A fast, out-of-the-box terminal<br>built for <em>AI coding</em>.</h1>
+  <p class="sub">MANDA is a deeply customized fork of WezTerm with zero-config defaults, a curated shell suite, and a built-in AI assistant with presets for the providers you already use.</p>
+  <div class="cta">
+    <a class="btn btn-primary" href="#download">⬇&nbsp; Download for macOS</a>
+    <a class="btn" href="https://github.com/WILFREDY-X/manda">View on GitHub</a>
+  </div>
+  <p class="meta">Notarized by Apple &middot; no security warnings on launch &middot; full Lua configuration</p>
+
+  <div class="term" aria-hidden="true">
+    <div class="bar"><i></i><i></i><i></i><span>man da — zsh</span></div>
+    <div class="body">
+      <div><span class="p">~</span> <span class="c"># describe the task in natural language</span></div>
+      <div><span class="p">~</span> <span class="q"># deploy the api to production</span></div>
+      <div><span class="p">~</span> <span class="cm">git push origin main && gh workflow run deploy.yml</span><span class="blink">▊</span></div>
+      <div>&nbsp;</div>
+      <div><span class="ok">✔</span> <span class="dim">MANDA generated the command from your description — press Cmd+Shift+E to run it.</span></div>
+    </div>
+  </div>
+</header>
+
+<section class="wrap" id="features">
+  <span class="kicker">Why MANDA</span>
+  <h2>Fast by default. Yours to configure.</h2>
+  <p class="lead">Every default is chosen for practical day-one use, while staying 100% compatible with WezTerm's Lua configuration — bring your existing config with zero migration.</p>
+  <div class="grid">
+    <div class="card"><div class="icon">⚡</div><h3>Zero Config</h3><p>JetBrains Mono, tuned macOS font rendering, and low-res font sizing out of the box. Open it and go.</p></div>
+    <div class="card"><div class="icon">🌗</div><h3>Theme-Aware Experience</h3><p>Auto-switches between dark and light modes with macOS, with tuned selection colors and practical color overrides.</p></div>
+    <div class="card"><div class="icon">🐚</div><h3>Curated Shell Suite</h3><p>Built-in zsh plugins with optional CLI tools for prompt, diff, and navigation workflows — set up on first launch.</p></div>
+    <div class="card"><div class="icon">🏎️</div><h3>Fast &amp; Lightweight</h3><p>40% smaller binary, instant startup, lazy loading, and a stripped-down GPU-accelerated core.</p></div>
+    <div class="card"><div class="icon">🧩</div><h3>WezTerm-Compatible Config</h3><p>Use WezTerm's Lua config directly with full API compatibility. No migration, no lock-in.</p></div>
+    <div class="card"><div class="icon">✨</div><h3>Polished Defaults</h3><p>Copy on select, clickable file paths, history peek from full-screen apps, pane input broadcast, and a visual bell.</p></div>
+  </div>
+</section>
+
+<section class="ai wrap" id="ai">
+  <span class="kicker">Built-in assistant</span>
+  <h2>AI that lives in your terminal.</h2>
+  <p class="lead">Not a chat widget bolted on — an assistant that understands the context of what you're doing, right where you're doing it.</p>
+  <div class="ai-steps">
+    <div class="step">
+      <span class="num">01</span>
+      <h3>Error recovery</h3>
+      <p>When a command fails, MANDA automatically suggests a fix. Press <code>Cmd+Shift+E</code> to apply it.</p>
+    </div>
+    <div class="step">
+      <span class="num">02</span>
+      <h3>Natural language to command</h3>
+      <p>Type <code># describe the task</code> at the prompt and MANDA injects the resulting command, ready for you to review and run.</p>
+    </div>
+    <div class="step">
+      <span class="num">03</span>
+      <h3>Your provider, your rules</h3>
+      <p>Configure Claude Code, Codex, Gemini CLI, Copilot CLI, and more — with one-click presets and full API-key or CLI-login auth.</p>
+    </div>
+  </div>
+  <div class="providers">
+    <span>NVIDIA</span><span>Gemini</span><span>OpenRouter</span><span>Groq</span><span>Cerebras</span>
+  </div>
+</section>
+
+<section class="wrap" id="keys">
+  <span class="kicker">Shortcuts</span>
+  <h2>Familiar keys, zero relearning.</h2>
+  <table>
+    <thead><tr><th>Action</th><th>Shortcut</th></tr></thead>
+    <tbody>
+      <tr><td>New Tab</td><td><kbd>Cmd</kbd> + <kbd>T</kbd></td></tr>
+      <tr><td>Split Pane Vertical / Horizontal</td><td><kbd>Cmd</kbd> + <kbd>D</kbd> / <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd></td></tr>
+      <tr><td>AI Panel</td><td><kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>A</kbd></td></tr>
+      <tr><td>AI Chat</td><td><kbd>Cmd</kbd> + <kbd>L</kbd></td></tr>
+      <tr><td>Apply AI Suggestion</td><td><kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>E</kbd></td></tr>
+      <tr><td>Open Lazygit / Yazi</td><td><kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>G</kbd> / <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Y</kbd></td></tr>
+      <tr><td>Open Settings</td><td><kbd>Cmd</kbd> + <kbd>,</kbd></td></tr>
+    </tbody>
+  </table>
+  <a class="docs-link" href="https://github.com/WILFREDY-X/manda/blob/main/docs/keybindings.md">Full keybinding reference →</a>
+</section>
+
+<section class="dl wrap" id="download">
+  <span class="kicker">Get started</span>
+  <h2>Download MANDA</h2>
+  <div class="card">
+    <h3>macOS 12+ · Apple Silicon &amp; Intel</h3>
+    <p>Notarized by Apple. On first launch, MANDA sets up your shell environment automatically.</p>
+    <a class="btn btn-primary" href="https://github.com/WILFREDY-X/manda/releases">⬇&nbsp; Download latest release</a>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>© 2024–2026 WILFREDY-X · MIT License</span>
+    <div class="right">
+      <a href="https://github.com/WILFREDY-X/manda">GitHub</a>
+      &nbsp;·&nbsp;
+      <a href="https://github.com/WILFREDY-X/manda/blob/main/README.md">README</a>
+      &nbsp;·&nbsp;
+      <a href="https://github.com/WILFREDY-X/manda/blob/main/LICENSE.md">License</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

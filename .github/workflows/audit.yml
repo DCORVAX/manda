@@ -1,0 +1,38 @@
+name: Security Audit
+
+# Weekly cargo-audit run over Cargo.lock. Reports RustSec advisories that
+# affect any transitive dependency in the workspace. Not a PR gate; a red run
+# on main is the triage signal. cargo-audit comes from the Homebrew bottle
+# because building it from source (rustsec/audit-check does) breaks whenever
+# its dependency tree bumps MSRV past the runner's rustc.
+
+on:
+  schedule:
+    # Mondays at 06:00 UTC.
+    - cron: '0 6 * * 1'
+  push:
+    branches:
+      - main
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '.cargo/audit.toml'
+      - '.github/workflows/audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: cargo audit
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install cargo-audit
+        run: brew install cargo-audit
+
+      - name: Run cargo audit
+        run: cargo audit

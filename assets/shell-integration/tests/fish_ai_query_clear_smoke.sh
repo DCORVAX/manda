@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
+fail() {
+  echo "fish_ai_query_clear: $*" >&2
+  exit 1
+}
+
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/manda-fish-ai-query.XXXXXX")"
+cleanup() {
+  rm -rf "$tmp_dir"
+}
+trap cleanup EXIT
+
+HOME="$tmp_dir/home"
+mkdir -p "$HOME"
+
+vendor_dir="$tmp_dir/vendor"
+create_stub_vendor_dir "$vendor_dir"
+
+setup_out=""
+setup_status=0
+setup_out="$(
+  HOME="$HOME" \
+  MANDA_INIT_INTERNAL=1 \
+  MANDA_SKIP_TOOL_BOOTSTRAP=1 \
+  MANDA_SKIP_TERMINFO_BOOTSTRAP=1 \
+  MANDA_VENDOR_DIR="$vendor_dir" \
+  bash "$REPO_ROOT/assets/shell-integration/setup_fish.sh" --update-only 2>&1
+)" || setup_status=$?
+if [[ "$setup_status" -ne 0 ]]; then
+  echo "$setup_out" >&2
+  fail "setup_fish.sh failed with exit $setup_status"
+fi
+
+manda_fish="$HOME/.config/manda/fish/manda.fish"
+[[ -f "$manda_fish" ]] || fail "managed init file not created at $manda_fish"
+grep -Fq 'if set -q TERM_PROGRAM; and test "$TERM_PROGRAM" = "MANDA"; and command -q starship' \
+  "$manda_fish" \
+  || fail "generated manda.fish did not preserve the runtime MANDA session guard"
+grep -Fq 'set -l capability_file "$HOME/.config/manda/ai_inline_capability"' \
+  "$manda_fish" \
+  || fail "generated manda.fish did not read the inline AI capability"
+
+if command -v fish >/dev/null 2>&1; then
+  fish_bin="$(command -v fish)"
+  starship_stub_dir="$tmp_dir/starship-bin"
+  starship_marker="$tmp_dir/starship-initialized"
+  mkdir -p "$starship_stub_dir"
+  cp /dev/null "$starship_marker"
+  cat >"$starship_stub_dir/starship" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "init" ]]; then
+  printf 'echo initialized >> "$MANDA_STARSHIP_TEST_MARKER"\n'
+fi
+EOF
+  chmod +x "$starship_stub_dir/starship"
+
+  env \
+    HOME="$HOME" \
+    TERM_PROGRAM="Apple_Terminal" \
+    MANDA_STARSHIP_TEST_MARKER="$starship_marker" \
+    PATH="$starship_stub_dir:/usr/bin:/bin" \
+    "$fish_bin" --no-config "$manda_fish"
+  [[ ! -s "$starship_marker" ]] \
+    || fail "generated manda.fish initialized Starship outside MANDA"
+
+  env \
+    HOME="$HOME" \
+    TERM_PROGRAM="MANDA" \
+    MANDA_STARSHIP_TEST_MARKER="$starship_marker" \
+    PATH="$starship_stub_dir:/usr/bin:/bin" \
+    "$fish_bin" --no-config "$manda_fish"
+  [[ "$(cat "$starship_marker")" == "initialized" ]] \
+    || fail "generated manda.fish did not initialize Starship inside MANDA"
+else
+  echo "warning: fish not found; skipping runtime Starship guard check" >&2
+fi
+
+function_body="$(
+  awk '
+    /^function __manda_ai_query_execute$/ { in_fn = 1 }
+    in_fn { print }
+    in_fn && /^end$/ { exit }
+  ' "$manda_fish"
+)"
+
+[[ "$function_body" == *'if __manda_set_ai_user_var manda_ai_query "[mode:$mode] $query"'* ]] \
+  || fail "manda_ai_query user var is missing or not mode-tagged"
+[[ "$function_body" == *'commandline -r ""'* ]] \
+  || fail "submitted # query buffer is not cleared"
+
+sequence_ok="$(
+  awk '
+    /^function __manda_ai_query_execute$/ { in_fn = 1 }
+    in_fn && /if __manda_set_ai_user_var manda_ai_query "\[mode:\$mode\] \$query"/ { saw_user_var = 1 }
+    in_fn && saw_user_var && /commandline -r ""/ { saw_clear = 1 }
+    in_fn && saw_clear && /commandline -f repaint/ { print "ok"; exit }
+    in_fn && /^end$/ { exit }
+  ' "$manda_fish"
+)"
+
+[[ "$sequence_ok" == "ok" ]] \
+  || fail "expected query send -> commandline clear -> repaint order"
+
+echo "fish_ai_query_clear smoke test passed"
