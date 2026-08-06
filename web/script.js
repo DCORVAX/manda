@@ -60,24 +60,6 @@
     return b;
   }
 
-  /* Add a copy button to the hero terminal card (title bar). */
-  function setupTerminalCopy() {
-    var card = document.querySelector('.code-card');
-    if (!card || card.querySelector('.copy-btn')) return;
-    var pre = card.querySelector('pre');
-    var bar = card.querySelector('.bar');
-    if (!pre || !bar) return;
-    var btn = makeCopyBtn();
-    btn.addEventListener('click', function () {
-      var text = pre.textContent
-        .replace(/\u00a0/g, ' ')
-        .replace(/\$ *$/, '')
-        .trim();
-      copyText(text + '\n', btn);
-    });
-    bar.appendChild(btn);
-  }
-
   /* Add a copy button to each install command block (top-right corner). */
   function setupInstallCopy() {
     var blocks = document.querySelectorAll('.install pre');
@@ -96,7 +78,6 @@
   }
 
   function setup() {
-    setupTerminalCopy();
     setupInstallCopy();
   }
 

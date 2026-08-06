@@ -404,7 +404,4 @@ footer { border-top: 1px solid var(--divider); margin-top: 110px; padding: 48px 
 .copy-wrap { position: relative; }
 .copy-wrap .copy-btn { position: absolute; top: 8px; right: 8px; z-index: 2; }
 .copy-wrap pre { padding-right: 72px; }
-
-/* copy button inside the terminal window title bar */
-.code-card .bar .copy-btn { margin-left: auto; }
 [data-theme="dark"] .copy-wrap .copy-btn { background: var(--card); }
