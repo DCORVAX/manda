@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/WILFREDY-X/manda/stargazers"><img src="https://img.shields.io/github/stars/WILFREDY-X/manda?style=flat-square" alt="Stars"></a>
-  <a href="https://manda-term.vercel.app/"><img src="https://img.shields.io/badge/version-0.1.0-blue?style=flat-square" alt="Version"></a>
+  <a href="https://manda-terminal.vercel.app/"><img src="https://img.shields.io/badge/version-0.1.0-blue?style=flat-square" alt="Version"></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License"></a>
   <a href="https://github.com/WILFREDY-X/manda/commits"><img src="https://img.shields.io/github/commit-activity/m/WILFREDY-X/manda?style=flat-square" alt="Commits"></a>
 </p>
@@ -30,9 +30,21 @@ MANDA is a deeply customized fork of WezTerm, built for practical defaults on da
 
 ## Quick Start
 
-1. [Download MANDA](https://manda-term.vercel.app/) from the official website
-2. Open MANDA. The app is notarized by Apple, so it opens without security warnings
-3. On first launch, MANDA will automatically set up your shell environment
+**Option A — one-liner installer** (downloads the DMG from GitHub Releases):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/WILFREDY-X/manda/main/install/install.sh | bash
+```
+
+**Option B — Homebrew** (community tap):
+
+```bash
+brew install WILFREDY-X/tap/manda
+```
+
+**Option C — manual**: download `MANDA.dmg` from the [releases page](https://github.com/WILFREDY-X/manda/releases) and drag `MANDA.app` to Applications.
+
+On first launch, MANDA sets up your shell environment automatically. The current v0.1.0 build uses an ad-hoc signature — if macOS shows "developer cannot be verified", right-click the app → Open.
 
 ## Usage Guide
 
@@ -110,7 +122,7 @@ MANDA is built on top of WezTerm's robust and highly hackable engine. It adds AI
 
 ## Website
 
-The landing page source lives in [`web/`](web/index.html) and deploys to [manda-term.vercel.app](https://manda-term.vercel.app/).
+The landing page source lives in [`web/`](web/index.html) and deploys to [manda-terminal.vercel.app](https://manda-terminal.vercel.app/).
 
 ## Support
 

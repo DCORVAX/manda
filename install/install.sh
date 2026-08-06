@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # MANDA — instalador para macOS
-# Uso:  curl -fsSL https://manda-term.vercel.app/install/install.sh | bash
+# Uso:  curl -fsSL https://raw.githubusercontent.com/WILFREDY-X/manda/main/install/install.sh | bash
 #
 # Descarga el DMG desde GitHub Releases, monta la imagen y copia
 # MANDA.app a /Applications. También configura la integración de shell.
