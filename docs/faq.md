@@ -141,15 +141,15 @@ The yazi remote-files feature (`Cmd+Shift+R`) is designed for SSH sessions and m
 
 Make sure the MANDA fish/zsh shell integration is sourced. Check with `manda doctor`. The `y` wrapper requires the shell init to be loaded. A bare `yazi` call will not sync the directory.
 
-## Homebrew can't find the binary / wrong MANDA gets updated.
+## Homebrew installs the wrong `manda`.
 
-There is an older unrelated package named `manda` on Homebrew. Install MANDA with the tap to avoid conflicts:
+There is an older unrelated package named `manda` on Homebrew. Install MANDA with the one-liner installer to avoid conflicts:
 
 ```bash
-brew install WILFREDY-X/manda/manda
+curl -fsSL https://raw.githubusercontent.com/WILFREDY-X/manda/main/install/install.sh | bash
 ```
 
-If you see checksum errors with `manda update`, use `brew upgrade WILFREDY-X/manda/manda` directly.
+The installer always downloads the MANDA DMG from GitHub Releases.
 
 ## Claude Code notifications don't appear.
 

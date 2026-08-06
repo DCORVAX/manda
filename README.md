@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/manda.jpg" alt="MANDA Screenshot" width="1000" />
+  <img src="web/screenshots/manda.png" alt="MANDA Screenshot" width="1000" />
 </p>
 
 ## Why
@@ -36,13 +36,7 @@ MANDA is a deeply customized fork of WezTerm, built for practical defaults on da
 curl -fsSL https://raw.githubusercontent.com/WILFREDY-X/manda/main/install/install.sh | bash
 ```
 
-**Option B — Homebrew** (community tap):
-
-```bash
-brew install WILFREDY-X/tap/manda
-```
-
-**Option C — manual**: download `MANDA.dmg` from the [releases page](https://github.com/WILFREDY-X/manda/releases) and drag `MANDA.app` to Applications.
+**Option B — manual**: download `MANDA.dmg` from the [releases page](https://github.com/WILFREDY-X/manda/releases) and drag `MANDA.app` to Applications.
 
 On first launch, MANDA sets up your shell environment automatically. The current v0.1.0 build uses an ad-hoc signature — if macOS shows "developer cannot be verified", right-click the app → Open.
 
