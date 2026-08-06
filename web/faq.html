@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FAQ — MANDA</title>
-<meta name="description" content="Frequently asked questions about MANDA: platforms, configuration, the AI assistant, CLI, Homebrew, shell integration, and common issues.">
+<meta name="description" content="The six most common MANDA questions, answered: platforms, custom LLM providers, keybindings, the AI assistant, reset, and Homebrew.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23121212'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='13' fill='%23faf9f6' text-anchor='middle'%3E%26gt;_%3C/text%3E%3C/svg%3E">
 <script>try{if(localStorage.getItem('manda-theme')==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -39,7 +39,7 @@
 <header class="page-head wrap">
   <span class="kicker">FAQ</span>
   <h1 class="display">Answers, <em>without the hunt.</em></h1>
-  <p class="lead">The questions that come up most — platforms, configuration, the AI assistant, Homebrew, and a few macOS-specific quirks. Can&rsquo;t find yours? Check the <a href="https://github.com/WILFREDY-X/manda/blob/main/docs/faq.md">full FAQ</a> or open an issue on GitHub.</p>
+  <p class="lead">The six questions that come up most. Something missing? <a href="https://github.com/WILFREDY-X/manda/issues">Open an issue</a>.</p>
 </header>
 
 <section class="wrap section">
@@ -47,64 +47,35 @@
     <details class="faq-item">
       <summary>Is there a Windows or Linux version?<span class="chev">+</span></summary>
       <div class="answer">
-        <p>Not currently. MANDA is macOS-only while the macOS experience is being polished. Windows and Linux may come later.</p>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>Can I use a transparent window?<span class="chev">+</span></summary>
-      <div class="answer">
-        <p>Yes. Add to <code>~/.config/manda/manda.lua</code>:</p>
-        <pre>local config = require("manda").config
-config.window_background_opacity = 0.92
-config.macos_window_background_blur = 20  -- optional blur, 0&ndash;100
-return config</pre>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>How do I turn off copy on select?<span class="chev">+</span></summary>
-      <div class="answer">
-        <pre>config.copy_on_select = false</pre>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>How do I customize keybindings?<span class="chev">+</span></summary>
-      <div class="answer">
-        <p>Append to <code>config.keys</code>, do not replace it:</p>
-        <pre>config.keys[#config.keys + 1] = {
-  key = "RightArrow",
-  mods = "CMD|SHIFT",
-  action = wezterm.action.ActivatePaneDirection("Right"),
-}</pre>
-        <p>See <a href="https://github.com/WILFREDY-X/manda/blob/main/docs/keybindings.md">keybindings.md</a> and <a href="https://github.com/WILFREDY-X/manda/blob/main/docs/configuration.md">configuration.md</a> for more examples.</p>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>Can I control working directory inheritance?<span class="chev">+</span></summary>
-      <div class="answer">
-        <p>Yes, individually for windows, tabs, and splits:</p>
-        <pre>config.window_inherit_working_directory = true
-config.tab_inherit_working_directory = true
-config.split_pane_inherit_working_directory = true</pre>
-        <p>All are enabled by default.</p>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>How do I disable MANDA Assistant?<span class="chev">+</span></summary>
-      <div class="answer">
-        <p>Run <code>manda ai</code>, open MANDA Assistant settings, and set Enabled to Off. Or edit <code>~/.config/manda/assistant.toml</code> directly:</p>
-        <pre>enabled = false</pre>
+        <p>Not yet — macOS only for now. Windows and Linux may come later.</p>
       </div>
     </details>
 
     <details class="faq-item">
       <summary>How do I use a custom LLM provider?<span class="chev">+</span></summary>
       <div class="answer">
-        <p>Run <code>manda ai</code>, keep Auth Type set to API key, and enter your Base URL, API Key, Simple Model, and Deep Model manually. Choose <strong>API Mode</strong> <code>chat_completions</code> for <code>/v1/chat/completions</code>, or <code>responses</code> for <code>/v1/responses</code>. If the Responses provider supports hosted search, set <strong>Native Web Search</strong> to On; no separate search provider or search API key is required.</p>
+        <p>Run <code>manda ai</code>, keep Auth Type = API key, and enter your Base URL, API Key, Simple Model, and Deep Model. API Mode: <code>chat_completions</code> for <code>/v1/chat/completions</code>, <code>responses</code> for <code>/v1/responses</code>. If the provider supports hosted search, turn on Native Web Search — no separate search key needed.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>How do I customize keybindings?<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Append to <code>config.keys</code> — don&rsquo;t replace it:</p>
+        <pre>config.keys[#config.keys + 1] = {
+  key = "RightArrow",
+  mods = "CMD|SHIFT",
+  action = wezterm.action.ActivatePaneDirection("Right"),
+}</pre>
+        <p>More examples: <a href="https://github.com/WILFREDY-X/manda/blob/main/docs/keybindings.md">keybindings.md</a> &middot; <a href="https://github.com/WILFREDY-X/manda/blob/main/docs/configuration.md">configuration.md</a></p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>How do I disable MANDA Assistant?<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Run <code>manda ai</code> &rarr; Assistant settings &rarr; Enabled: Off. Or edit <code>~/.config/manda/assistant.toml</code>:</p>
+        <pre>enabled = false</pre>
       </div>
     </details>
 
@@ -112,126 +83,16 @@ config.split_pane_inherit_working_directory = true</pre>
       <summary>How do I restore default config?<span class="chev">+</span></summary>
       <div class="answer">
         <pre>manda reset</pre>
-        <p>This removes MANDA-managed shell and tmux integration, MANDA-managed git delta defaults, selected MANDA state, and managed theme blocks in <code>~/.config/manda/manda.lua</code>. User-authored Lua outside managed blocks is preserved. Run <code>manda init</code> again if you want shell integration back.</p>
+        <p>Removes MANDA-managed shell/tmux integration, git delta defaults, state, and managed theme blocks. Your own Lua is kept. Run <code>manda init</code> to reinstall shell integration.</p>
       </div>
     </details>
 
     <details class="faq-item">
-      <summary>The <code>manda</code> command is missing. How do I recover it?<span class="chev">+</span></summary>
+      <summary>Homebrew can&rsquo;t find the binary / updates the wrong package.<span class="chev">+</span></summary>
       <div class="answer">
-        <pre>/Applications/Manda.app/Contents/MacOS/manda init --update-only
-exec zsh -l</pre>
-        <p>Then run <code>manda doctor</code> to verify everything is healthy.</p>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>How do I use MANDA&rsquo;s CLI from scripts?<span class="chev">+</span></summary>
-      <div class="answer">
-        <pre>manda cli split-pane
-manda cli split-pane -- bash -c "echo hello"
-manda cli --help</pre>
-        <p>See <a href="https://github.com/WILFREDY-X/manda/blob/main/docs/cli.md">cli.md</a> for full reference.</p>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>How do I enable the scrollbar?<span class="chev">+</span></summary>
-      <div class="answer">
-        <p>Open <code>manda config</code> and toggle the scrollbar option, or add to <code>~/.config/manda/manda.lua</code>:</p>
-        <pre>config.enable_scroll_bar = true</pre>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>How do I scroll inside nano, vim, or another full-screen terminal app?<span class="chev">+</span></summary>
-      <div class="answer">
-        <p>Enable alternate-screen wheel forwarding:</p>
-        <pre>config.alternate_screen_wheel_scrolls_terminal = true</pre>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>How do I change the font? My font change isn&rsquo;t taking effect.<span class="chev">+</span></summary>
-      <div class="answer">
-        <p>Font changes require explicitly setting <code>config.font</code> in your config:</p>
-        <pre>config.font = wezterm.font('Your Font Name')</pre>
-        <p>Note: MANDA&rsquo;s theme-aware font weight system only applies to the default JetBrains Mono stack. Once you set a custom font, MANDA will no longer override its weight automatically.</p>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>My <code>window_padding</code> change isn&rsquo;t working.<span class="chev">+</span></summary>
-      <div class="answer">
-        <p><code>window_padding</code> values require a <code>'px'</code> unit suffix:</p>
-        <pre>config.window_padding = { left = '24px', right = '24px', top = '40px', bottom = '20px' }</pre>
-        <p>Plain numbers (without <code>'px'</code>) are interpreted as terminal cell units, which may not match your intent.</p>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>The screen jumps to the top while Claude Code is generating output.<span class="chev">+</span></summary>
-      <div class="answer">
-        <p>This is a known interaction between trackpad scroll and Claude Code&rsquo;s streaming output. If you accidentally scroll to the top mid-stream, pressing the down arrow or scrolling back down returns you to the current output. A fix for the jump behavior has been tracked and shipped in recent releases.</p>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>Cmd+Shift+Y sends a local path when inside an SSH session.<span class="chev">+</span></summary>
-      <div class="answer">
-        <p>The yazi remote-files feature (<code>Cmd+Shift+R</code>) is designed for SSH sessions and mounts the remote filesystem via sshfs. <code>Cmd+Shift+Y</code> is for local yazi. Use <code>Cmd+Shift+R</code> when you are inside an SSH pane.</p>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>The <code>y</code> shell wrapper doesn&rsquo;t sync my directory on exit.<span class="chev">+</span></summary>
-      <div class="answer">
-        <p>Make sure the MANDA fish/zsh shell integration is sourced. Check with <code>manda doctor</code>. The <code>y</code> wrapper requires the shell init to be loaded. A bare <code>yazi</code> call will not sync the directory.</p>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>Homebrew can&rsquo;t find the binary / wrong MANDA gets updated.<span class="chev">+</span></summary>
-      <div class="answer">
-        <p>There is an older unrelated package named <code>manda</code> on Homebrew. Install MANDA with the tap to avoid conflicts:</p>
+        <p>There&rsquo;s an unrelated older <code>manda</code> package on Homebrew. Use the tap:</p>
         <pre>brew install WILFREDY-X/manda/manda</pre>
-        <p>If you see checksum errors with <code>manda update</code>, use <code>brew upgrade WILFREDY-X/manda/manda</code> directly.</p>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>Claude Code notifications don&rsquo;t appear.<span class="chev">+</span></summary>
-      <div class="answer">
-        <p>MANDA&rsquo;s notification permission may not be granted. Go to System Settings &gt; Notifications &gt; MANDA and enable Allow Notifications. Then restart MANDA.</p>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>The global hotkey doesn&rsquo;t work on non-QWERTY keyboards (e.g. Colemak).<span class="chev">+</span></summary>
-      <div class="answer">
-        <p><code>Cmd + Opt + Ctrl + K</code> uses the physical QWERTY K position. On Colemak, this corresponds to a different key. Remap it in your config:</p>
-        <pre>table.insert(config.keys, {
-  key = 'k',  -- adjust to your layout's physical key
-  mods = 'CMD|OPT|CTRL',
-  action = wezterm.action.EmitEvent('toggle-global-window'),
-})</pre>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>QR codes and terminal graphics look vertically stretched.<span class="chev">+</span></summary>
-      <div class="answer">
-        <p>MANDA&rsquo;s default <code>line_height = 1.28</code> favors comfortable text spacing. Terminal graphics built from characters, such as QR codes, <code>neofetch</code> logos, and TUI bar charts, scale with the row height, so they render about 28% taller than in terminals with no extra line spacing. This is a typography trade-off, not a rendering bug: block characters must fill the whole cell so TUI borders and progress bars stay seamless.</p>
-        <p>If you want near-square graphics, lower the line height in <code>~/.config/manda/manda.lua</code>:</p>
-        <pre>config.line_height = 1.1  -- or 1.0 to match terminals without extra spacing</pre>
-        <p>Note that no terminal renders half-block QR codes perfectly square: with common monospace fonts the cell is naturally a bit taller than 2:1 even at <code>line_height = 1.0</code>.</p>
-      </div>
-    </details>
-
-    <details class="faq-item">
-      <summary>Can I use MANDA with tiling window managers (yabai, AeroSpace)?<span class="chev">+</span></summary>
-      <div class="answer">
-        <p>MANDA is compatible with yabai and AeroSpace. If you see continuous flickering, it is usually caused by the tiling WM fighting with MANDA&rsquo;s fullscreen/resize logic. Disabling MANDA&rsquo;s native fullscreen (<code>config.native_macos_fullscreen_mode = false</code>) or excluding MANDA from the tiling WM&rsquo;s managed window list typically resolves it.</p>
+        <p>Checksum errors? Use <code>brew upgrade WILFREDY-X/manda/manda</code>.</p>
       </div>
     </details>
   </div>
