@@ -60,6 +60,107 @@
     return b;
   }
 
+  /* ----- Hero terminal typing effect + cyclic shortcut carousel -----
+     Types the initial command once, then loops forever through all the
+     keyboard shortcuts, one per cycle, so the demo keeps living. */
+  function setupTyping() {
+    var card = document.querySelector('.code-card');
+    var cmd = card && card.querySelector('.cmd-type');
+    if (!card || !cmd) return;
+    var typed = cmd.querySelector('.typed');
+    var cmdCursor = cmd.querySelector('.cursor');
+    var doneLine = card.querySelector('.done-line');
+    var promptFinal = card.querySelector('.prompt-final');
+    var cycleText = card.querySelector('.cycle-text');
+    var cycleResult = card.querySelector('.cycle-result');
+    if (!typed || !cycleText) return;
+
+    var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    /* One entry per shortcut shown in the carousel: the key combo and its label. */
+    var es = (document.documentElement.getAttribute('lang') || 'en').toLowerCase().indexOf('es') === 0;
+    var shortcuts = es ? [
+      { cmd: 'Cmd+Shift+A', out: 'Panel de IA' },
+      { cmd: 'Cmd+T', out: 'Nueva pesta\u00f1a' },
+      { cmd: 'Cmd+L', out: 'Chat de IA' },
+      { cmd: 'Cmd+Shift+G', out: 'Abrir lazygit' },
+      { cmd: 'Cmd+D', out: 'Dividir panel en vertical' },
+      { cmd: 'Cmd+K', out: 'Limpiar pantalla' }
+    ] : [
+      { cmd: 'Cmd+Shift+A', out: 'AI Panel' },
+      { cmd: 'Cmd+T', out: 'New Tab' },
+      { cmd: 'Cmd+L', out: 'AI Chat' },
+      { cmd: 'Cmd+Shift+G', out: 'Open Lazygit' },
+      { cmd: 'Cmd+D', out: 'Split Pane Vertical' },
+      { cmd: 'Cmd+K', out: 'Clear Screen' }
+    ];
+
+    if (reduced) {
+      typed.textContent = cmd.getAttribute('data-cmd') || '';
+      if (doneLine) doneLine.classList.add('visible');
+      if (promptFinal) promptFinal.classList.add('visible');
+      if (cycleResult) {
+        cycleResult.querySelector('.cycle-out').textContent = shortcuts[0].out;
+        cycleResult.classList.add('visible');
+      }
+      return;
+    }
+
+    var speed = 55; /* ms per char — natural typing pace */
+
+    function typeText(el, text, done) {
+      var n = 0;
+      el.textContent = '';
+      (function step() {
+        n += 1;
+        el.textContent = text.slice(0, n);
+        if (n < text.length) {
+          setTimeout(step, speed + Math.random() * 25);
+        } else if (done) {
+          done();
+        }
+      })();
+    }
+
+    var idx = 0;
+
+    function runCycle() {
+      var item = shortcuts[idx % shortcuts.length];
+      idx += 1;
+      if (cycleResult) cycleResult.classList.remove('visible');
+      cycleText.classList.remove('hiding');
+      typeText(cycleText, item.cmd, function () {
+        setTimeout(function () {
+          if (cycleResult) {
+            cycleResult.querySelector('.cycle-out').textContent = item.out;
+            cycleResult.classList.add('visible');
+          }
+          setTimeout(function () {
+            cycleText.classList.add('hiding');
+            setTimeout(function () {
+              cycleText.textContent = '';
+              cycleText.classList.remove('hiding');
+              if (cycleResult) cycleResult.classList.remove('visible');
+              runCycle();
+            }, 220);
+          }, 1700);
+        }, 350);
+      });
+    }
+
+    /* First type the deploy command, reveal the ✓ line, then start the carousel. */
+    typeText(typed, cmd.getAttribute('data-cmd') || '', function () {
+      if (cmdCursor) cmdCursor.style.opacity = '0';
+      setTimeout(function () {
+        if (doneLine) doneLine.classList.add('visible');
+        setTimeout(function () {
+          if (promptFinal) promptFinal.classList.add('visible');
+          setTimeout(runCycle, 600);
+        }, 450);
+      }, 350);
+    });
+  }
+
   /* Add a copy button to each install command block (top-right corner). */
   function setupInstallCopy() {
     var blocks = document.querySelectorAll('.install pre');
@@ -79,6 +180,7 @@
 
   function setup() {
     setupInstallCopy();
+    setupTyping();
   }
 
   if (document.readyState === 'loading') {

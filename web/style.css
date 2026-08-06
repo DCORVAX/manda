@@ -214,6 +214,39 @@ h3 {
 }
 @keyframes manda-cursor { 50% { opacity: 0; } }
 
+/* typing effect: reveal command, then result + final prompt */
+.code-card pre .done-line,
+.code-card pre .prompt-final {
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+.code-card pre .done-line.visible,
+.code-card pre .prompt-final.visible {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .code-card pre .done-line,
+  .code-card pre .prompt-final {
+    opacity: 1;
+  }
+}
+
+/* ----- Cyclic shortcut carousel in the hero terminal ----- */
+.code-card pre .cycle-result {
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.code-card pre .cycle-result.visible {
+  opacity: 1;
+}
+.code-card pre .cycle-text {
+  opacity: 1;
+  transition: opacity 0.18s ease;
+}
+.code-card pre .cycle-text.hiding {
+  opacity: 0;
+}
+
 /* ----- Cards / grid ----- */
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-top: 40px; }
 .grid-3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
