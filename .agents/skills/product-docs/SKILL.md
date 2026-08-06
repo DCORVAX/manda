@@ -13,7 +13,7 @@ The audience is normal users, not contributors. Explain what each feature **is**
 ## Where things live
 
 - **Site source**: `web/` in this repository — a small static multi-page site with no build step:
-  - `index.html` (EN home — keep short: hero, three highlights, compact Why/AI teasers, download), `features.html` (full feature grid + AI section), `shortcuts.html` (full keybinding table), `faq.html` (accordion FAQ from `docs/faq.md`).
+  - `index.html` (EN home — keep short: hero, three highlights, compact Why/AI teasers, download), `features.html` (full feature grid + AI section), `shortcuts.html` (full keybinding table), `faq.html` (accordion with the top 6 FAQs distilled from `docs/faq.md`).
   - `es/` — Spanish mirrors of the same four pages, kept in lockstep (same structure, section order, and anchors).
   - Shared `web/style.css` (design system) and `web/script.js` (theme toggle + mobile nav).
   - Deploys to `manda-term.vercel.app`; point the Vercel project root at the `web/` directory.
@@ -34,7 +34,7 @@ User-facing docs are public. Do not copy feature claims from a subagent summary 
 ## Workflow
 
 1. **Scope**: read `git log` for what changed since the site was last updated. Read the nearest crate `AGENTS.md` and `CLAUDE.md` for feature notes.
-2. **Edit the pages**: keep the home page short; put depth on `features.html` and `shortcuts.html`. Change copy in the EN page and its `es/` twin together. Preserve the section structure, class names, and anchor names. The FAQ pages (`faq.html` + `es/faq.html`) mirror `docs/faq.md`; update them when the doc gains or loses a question. The FAQ is linked from the footer of every page.
+2. **Edit the pages**: keep the home page short; put depth on `features.html` and `shortcuts.html`. Change copy in the EN page and its `es/` twin together. Preserve the section structure, class names, and anchor names. The FAQ pages (`faq.html` + `es/faq.html`) distill the top 6 questions from `docs/faq.md`; keep answers short and pick the most user-facing questions. The FAQ is linked from the footer of every page.
 3. **Version pointers** (only when a release shipped): bump the version badge in the hero and the footer of both languages; leave historical wording alone.
 4. **Verify before declaring done**:
    - Open `web/index.html` in a browser (or `python3 -m http.server` from `web/`) and confirm it renders without errors in light and dark (toggle in the nav).

@@ -275,29 +275,31 @@ kbd {
 .page-head { padding: 88px 0 8px; }
 .page-head h1 { margin-bottom: 16px; }
 
-/* ----- FAQ accordion ----- */
-.faq { max-width: 780px; margin-top: 44px; }
-.faq-item {
-  border: 1px solid var(--divider); border-radius: var(--r-card);
-  background: var(--card); margin-bottom: 12px; overflow: hidden;
-  transition: border-color 0.15s ease;
-}
-.faq-item[open] { border-color: var(--stone); }
+/* ----- FAQ accordion (clean list, divider-aligned) ----- */
+.faq { max-width: 760px; margin-top: 40px; }
+.faq-item { border-bottom: 1px solid var(--divider); }
+.faq-item:first-of-type { border-top: 1px solid var(--divider); }
 .faq-item summary {
-  list-style: none; cursor: pointer; display: flex; align-items: center;
-  justify-content: space-between; gap: 16px;
-  padding: 20px 24px; font-family: var(--serif); font-weight: 600;
-  font-size: 17px; line-height: 1.45;
+  list-style: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  padding: 20px 4px;
+  font-family: var(--serif); font-weight: 600; font-size: 17px; line-height: 1.4;
+  color: var(--ink); transition: color 0.15s ease;
 }
 .faq-item summary::-webkit-details-marker { display: none; }
 .faq-item summary:hover { color: var(--ink-soft); }
+.faq-item summary code {
+  font-family: var(--mono); font-size: 14px; background: var(--sand);
+  color: var(--ink); border-radius: var(--r-md); padding: 1px 6px;
+}
 .faq-item .chev {
-  flex: none; font-family: var(--mono); font-size: 18px; line-height: 1;
+  flex: none; font-family: var(--mono); font-size: 16px; line-height: 1;
   color: var(--ink-muted); transition: transform 0.2s ease;
 }
 .faq-item[open] summary .chev { transform: rotate(45deg); }
 .faq-item .answer {
-  padding: 0 24px 22px; color: var(--ink-mid); font-size: 14.5px; line-height: 1.7;
+  padding: 0 4px 24px; max-width: 660px;
+  color: var(--ink-mid); font-size: 14.5px; line-height: 1.7;
 }
 .faq-item .answer p { margin: 0 0 10px; }
 .faq-item .answer p:last-child { margin-bottom: 0; }
@@ -306,8 +308,8 @@ kbd {
   color: var(--ink); border-radius: var(--r-md); padding: 2px 7px;
 }
 .faq-item .answer pre {
-  background: var(--surface); border: 1px solid var(--divider);
-  border-radius: var(--r-card); padding: 16px 18px; overflow-x: auto;
+  background: var(--card); border: 1px solid var(--divider);
+  border-radius: var(--r-card); padding: 14px 16px; overflow-x: auto;
   font-family: var(--mono); font-size: 12.5px; line-height: 1.7; margin: 12px 0;
   color: var(--ink-soft);
 }
