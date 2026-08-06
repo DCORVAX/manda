@@ -2435,10 +2435,7 @@ mod tests {
                 .map(|m| m.link.uri().to_string())
         };
 
-        assert_eq!(
-            uri("visit manda.ai."),
-            Some("https://manda.ai".to_string())
-        );
+        assert_eq!(uri("visit manda.ai."), Some("https://manda.ai".to_string()));
         assert_eq!(
             uri("\u{53BB} manda.ai\u{3002}"),
             Some("https://manda.ai".to_string())
