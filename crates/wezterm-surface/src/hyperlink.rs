@@ -305,13 +305,13 @@ mod test {
     fn parse_stops_at_fullwidth_comma() {
         let rules = vec![Rule::new(GENERIC_HYPERLINK_PATTERN, "$0").unwrap()];
         let matches = Rule::match_hyperlinks(
-            "https://github.com/tw93/Mole/issues/739#issuecomment-4242295338\u{FF0C}issue",
+            "https://github.com/WILFREDY-X/manda/issues/1#issuecomment-4242295338\u{FF0C}issue",
             &rules,
         );
         assert_eq!(matches.len(), 1);
         assert_eq!(
             matches[0].link.uri(),
-            "https://github.com/tw93/Mole/issues/739#issuecomment-4242295338"
+            "https://github.com/WILFREDY-X/manda/issues/1#issuecomment-4242295338"
         );
     }
 

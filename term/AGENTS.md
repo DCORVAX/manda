@@ -26,10 +26,10 @@
 
 - Compile checks: run `make check`.
 - Terminal logic changes: run `make test` or the narrow cargo nextest filter for the affected behavior.
-- Cross-crate behavior: also inspect `mux/AGENTS.md` and `kaku-gui/AGENTS.md`.
+- Cross-crate behavior: also inspect `mux/AGENTS.md` and `manda-gui/AGENTS.md`.
 
 ## Cross-References
 
 - `../mux/AGENTS.md` - owns panes and terminal instances.
-- `../kaku-gui/AGENTS.md` - renders terminal surfaces.
+- `../manda-gui/AGENTS.md` - renders terminal surfaces.
 - `../termwiz/AGENTS.md` - terminal UI primitives.

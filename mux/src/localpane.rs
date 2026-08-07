@@ -81,7 +81,7 @@ struct CachedLeaderInfo {
 
 /// Cache of `with_root_pid(process_group_leader_pid)` to avoid repeating the
 /// full system `proc_listallpids` + per-pid `proc_pidinfo` scan on every paint.
-/// `forces_opaque_kaku_tui_background` (render hot path) and the tab bar both
+/// `forces_opaque_manda_tui_background` (render hot path) and the tab bar both
 /// query this each frame; without a cache, multiple panes streaming output from
 /// TUI agents (claude code, codex) trigger N x ~1000 syscalls per frame.
 #[cfg(unix)]
@@ -291,7 +291,7 @@ impl Pane for LocalPane {
         let mut proc = self.process.lock();
 
         const EXIT_BEHAVIOR: &str = "This message is shown because \
-            \x1b]8;;https://github.com/tw93/Kaku/\
+            \x1b]8;;https://github.com/WILFREDY-X/manda/\
             config/lua/config/exit_behavior.html\
             \x1b\\exit_behavior\x1b]8;;\x1b\\";
 

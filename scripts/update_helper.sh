@@ -19,18 +19,18 @@ NEW_APP_NORM=$(strip_trailing_slashes "$NEW_APP")
 TARGET_APP="$TARGET_APP_NORM"
 NEW_APP="$NEW_APP_NORM"
 BACKUP_APP="${TARGET_APP}.backup.$(date +%s)"
-TARGET_GUI="$TARGET_APP/Contents/MacOS/kaku-gui"
-TARGET_CLI="$TARGET_APP/Contents/MacOS/kaku"
+TARGET_GUI="$TARGET_APP/Contents/MacOS/manda-gui"
+TARGET_CLI="$TARGET_APP/Contents/MacOS/manda"
 
-# Validate that paths end with Kaku.app for safety (allow trailing slashes).
-# Final component match mirrors Rust Path::ends_with("Kaku.app") semantics.
-# After stripping trailing slashes, the final component must be Kaku.app
-if [[ ! "$TARGET_APP_NORM" == */Kaku.app && ! "$TARGET_APP_NORM" == Kaku.app ]]; then
-    echo "Error: TARGET_APP must end with Kaku.app" >&2
+# Validate that paths end with Manda.app for safety (allow trailing slashes).
+# Final component match mirrors Rust Path::ends_with("Manda.app") semantics.
+# After stripping trailing slashes, the final component must be Manda.app
+if [[ ! "$TARGET_APP_NORM" == */Manda.app && ! "$TARGET_APP_NORM" == Manda.app ]]; then
+    echo "Error: TARGET_APP must end with Manda.app" >&2
     exit 1
 fi
-if [[ ! "$NEW_APP_NORM" == */Kaku.app && ! "$NEW_APP_NORM" == Kaku.app ]]; then
-    echo "Error: NEW_APP must end with Kaku.app" >&2
+if [[ ! "$NEW_APP_NORM" == */Manda.app && ! "$NEW_APP_NORM" == Manda.app ]]; then
+    echo "Error: NEW_APP must end with Manda.app" >&2
     exit 1
 fi
 
@@ -55,7 +55,7 @@ read_persisted_managed_shell() {
     fi
     config_base="$HOME/.config"
   fi
-  state_file="$config_base/kaku/state.json"
+  state_file="$config_base/manda/state.json"
   if [[ ! -f "$state_file" ]]; then
     return
   fi
@@ -65,14 +65,14 @@ read_persisted_managed_shell() {
   esac
 }
 
-install_kaku_wrapper_fallback() {
+install_manda_wrapper_fallback() {
   local home_dir shell_candidate wrapper_shell wrapper_path wrapper_dir
   home_dir="${HOME:-}"
   if [[ -z "$home_dir" ]]; then
     return 1
   fi
 
-  shell_candidate="${KAKU_TARGET_SHELL:-}"
+  shell_candidate="${MANDA_TARGET_SHELL:-}"
   if [[ -z "$shell_candidate" ]]; then
     shell_candidate="$(read_persisted_managed_shell || true)"
   fi
@@ -88,7 +88,7 @@ install_kaku_wrapper_fallback() {
       ;;
   esac
 
-  wrapper_path="$home_dir/.config/kaku/$wrapper_shell/bin/kaku"
+  wrapper_path="$home_dir/.config/manda/$wrapper_shell/bin/manda"
   wrapper_dir="${wrapper_path%/*}"
   /bin/mkdir -p "$wrapper_dir"
 
@@ -96,20 +96,20 @@ install_kaku_wrapper_fallback() {
 #!/bin/bash
 set -euo pipefail
 
-if [[ -n "\${KAKU_BIN:-}" && -x "\${KAKU_BIN}" ]]; then
-  exec "\${KAKU_BIN}" "\$@"
+if [[ -n "\${MANDA_BIN:-}" && -x "\${MANDA_BIN}" ]]; then
+  exec "\${MANDA_BIN}" "\$@"
 fi
 
 for candidate in \
   "$TARGET_CLI" \
-  "/Applications/Kaku.app/Contents/MacOS/kaku" \
-  "\${HOME:-}/Applications/Kaku.app/Contents/MacOS/kaku"; do
+  "/Applications/Manda.app/Contents/MacOS/manda" \
+  "\${HOME:-}/Applications/Manda.app/Contents/MacOS/manda"; do
   if [[ -n "\$candidate" && -x "\$candidate" ]]; then
     exec "\$candidate" "\$@"
   fi
 done
 
-  echo "kaku: Kaku.app not found. Expected /Applications/Kaku.app." >&2
+  echo "manda: Manda.app not found. Expected /Applications/Manda.app." >&2
   exit 127
 EOF
 
@@ -122,7 +122,7 @@ log "start apply update"
 # pgrep/pkill -f treats the pattern as a regex, but TARGET_GUI/TARGET_CLI may contain
 # regex metacharacters. Match against the full command line via ps and shell pattern
 # literals instead. Use ps -axww so long command lines are not truncated.
-collect_kaku_pids() {
+collect_manda_pids() {
   ps -axww -o pid= -o args= | while read -r pid args; do
     [[ -z "$pid" ]] && continue
     [[ "$pid" == "$$" ]] && continue
@@ -132,13 +132,13 @@ collect_kaku_pids() {
   done | sort -u
 }
 
-KAKU_PIDS=""
+MANDA_PIDS=""
 for _ in $(seq 1 20); do
-  KAKU_PIDS=$(collect_kaku_pids | tr '\n' ' ')
-  if [[ -z "$KAKU_PIDS" ]]; then
+  MANDA_PIDS=$(collect_manda_pids | tr '\n' ' ')
+  if [[ -z "$MANDA_PIDS" ]]; then
     break
   fi
-  for pid in $KAKU_PIDS; do
+  for pid in $MANDA_PIDS; do
     if ! kill -TERM "$pid" 2>/dev/null; then
       log "failed to send TERM to pid $pid"
     fi
@@ -146,9 +146,9 @@ for _ in $(seq 1 20); do
   sleep 1
 done
 # Final force-kill if any remain
-KAKU_PIDS=$(collect_kaku_pids | tr '\n' ' ')
-if [[ -n "$KAKU_PIDS" ]]; then
-  for pid in $KAKU_PIDS; do
+MANDA_PIDS=$(collect_manda_pids | tr '\n' ' ')
+if [[ -n "$MANDA_PIDS" ]]; then
+  for pid in $MANDA_PIDS; do
     if ! kill -KILL "$pid" 2>/dev/null; then
       log "failed to send KILL to pid $pid"
     fi
@@ -176,18 +176,18 @@ log "refresh shell integration"
 if "$TARGET_CLI" init --update-only >>"$LOG_FILE" 2>&1; then
   log "shell integration refreshed"
 else
-  log "warning: failed to refresh shell integration via kaku init"
-  if fallback_wrapper_path="$(install_kaku_wrapper_fallback)"; then
-    log "installed fallback kaku wrapper at ${fallback_wrapper_path:-~/.config/kaku/<unknown>/bin/kaku}"
+  log "warning: failed to refresh shell integration via manda init"
+  if fallback_wrapper_path="$(install_manda_wrapper_fallback)"; then
+    log "installed fallback manda wrapper at ${fallback_wrapper_path:-~/.config/manda/<unknown>/bin/manda}"
   else
-    log "warning: failed to install fallback kaku wrapper"
+    log "warning: failed to install fallback manda wrapper"
   fi
 fi
 
 # Write update completed marker with new version
 NEW_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$TARGET_APP/Contents/Info.plist" 2>/dev/null || echo "")
 if [[ -n "$NEW_VERSION" ]]; then
-  DATA_DIR="${XDG_DATA_HOME:-$HOME/Library/Application Support}/kaku"
+  DATA_DIR="${XDG_DATA_HOME:-$HOME/Library/Application Support}/manda"
   /bin/mkdir -p "$DATA_DIR" 2>/dev/null
   printf '%s\n' "$NEW_VERSION" > "$DATA_DIR/update_completed"
   log "wrote update_completed marker: $NEW_VERSION"
@@ -212,13 +212,13 @@ else
   log "open path failed (exit code: $?), trying open -a"
   sleep 1
   # Method 2: open by app name
-  if /usr/bin/open -a Kaku 2>>"$LOG_FILE"; then
+  if /usr/bin/open -a MANDA 2>>"$LOG_FILE"; then
     log "relaunch via open -a succeeded"
   else
     log "open -a failed (exit code: $?), trying osascript"
     sleep 1
     # Method 3: AppleScript as last resort
-    /usr/bin/osascript -e 'tell application "Kaku" to activate' 2>>"$LOG_FILE" || log "osascript also failed"
+    /usr/bin/osascript -e 'tell application "MANDA" to activate' 2>>"$LOG_FILE" || log "osascript also failed"
   fi
 fi
 

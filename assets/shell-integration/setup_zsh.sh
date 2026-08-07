@@ -1,6 +1,6 @@
 #!/bin/bash
-# Kaku Zsh Setup Script
-# This script configures a "batteries-included" Zsh environment using Kaku's bundled resources.
+# MANDA Zsh Setup Script
+# This script configures a "batteries-included" Zsh environment using MANDA's bundled resources.
 # It is designed to be safe: it backs up existing configurations and can be re-run.
 
 set -euo pipefail
@@ -25,17 +25,17 @@ NC='\033[0m'
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Thin entrypoint: delegate to `kaku init` whenever possible.
+# Thin entrypoint: delegate to `manda init` whenever possible.
 # The rust command owns wrapper installation and orchestration.
-if [[ "${KAKU_INIT_INTERNAL:-0}" != "1" ]]; then
-	if [[ -n "${KAKU_BIN:-}" && -x "${KAKU_BIN}" ]]; then
-		exec "${KAKU_BIN}" init --shell zsh "$@"
+if [[ "${MANDA_INIT_INTERNAL:-0}" != "1" ]]; then
+	if [[ -n "${MANDA_BIN:-}" && -x "${MANDA_BIN}" ]]; then
+		exec "${MANDA_BIN}" init --shell zsh "$@"
 	fi
 
 	for candidate in \
-		"$SCRIPT_DIR/../MacOS/kaku" \
-		"/Applications/Kaku.app/Contents/MacOS/kaku" \
-		"$HOME/Applications/Kaku.app/Contents/MacOS/kaku"; do
+		"$SCRIPT_DIR/../MacOS/manda" \
+		"/Applications/Manda.app/Contents/MacOS/manda" \
+		"$HOME/Applications/Manda.app/Contents/MacOS/manda"; do
 		if [[ -x "$candidate" ]]; then
 			exec "$candidate" init --shell zsh "$@"
 		fi
@@ -49,28 +49,28 @@ if [[ -d "$SCRIPT_DIR/vendor" ]]; then
 	RESOURCES_DIR="$SCRIPT_DIR"
 elif [[ -d "$SCRIPT_DIR/../vendor" ]]; then
 	RESOURCES_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-elif [[ -d "/Applications/Kaku.app/Contents/Resources/vendor" ]]; then
-	RESOURCES_DIR="/Applications/Kaku.app/Contents/Resources"
-elif [[ -d "$HOME/Applications/Kaku.app/Contents/Resources/vendor" ]]; then
-	RESOURCES_DIR="$HOME/Applications/Kaku.app/Contents/Resources"
+elif [[ -d "/Applications/Manda.app/Contents/Resources/vendor" ]]; then
+	RESOURCES_DIR="/Applications/Manda.app/Contents/Resources"
+elif [[ -d "$HOME/Applications/Manda.app/Contents/Resources/vendor" ]]; then
+	RESOURCES_DIR="$HOME/Applications/Manda.app/Contents/Resources"
 else
-	echo -e "${YELLOW}Error: Could not locate Kaku resources (vendor directory missing).${NC}"
+	echo -e "${YELLOW}Error: Could not locate MANDA resources (vendor directory missing).${NC}"
 	exit 1
 fi
 
 VENDOR_DIR="$RESOURCES_DIR/vendor"
 # Allow test override so CI can provide stub plugin dirs without real downloads.
-if [[ -n "${KAKU_VENDOR_DIR:-}" && -d "${KAKU_VENDOR_DIR}" ]]; then
-	VENDOR_DIR="${KAKU_VENDOR_DIR}"
+if [[ -n "${MANDA_VENDOR_DIR:-}" && -d "${MANDA_VENDOR_DIR}" ]]; then
+	VENDOR_DIR="${MANDA_VENDOR_DIR}"
 fi
 TOOL_INSTALL_SCRIPT="$SCRIPT_DIR/install_cli_tools.sh"
 if [[ ! -f "$TOOL_INSTALL_SCRIPT" ]]; then
 	TOOL_INSTALL_SCRIPT="$RESOURCES_DIR/install_cli_tools.sh"
 fi
-USER_CONFIG_DIR="$HOME/.config/kaku/zsh"
-KAKU_INIT_FILE="$USER_CONFIG_DIR/kaku.zsh"
-KAKU_TMUX_DIR="$HOME/.config/kaku/tmux"
-KAKU_TMUX_FILE="$KAKU_TMUX_DIR/kaku.tmux.conf"
+USER_CONFIG_DIR="$HOME/.config/manda/zsh"
+MANDA_INIT_FILE="$USER_CONFIG_DIR/manda.zsh"
+MANDA_TMUX_DIR="$HOME/.config/manda/tmux"
+MANDA_TMUX_FILE="$MANDA_TMUX_DIR/manda.tmux.conf"
 STARSHIP_CONFIG="$HOME/.config/starship.toml"
 YAZI_CONFIG_DIR="$HOME/.config/yazi"
 YAZI_CONFIG_FILE="$YAZI_CONFIG_DIR/yazi.toml"
@@ -78,18 +78,18 @@ YAZI_KEYMAP_FILE="$YAZI_CONFIG_DIR/keymap.toml"
 YAZI_THEME_FILE="$YAZI_CONFIG_DIR/theme.toml"
 YAZI_FLAVORS_DIR="$YAZI_CONFIG_DIR/flavors"
 YAZI_WRAPPER_FILE="$USER_CONFIG_DIR/bin/yazi"
-KAKU_YAZI_THEME_MARKER_START="# ===== Kaku Yazi Flavor (managed) ====="
-KAKU_YAZI_THEME_MARKER_END="# ===== End Kaku Yazi Flavor (managed) ====="
+MANDA_YAZI_THEME_MARKER_START="# ===== MANDA Yazi Flavor (managed) ====="
+MANDA_YAZI_THEME_MARKER_END="# ===== End MANDA Yazi Flavor (managed) ====="
 ZSHRC="${ZDOTDIR:-$HOME}/.zshrc"
 TMUXRC="$HOME/.tmux.conf"
-BACKUP_SUFFIX=".kaku-backup-$(date +%s)"
+BACKUP_SUFFIX=".manda-backup-$(date +%s)"
 ZSHRC_BACKED_UP=0
 TMUXRC_BACKED_UP=0
 
 if [[ -d "$SCRIPT_DIR/yazi-flavors" ]]; then
-	KAKU_YAZI_FLAVOR_SOURCE_DIR="$SCRIPT_DIR/yazi-flavors"
+	MANDA_YAZI_FLAVOR_SOURCE_DIR="$SCRIPT_DIR/yazi-flavors"
 else
-	KAKU_YAZI_FLAVOR_SOURCE_DIR="$RESOURCES_DIR/yazi-flavors"
+	MANDA_YAZI_FLAVOR_SOURCE_DIR="$RESOURCES_DIR/yazi-flavors"
 fi
 
 backup_zshrc_once() {
@@ -106,38 +106,38 @@ backup_tmuxrc_once() {
 	fi
 }
 
-default_kaku_config_path() {
+default_manda_config_path() {
 	if [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
-		printf '%s\n' "${XDG_CONFIG_HOME}/kaku/kaku.lua"
+		printf '%s\n' "${XDG_CONFIG_HOME}/manda/manda.lua"
 	else
-		printf '%s\n' "${HOME}/.config/kaku/kaku.lua"
+		printf '%s\n' "${HOME}/.config/manda/manda.lua"
 	fi
 }
 
-active_kaku_config_path() {
-	if [[ -n "${KAKU_CONFIG_FILE:-}" ]]; then
-		printf '%s\n' "${KAKU_CONFIG_FILE}"
+active_manda_config_path() {
+	if [[ -n "${MANDA_CONFIG_FILE:-}" ]]; then
+		printf '%s\n' "${MANDA_CONFIG_FILE}"
 	else
-		default_kaku_config_path
+		default_manda_config_path
 	fi
 }
 
-system_kaku_flavor() {
-	local flavor="kaku-dark"
+system_manda_flavor() {
+	local flavor="manda-dark"
 	if command -v defaults >/dev/null 2>&1; then
 		local appearance
 		appearance="$(defaults read -g AppleInterfaceStyle 2>/dev/null || true)"
 		if [[ "$appearance" != "Dark" ]]; then
-			flavor="kaku-light"
+			flavor="manda-light"
 		fi
 	fi
 	printf '%s\n' "$flavor"
 }
 
-resolve_kaku_flavor_from_config() {
+resolve_manda_flavor_from_config() {
 	local config_file="$1"
 	local system_flavor
-	system_flavor="$(system_kaku_flavor)"
+	system_flavor="$(system_manda_flavor)"
 
 	if [[ -f "$config_file" ]]; then
 		local scheme_line
@@ -148,12 +148,12 @@ resolve_kaku_flavor_from_config() {
 			' "$config_file"
 		)"
 		if [[ -n "$scheme_line" ]]; then
-			if [[ "$scheme_line" == *"Kaku Light"* ]]; then
-				printf '%s\n' "kaku-light"
+			if [[ "$scheme_line" == *"MANDA Light"* ]]; then
+				printf '%s\n' "manda-light"
 				return
 			fi
-			if [[ "$scheme_line" == *"Kaku Dark"* || "$scheme_line" == *"Kaku Theme"* ]]; then
-				printf '%s\n' "kaku-dark"
+			if [[ "$scheme_line" == *"MANDA Dark"* || "$scheme_line" == *"MANDA Theme"* ]]; then
+				printf '%s\n' "manda-dark"
 				return
 			fi
 			if [[ "$scheme_line" == *"'Auto'"* || "$scheme_line" == *'"Auto"'* ]]; then
@@ -164,7 +164,7 @@ resolve_kaku_flavor_from_config() {
 				printf '%s\n' "$system_flavor"
 				return
 			fi
-			printf '%s\n' "kaku-dark"
+			printf '%s\n' "manda-dark"
 			return
 		fi
 	fi
@@ -172,28 +172,28 @@ resolve_kaku_flavor_from_config() {
 	printf '%s\n' "$system_flavor"
 }
 
-current_kaku_yazi_flavor() {
-	resolve_kaku_flavor_from_config "$(active_kaku_config_path)"
+current_manda_yazi_flavor() {
+	resolve_manda_flavor_from_config "$(active_manda_config_path)"
 }
 
-kaku_yazi_theme_block() {
-	local flavor="${1:-$(current_kaku_yazi_flavor)}"
+manda_yazi_theme_block() {
+	local flavor="${1:-$(current_manda_yazi_flavor)}"
 	cat <<EOF
-$KAKU_YAZI_THEME_MARKER_START
+$MANDA_YAZI_THEME_MARKER_START
 [flavor]
 dark = "$flavor"
 light = "$flavor"
-$KAKU_YAZI_THEME_MARKER_END
+$MANDA_YAZI_THEME_MARKER_END
 EOF
 }
 
-is_legacy_kaku_yazi_theme_file() {
+is_legacy_manda_yazi_theme_file() {
 	if [[ ! -f "$YAZI_THEME_FILE" ]]; then
 		return 1
 	fi
 
 	local normalized expected
-	if grep -Fq '# Kaku-aligned theme for Yazi 26.x' "$YAZI_THEME_FILE"; then
+	if grep -Fq '# MANDA-aligned theme for Yazi 26.x' "$YAZI_THEME_FILE"; then
 		return 0
 	fi
 	normalized="$(sed -e 's/[[:space:]]*$//' -e '/^[[:space:]]*$/d' "$YAZI_THEME_FILE")"
@@ -202,14 +202,14 @@ is_legacy_kaku_yazi_theme_file() {
 }
 
 # yazi >= 26.5.6 rejects a `$schema` key in its config files; the supported
-# form is a `#:schema <url>` comment. Older Kaku versions wrote the key, which
+# form is a `#:schema <url>` comment. Older MANDA versions wrote the key, which
 # makes yazi fail to start, so rewrite those lines in existing user configs.
 migrate_yazi_schema_headers() {
 	local file tmp_file
 	for file in "$YAZI_THEME_FILE" "$YAZI_KEYMAP_FILE" "$YAZI_CONFIG_FILE"; do
 		[[ -f "$file" && -w "$file" ]] || continue
 		grep -Eq '^[[:space:]]*"?\$schema"?[[:space:]]*=' "$file" || continue
-		tmp_file="$(mktemp "${TMPDIR:-/tmp}/kaku-yazi-schema.XXXXXX")" || continue
+		tmp_file="$(mktemp "${TMPDIR:-/tmp}/manda-yazi-schema.XXXXXX")" || continue
 		if sed -E \
 			-e 's|^[[:space:]]*"?\$schema"?[[:space:]]*=[[:space:]]*"([^"]+)".*$|#:schema \1|' \
 			-e '/^[[:space:]]*"?\$schema"?[[:space:]]*=/d' \
@@ -222,17 +222,17 @@ migrate_yazi_schema_headers() {
 	done
 }
 
-sync_kaku_yazi_flavors() {
-	if [[ ! -d "$KAKU_YAZI_FLAVOR_SOURCE_DIR" ]]; then
-		echo -e "${YELLOW}Warning: bundled Yazi flavors are missing at $KAKU_YAZI_FLAVOR_SOURCE_DIR.${NC}"
+sync_manda_yazi_flavors() {
+	if [[ ! -d "$MANDA_YAZI_FLAVOR_SOURCE_DIR" ]]; then
+		echo -e "${YELLOW}Warning: bundled Yazi flavors are missing at $MANDA_YAZI_FLAVOR_SOURCE_DIR.${NC}"
 		return
 	fi
 
 	mkdir -p "$YAZI_FLAVORS_DIR"
 
 	local flavor source_dir target_dir
-	for flavor in kaku-dark.yazi kaku-light.yazi; do
-		source_dir="$KAKU_YAZI_FLAVOR_SOURCE_DIR/$flavor"
+	for flavor in manda-dark.yazi manda-light.yazi; do
+		source_dir="$MANDA_YAZI_FLAVOR_SOURCE_DIR/$flavor"
 		target_dir="$YAZI_FLAVORS_DIR/$flavor"
 
 		if [[ ! -d "$source_dir" ]]; then
@@ -249,35 +249,35 @@ sync_kaku_yazi_flavors() {
 		cp "$source_dir/flavor.toml" "$target_dir/flavor.toml"
 	done
 
-	echo -e "  ${GREEN}✓${NC} ${BOLD}Config${NC}      Refreshed Kaku yazi flavors ${NC}(dark + light)${NC}"
+	echo -e "  ${GREEN}✓${NC} ${BOLD}Config${NC}      Refreshed MANDA yazi flavors ${NC}(dark + light)${NC}"
 }
 
-ensure_kaku_yazi_theme() {
+ensure_manda_yazi_theme() {
 	mkdir -p "$YAZI_CONFIG_DIR"
 	local managed_flavor
-	managed_flavor="$(current_kaku_yazi_flavor)"
+	managed_flavor="$(current_manda_yazi_flavor)"
 
-	if [[ ! -f "$YAZI_THEME_FILE" ]] || is_legacy_kaku_yazi_theme_file; then
+	if [[ ! -f "$YAZI_THEME_FILE" ]] || is_legacy_manda_yazi_theme_file; then
 		cat <<EOF >"$YAZI_THEME_FILE"
 #:schema https://yazi-rs.github.io/schemas/theme.json
 
-# Kaku manages the [flavor] section below so Yazi matches the current Kaku theme.
+# MANDA manages the [flavor] section below so Yazi matches the current MANDA theme.
 # Add your own theme overrides in other sections if needed.
-$(kaku_yazi_theme_block "$managed_flavor")
+$(manda_yazi_theme_block "$managed_flavor")
 EOF
-		echo -e "  ${GREEN}✓${NC} ${BOLD}Config${NC}      Initialized yazi theme ${NC}(managed Kaku flavor: $managed_flavor)${NC}"
+		echo -e "  ${GREEN}✓${NC} ${BOLD}Config${NC}      Initialized yazi theme ${NC}(managed MANDA flavor: $managed_flavor)${NC}"
 		return
 	fi
 
-	if grep -Eq '^[[:space:]]*\[flavor\][[:space:]]*$' "$YAZI_THEME_FILE" && ! grep -Fq "$KAKU_YAZI_THEME_MARKER_START" "$YAZI_THEME_FILE"; then
+	if grep -Eq '^[[:space:]]*\[flavor\][[:space:]]*$' "$YAZI_THEME_FILE" && ! grep -Fq "$MANDA_YAZI_THEME_MARKER_START" "$YAZI_THEME_FILE"; then
 		echo -e "  ${BLUE}•${NC} ${BOLD}Config${NC}      Preserved existing yazi [flavor] section ${NC}(user-managed)${NC}"
 		return
 	fi
 
 	local tmp_theme
-	tmp_theme="$(mktemp "${TMPDIR:-/tmp}/kaku-yazi-theme.XXXXXX")"
+	tmp_theme="$(mktemp "${TMPDIR:-/tmp}/manda-yazi-theme.XXXXXX")"
 
-	awk -v start="$KAKU_YAZI_THEME_MARKER_START" -v end="$KAKU_YAZI_THEME_MARKER_END" '
+	awk -v start="$MANDA_YAZI_THEME_MARKER_START" -v end="$MANDA_YAZI_THEME_MARKER_END" '
 		index($0, start) { skip = 1; next }
 		index($0, end)   { skip = 0; next }
 		!skip { print }
@@ -290,13 +290,13 @@ EOF
 	{
 		cat "$tmp_theme"
 		printf '\n'
-		kaku_yazi_theme_block "$managed_flavor"
+		manda_yazi_theme_block "$managed_flavor"
 		printf '\n'
 	} >"${tmp_theme}.next"
 
 	mv "${tmp_theme}.next" "$YAZI_THEME_FILE"
 	rm -f "$tmp_theme"
-	echo -e "  ${GREEN}✓${NC} ${BOLD}Config${NC}      Updated yazi theme ${NC}(managed Kaku flavor: $managed_flavor)${NC}"
+	echo -e "  ${GREEN}✓${NC} ${BOLD}Config${NC}      Updated yazi theme ${NC}(managed MANDA flavor: $managed_flavor)${NC}"
 }
 
 install_yazi_wrapper() {
@@ -305,43 +305,43 @@ install_yazi_wrapper() {
 set -euo pipefail
 
 YAZI_THEME_FILE="${HOME}/.config/yazi/theme.toml"
-MARKER_START="# ===== Kaku Yazi Flavor (managed) ====="
-MARKER_END="# ===== End Kaku Yazi Flavor (managed) ====="
+MARKER_START="# ===== MANDA Yazi Flavor (managed) ====="
+MARKER_END="# ===== End MANDA Yazi Flavor (managed) ====="
 WRAPPER_PATH="${BASH_SOURCE[0]}"
 WRAPPER_DIR="$(cd "$(dirname "$WRAPPER_PATH")" && pwd)"
 
-system_kaku_flavor() {
-	local flavor="kaku-dark"
+system_manda_flavor() {
+	local flavor="manda-dark"
 	if command -v defaults >/dev/null 2>&1; then
 		local appearance
 		appearance="$(defaults read -g AppleInterfaceStyle 2>/dev/null || true)"
 		if [[ "$appearance" != "Dark" ]]; then
-			flavor="kaku-light"
+			flavor="manda-light"
 		fi
 	fi
 	printf '%s\n' "$flavor"
 }
 
-default_kaku_config_path() {
+default_manda_config_path() {
 	if [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
-		printf '%s\n' "${XDG_CONFIG_HOME}/kaku/kaku.lua"
+		printf '%s\n' "${XDG_CONFIG_HOME}/manda/manda.lua"
 	else
-		printf '%s\n' "${HOME}/.config/kaku/kaku.lua"
+		printf '%s\n' "${HOME}/.config/manda/manda.lua"
 	fi
 }
 
-active_kaku_config_path() {
-	if [[ -n "${KAKU_CONFIG_FILE:-}" ]]; then
-		printf '%s\n' "${KAKU_CONFIG_FILE}"
+active_manda_config_path() {
+	if [[ -n "${MANDA_CONFIG_FILE:-}" ]]; then
+		printf '%s\n' "${MANDA_CONFIG_FILE}"
 	else
-		default_kaku_config_path
+		default_manda_config_path
 	fi
 }
 
-resolve_kaku_flavor_from_config() {
+resolve_manda_flavor_from_config() {
 	local config_file="$1"
 	local system_flavor
-	system_flavor="$(system_kaku_flavor)"
+	system_flavor="$(system_manda_flavor)"
 
 	if [[ -f "$config_file" ]]; then
 		local scheme_line
@@ -352,12 +352,12 @@ resolve_kaku_flavor_from_config() {
 			' "$config_file"
 		)"
 		if [[ -n "$scheme_line" ]]; then
-			if [[ "$scheme_line" == *"Kaku Light"* ]]; then
-				printf '%s\n' "kaku-light"
+			if [[ "$scheme_line" == *"MANDA Light"* ]]; then
+				printf '%s\n' "manda-light"
 				return
 			fi
-			if [[ "$scheme_line" == *"Kaku Dark"* || "$scheme_line" == *"Kaku Theme"* ]]; then
-				printf '%s\n' "kaku-dark"
+			if [[ "$scheme_line" == *"MANDA Dark"* || "$scheme_line" == *"MANDA Theme"* ]]; then
+				printf '%s\n' "manda-dark"
 				return
 			fi
 			if [[ "$scheme_line" == *"'Auto'"* || "$scheme_line" == *'"Auto"'* ]]; then
@@ -368,7 +368,7 @@ resolve_kaku_flavor_from_config() {
 				printf '%s\n' "$system_flavor"
 				return
 			fi
-			printf '%s\n' "kaku-dark"
+			printf '%s\n' "manda-dark"
 			return
 		fi
 	fi
@@ -377,7 +377,7 @@ resolve_kaku_flavor_from_config() {
 }
 
 current_flavor() {
-	resolve_kaku_flavor_from_config "$(active_kaku_config_path)"
+	resolve_manda_flavor_from_config "$(active_manda_config_path)"
 }
 
 managed_block() {
@@ -399,7 +399,7 @@ ensure_theme() {
 		cat <<BLOCK >"$YAZI_THEME_FILE"
 #:schema https://yazi-rs.github.io/schemas/theme.json
 
-# Kaku manages the [flavor] section below so Yazi matches the current Kaku theme.
+# MANDA manages the [flavor] section below so Yazi matches the current MANDA theme.
 $(managed_block "$flavor")
 BLOCK
 		return
@@ -410,7 +410,7 @@ BLOCK
 	fi
 
 	local tmp_theme
-	tmp_theme="$(mktemp "${TMPDIR:-/tmp}/kaku-yazi-wrapper.XXXXXX")"
+	tmp_theme="$(mktemp "${TMPDIR:-/tmp}/manda-yazi-wrapper.XXXXXX")"
 	awk -v start="$MARKER_START" -v end="$MARKER_END" '
 		index($0, start) { skip = 1; next }
 		index($0, end)   { skip = 0; next }
@@ -432,14 +432,14 @@ BLOCK
 	rm -f "$tmp_theme"
 }
 
-# yazi >= 26.5.6 rejects a `$schema` key in its config files; older Kaku
+# yazi >= 26.5.6 rejects a `$schema` key in its config files; older MANDA
 # versions wrote one, so rewrite it to the supported `#:schema` comment.
 migrate_schema_headers() {
 	local file tmp_file
 	for file in "$YAZI_THEME_FILE" "${HOME}/.config/yazi/keymap.toml"; do
 		[[ -f "$file" && -w "$file" ]] || continue
 		grep -Eq '^[[:space:]]*"?\$schema"?[[:space:]]*=' "$file" || continue
-		tmp_file="$(mktemp "${TMPDIR:-/tmp}/kaku-yazi-schema.XXXXXX")" || continue
+		tmp_file="$(mktemp "${TMPDIR:-/tmp}/manda-yazi-schema.XXXXXX")" || continue
 		if sed -E \
 			-e 's|^[[:space:]]*"?\$schema"?[[:space:]]*=[[:space:]]*"([^"]+)".*$|#:schema \1|' \
 			-e '/^[[:space:]]*"?\$schema"?[[:space:]]*=/d' \
@@ -504,26 +504,26 @@ if [[ ! -d "$VENDOR_DIR" ]]; then
 	exit 1
 fi
 
-install_kaku_terminfo() {
+install_manda_terminfo() {
 	# Skip explicit bootstrap when requested.
-	if [[ "${KAKU_SKIP_TERMINFO_BOOTSTRAP:-0}" == "1" ]]; then
+	if [[ "${MANDA_SKIP_TERMINFO_BOOTSTRAP:-0}" == "1" ]]; then
 		return
 	fi
 
 	# If available in system/user databases already, no-op.
-	if infocmp kaku >/dev/null 2>&1; then
+	if infocmp manda >/dev/null 2>&1; then
 		return
 	fi
 
 	local target_dir="$HOME/.terminfo"
-	local compiled_entry="$RESOURCES_DIR/terminfo/6b/kaku"
+	local compiled_entry="$RESOURCES_DIR/terminfo/6b/manda"
 	local source_entry=""
 
 	# App bundles include compiled terminfo entries under Resources/terminfo.
 	if [[ -f "$compiled_entry" ]]; then
-		if mkdir -p "$target_dir/6b" 2>/dev/null && cp "$compiled_entry" "$target_dir/6b/kaku" 2>/dev/null; then
-			if infocmp kaku >/dev/null 2>&1; then
-				echo -e "  ${GREEN}✓${NC} ${BOLD}Config${NC}      Installed kaku terminfo ${NC}(~/.terminfo)${NC}"
+		if mkdir -p "$target_dir/6b" 2>/dev/null && cp "$compiled_entry" "$target_dir/6b/manda" 2>/dev/null; then
+			if infocmp manda >/dev/null 2>&1; then
+				echo -e "  ${GREEN}✓${NC} ${BOLD}Config${NC}      Installed manda terminfo ${NC}(~/.terminfo)${NC}"
 				return
 			fi
 		else
@@ -533,8 +533,8 @@ install_kaku_terminfo() {
 
 	# Dev checkout fallback: compile from source terminfo definition.
 	for candidate in \
-		"$RESOURCES_DIR/../termwiz/data/kaku.terminfo" \
-		"$SCRIPT_DIR/../../termwiz/data/kaku.terminfo"; do
+		"$RESOURCES_DIR/../termwiz/data/manda.terminfo" \
+		"$SCRIPT_DIR/../../termwiz/data/manda.terminfo"; do
 		if [[ -f "$candidate" ]]; then
 			source_entry="$candidate"
 			break
@@ -543,23 +543,23 @@ install_kaku_terminfo() {
 
 	if [[ -n "$source_entry" ]]; then
 		if ! command -v tic >/dev/null 2>&1; then
-			echo -e "${YELLOW}Warning: tic not found, skipping kaku terminfo install.${NC}"
+			echo -e "${YELLOW}Warning: tic not found, skipping manda terminfo install.${NC}"
 			return
 		fi
 
 		mkdir -p "$target_dir"
-		if tic -x -o "$target_dir" "$source_entry" >/dev/null 2>&1 && infocmp kaku >/dev/null 2>&1; then
-			echo -e "  ${GREEN}✓${NC} ${BOLD}Config${NC}      Installed kaku terminfo ${NC}(~/.terminfo)${NC}"
+		if tic -x -o "$target_dir" "$source_entry" >/dev/null 2>&1 && infocmp manda >/dev/null 2>&1; then
+			echo -e "  ${GREEN}✓${NC} ${BOLD}Config${NC}      Installed manda terminfo ${NC}(~/.terminfo)${NC}"
 			return
 		fi
 	fi
 
-	echo -e "${YELLOW}Warning: failed to install kaku terminfo automatically.${NC}"
+	echo -e "${YELLOW}Warning: failed to install manda terminfo automatically.${NC}"
 }
 
-install_kaku_terminfo
+install_manda_terminfo
 
-echo -e "${BOLD}Setting up Kaku Shell Environment${NC}"
+echo -e "${BOLD}Setting up MANDA Shell Environment${NC}"
 
 # 1. Prepare User Config Directory
 mkdir -p "$USER_CONFIG_DIR"
@@ -567,7 +567,7 @@ mkdir -p "$USER_CONFIG_DIR/plugins"
 mkdir -p "$USER_CONFIG_DIR/bin"
 
 # 2. Optional external tools bootstrap (Homebrew-managed)
-if [[ "${KAKU_SKIP_TOOL_BOOTSTRAP:-0}" != "1" ]]; then
+if [[ "${MANDA_SKIP_TOOL_BOOTSTRAP:-0}" != "1" ]]; then
 	if [[ -f "$TOOL_INSTALL_SCRIPT" ]]; then
 		if ! bash "$TOOL_INSTALL_SCRIPT"; then
 			echo -e "${YELLOW}Warning: optional CLI tool bootstrap failed.${NC}"
@@ -596,7 +596,7 @@ cp -R "$VENDOR_DIR/fast-syntax-highlighting" "$USER_CONFIG_DIR/plugins/"
 cp -R "$VENDOR_DIR/zsh-autosuggestions" "$USER_CONFIG_DIR/plugins/"
 cp -R "$VENDOR_DIR/zsh-completions" "$USER_CONFIG_DIR/plugins/"
 cp -R "$VENDOR_DIR/zsh-z" "$USER_CONFIG_DIR/plugins/"
-echo -e "  ${GREEN}✓${NC} ${BOLD}Tools${NC}       Installed Zsh plugins ${NC}(~/.config/kaku/zsh/plugins)${NC}"
+echo -e "  ${GREEN}✓${NC} ${BOLD}Tools${NC}       Installed Zsh plugins ${NC}(~/.config/manda/zsh/plugins)${NC}"
 
 # Copy Starship Config (if not exists)
 if [[ ! -f "$STARSHIP_CONFIG" ]]; then
@@ -612,7 +612,7 @@ if [[ ! -f "$STARSHIP_CONFIG" ]]; then
 	fi
 fi
 
-# Repair yazi configs written by older Kaku versions before touching them.
+# Repair yazi configs written by older MANDA versions before touching them.
 migrate_yazi_schema_headers
 
 # Initialize Yazi layout config if the user has not created one yet.
@@ -681,7 +681,7 @@ EOF
 	fi
 
 	local tmp_yazi
-	tmp_yazi="$(mktemp "${TMPDIR:-/tmp}/kaku-yazi-preview.XXXXXX")"
+	tmp_yazi="$(mktemp "${TMPDIR:-/tmp}/manda-yazi-preview.XXXXXX")"
 
 	awk -v need_width="$has_max_width" -v need_height="$has_max_height" '
 		/^[[:space:]]*\[preview\][[:space:]]*$/ {
@@ -716,7 +716,7 @@ ensure_yazi_edit_opener() {
 	# If [opener] section exists but has no edit entry, append edit under it.
 	if grep -Eq '^[[:space:]]*\[opener\][[:space:]]*$' "$YAZI_CONFIG_FILE"; then
 		local tmp_yazi
-		tmp_yazi="$(mktemp "${TMPDIR:-/tmp}/kaku-yazi-edit.XXXXXX")"
+		tmp_yazi="$(mktemp "${TMPDIR:-/tmp}/manda-yazi-edit.XXXXXX")"
 		awk '/^[[:space:]]*\[opener\][[:space:]]*$/ {
 			print
 			print "edit = ["
@@ -758,8 +758,8 @@ EOF
 	echo -e "  ${GREEN}✓${NC} ${BOLD}Config${NC}      Initialized yazi keymap ${NC}(~/.config/yazi/keymap.toml)${NC}"
 fi
 
-sync_kaku_yazi_flavors
-ensure_kaku_yazi_theme
+sync_manda_yazi_flavors
+ensure_manda_yazi_theme
 install_yazi_wrapper
 
 AUTOSUGGEST_CLI_PROVIDER=""
@@ -771,94 +771,94 @@ fi
 
 if [[ -n "$AUTOSUGGEST_CLI_PROVIDER" ]]; then
 	AUTOSUGGEST_BLOCK="$(cat <<EOF
-# Kaku defers autosuggestions to the external provider detected during kaku init.
-typeset -g _kaku_autosuggest_cli_provider="${AUTOSUGGEST_CLI_PROVIDER}"
-typeset -g _kaku_external_autosuggest_provider=0
+# MANDA defers autosuggestions to the external provider detected during manda init.
+typeset -g _manda_autosuggest_cli_provider="${AUTOSUGGEST_CLI_PROVIDER}"
+typeset -g _manda_external_autosuggest_provider=0
 
-if _kaku_has_autosuggest_system; then
-    _kaku_external_autosuggest_provider=1
+if _manda_has_autosuggest_system; then
+    _manda_external_autosuggest_provider=1
 fi
-if [[ -n "\${_kaku_autosuggest_cli_provider:-}" ]]; then
-    _kaku_external_autosuggest_provider=1
+if [[ -n "\${_manda_autosuggest_cli_provider:-}" ]]; then
+    _manda_external_autosuggest_provider=1
 fi
 EOF
 )"
 else
 	AUTOSUGGEST_BLOCK="$(cat <<'EOF'
-typeset -g _kaku_autosuggest_cli_provider=""
-typeset -g _kaku_external_autosuggest_provider=0
+typeset -g _manda_autosuggest_cli_provider=""
+typeset -g _manda_external_autosuggest_provider=0
 
-if _kaku_has_autosuggest_system; then
-    _kaku_external_autosuggest_provider=1
+if _manda_has_autosuggest_system; then
+    _manda_external_autosuggest_provider=1
 fi
 
 # Load zsh-autosuggestions only if:
 # 1. User config has not loaded it yet (_zsh_autosuggest_start not defined)
 # 2. No other autosuggest system is active (to avoid widget wrapping conflicts)
-if ! (( ${+functions[_zsh_autosuggest_start]} )) && [[ "${_kaku_external_autosuggest_provider:-0}" != "1" ]] && [[ -f "$KAKU_ZSH_DIR/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh" ]]; then
-    source "$KAKU_ZSH_DIR/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
+if ! (( ${+functions[_zsh_autosuggest_start]} )) && [[ "${_manda_external_autosuggest_provider:-0}" != "1" ]] && [[ -f "$MANDA_ZSH_DIR/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh" ]]; then
+    source "$MANDA_ZSH_DIR/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
 fi
 EOF
 )"
 fi
 
-# 3. Create/Update Kaku Init File (managed by Kaku)
-if [[ -f "$KAKU_INIT_FILE" ]]; then
-    cp "$KAKU_INIT_FILE" "${KAKU_INIT_FILE}.bak"
+# 3. Create/Update MANDA Init File (managed by MANDA)
+if [[ -f "$MANDA_INIT_FILE" ]]; then
+    cp "$MANDA_INIT_FILE" "${MANDA_INIT_FILE}.bak"
 fi
-KAKU_INIT_TMPFILE="${KAKU_INIT_FILE}.tmp.$$"
-cat <<EOF >"$KAKU_INIT_TMPFILE"
-# Kaku Zsh Integration - DO NOT EDIT MANUALLY
-# This file is managed by Kaku.app. Any changes may be overwritten.
+MANDA_INIT_TMPFILE="${MANDA_INIT_FILE}.tmp.$$"
+cat <<EOF >"$MANDA_INIT_TMPFILE"
+# MANDA Zsh Integration - DO NOT EDIT MANUALLY
+# This file is managed by Manda.app. Any changes may be overwritten.
 
-export KAKU_ZSH_DIR="\$HOME/.config/kaku/zsh"
+export MANDA_ZSH_DIR="\$HOME/.config/manda/zsh"
 
-# Add Kaku managed bin to PATH (kaku wrapper and user tools)
-export PATH="\$KAKU_ZSH_DIR/bin:\$PATH"
+# Add MANDA managed bin to PATH (manda wrapper and user tools)
+export PATH="\$MANDA_ZSH_DIR/bin:\$PATH"
 
-# Initialize Starship only inside Kaku. The managed file is sourced by every
+# Initialize Starship only inside MANDA. The managed file is sourced by every
 # zsh so PATH and shared helpers remain available in IDE and system terminals.
-if [[ "\${TERM_PROGRAM:-}" == "Kaku" ]] && command -v starship &> /dev/null; then
+if [[ "\${TERM_PROGRAM:-}" == "MANDA" ]] && command -v starship &> /dev/null; then
     # Cache the full starship init script. Plain \`starship init zsh\` forks
     # starship on every new shell (twice: the stub it prints re-runs
     # \`starship init zsh --print-full-init\`), and that fork+exec is the
     # largest fixed cost of shell startup. The cache key (binary path +
     # mtime) is recorded on the first line, so upgrading or relocating
     # starship refreshes the cache automatically.
-    _kaku_starship_init_ok=0
-    _kaku_starship_cache="\$KAKU_ZSH_DIR/cache/starship-init.zsh"
-    _kaku_starship_key=""
+    _manda_starship_init_ok=0
+    _manda_starship_cache="\$MANDA_ZSH_DIR/cache/starship-init.zsh"
+    _manda_starship_key=""
     if zmodload -F zsh/stat b:zstat 2>/dev/null; then
-        typeset -a _kaku_starship_stat
-        if zstat -A _kaku_starship_stat +mtime -- "\${commands[starship]}" 2>/dev/null; then
-            _kaku_starship_key="# \${commands[starship]} \${_kaku_starship_stat[1]}"
+        typeset -a _manda_starship_stat
+        if zstat -A _manda_starship_stat +mtime -- "\${commands[starship]}" 2>/dev/null; then
+            _manda_starship_key="# \${commands[starship]} \${_manda_starship_stat[1]}"
         fi
-        unset _kaku_starship_stat
+        unset _manda_starship_stat
     fi
-    if [[ -n "\$_kaku_starship_key" && -r "\$_kaku_starship_cache" ]]; then
-        _kaku_starship_cache_key=""
-        IFS= read -r _kaku_starship_cache_key < "\$_kaku_starship_cache" 2>/dev/null
-        if [[ "\$_kaku_starship_cache_key" == "\$_kaku_starship_key" ]]; then
-            builtin source "\$_kaku_starship_cache"
-            _kaku_starship_init_ok=1
+    if [[ -n "\$_manda_starship_key" && -r "\$_manda_starship_cache" ]]; then
+        _manda_starship_cache_key=""
+        IFS= read -r _manda_starship_cache_key < "\$_manda_starship_cache" 2>/dev/null
+        if [[ "\$_manda_starship_cache_key" == "\$_manda_starship_key" ]]; then
+            builtin source "\$_manda_starship_cache"
+            _manda_starship_init_ok=1
         fi
-        unset _kaku_starship_cache_key
+        unset _manda_starship_cache_key
     fi
-    if (( ! _kaku_starship_init_ok )); then
-        _kaku_starship_init="\$(starship init zsh --print-full-init)"
-        if [[ -n "\$_kaku_starship_init" ]]; then
-            eval "\$_kaku_starship_init"
-            if [[ -n "\$_kaku_starship_key" ]]; then
+    if (( ! _manda_starship_init_ok )); then
+        _manda_starship_init="\$(starship init zsh --print-full-init)"
+        if [[ -n "\$_manda_starship_init" ]]; then
+            eval "\$_manda_starship_init"
+            if [[ -n "\$_manda_starship_key" ]]; then
                 # Write via a per-pid temp file and rename so two shells
                 # starting concurrently can't interleave into a truncated
                 # cache that later shells would keep sourcing.
-                command mkdir -p "\${_kaku_starship_cache:h}" 2>/dev/null
+                command mkdir -p "\${_manda_starship_cache:h}" 2>/dev/null
                 if {
-                    builtin print -r -- "\$_kaku_starship_key"
-                    builtin print -r -- "\$_kaku_starship_init"
-                } >| "\${_kaku_starship_cache}.\$\$" 2>/dev/null; then
-                    command mv -f "\${_kaku_starship_cache}.\$\$" "\$_kaku_starship_cache" 2>/dev/null \
-                        || command rm -f "\${_kaku_starship_cache}.\$\$" 2>/dev/null
+                    builtin print -r -- "\$_manda_starship_key"
+                    builtin print -r -- "\$_manda_starship_init"
+                } >| "\${_manda_starship_cache}.\$\$" 2>/dev/null; then
+                    command mv -f "\${_manda_starship_cache}.\$\$" "\$_manda_starship_cache" 2>/dev/null \
+                        || command rm -f "\${_manda_starship_cache}.\$\$" 2>/dev/null
                 fi
             fi
         else
@@ -866,15 +866,15 @@ if [[ "\${TERM_PROGRAM:-}" == "Kaku" ]] && command -v starship &> /dev/null; the
             # unexpectedly produced nothing.
             eval "\$(starship init zsh)"
         fi
-        unset _kaku_starship_init
+        unset _manda_starship_init
     fi
-    unset _kaku_starship_init_ok _kaku_starship_cache _kaku_starship_key
+    unset _manda_starship_init_ok _manda_starship_cache _manda_starship_key
 
-    # Kaku workaround: Fix Zsh + Starship bug where Ctrl-C prints the literal RPROMPT string.
+    # MANDA workaround: Fix Zsh + Starship bug where Ctrl-C prints the literal RPROMPT string.
     # When Zsh receives SIGINT during prompt evaluation, it aborts the command
     # substitution and prints the literal \$(starship...) string. Pre-evaluating
     # the right prompt in precmd avoids this entirely.
-    _kaku_render_starship_rprompt() {
+    _manda_render_starship_rprompt() {
         command starship prompt --right \
             --terminal-width="\${COLUMNS:-}" \
             --keymap="\${KEYMAP:-}" \
@@ -884,24 +884,24 @@ if [[ "\${TERM_PROGRAM:-}" == "Kaku" ]] && command -v starship &> /dev/null; the
             --jobs="\${STARSHIP_JOBS_COUNT:-0}" 2>/dev/null
     }
 
-    _kaku_fix_starship_rprompt() {
+    _manda_fix_starship_rprompt() {
         # Check if RPROMPT currently holds a dynamic starship command
         if [[ "\${RPROMPT:-}" == *'\$('*'starship'*'prompt --right'* ]]; then
             # Capture it and save it as our template
-            _kaku_starship_rprompt_cmd="\$RPROMPT"
+            _manda_starship_rprompt_cmd="\$RPROMPT"
         fi
 
         # If we have a saved starship command template, we should evaluate it.
         # BUT we only overwrite RPROMPT if RPROMPT is exactly what we set it to last time,
         # or if it is the original starship command itself.
         # If the user sets RPROMPT="foo", we leave it alone.
-        if [[ -n "\${_kaku_starship_rprompt_cmd:-}" ]]; then
-            if [[ "\${RPROMPT:-}" == "\${_kaku_starship_rprompt_cmd}" ]] || [[ "\${RPROMPT:-}" == "\${_kaku_last_injected_rprompt:-}" ]]; then
+        if [[ -n "\${_manda_starship_rprompt_cmd:-}" ]]; then
+            if [[ "\${RPROMPT:-}" == "\${_manda_starship_rprompt_cmd}" ]] || [[ "\${RPROMPT:-}" == "\${_manda_last_injected_rprompt:-}" ]]; then
                 local evaled
-                if [[ "\${_kaku_starship_rprompt_cmd}" == *starship*'prompt --right'* ]]; then
-                    evaled="\$(_kaku_render_starship_rprompt)"
+                if [[ "\${_manda_starship_rprompt_cmd}" == *starship*'prompt --right'* ]]; then
+                    evaled="\$(_manda_render_starship_rprompt)"
                 else
-                    local cmd="\${_kaku_starship_rprompt_cmd}"
+                    local cmd="\${_manda_starship_rprompt_cmd}"
                     # Avoid zsh pattern parsing here; strip a literal \$(
                     # prefix and trailing ) via slicing instead.
                     if [[ "\${cmd[1]}" == '$' && "\${cmd[2]}" == '(' && "\${cmd[-1]}" == ')' ]]; then
@@ -910,12 +910,12 @@ if [[ "\${TERM_PROGRAM:-}" == "Kaku" ]] && command -v starship &> /dev/null; the
                     evaled="\$(eval "\$cmd" 2>/dev/null)"
                 fi
                 RPROMPT="\$evaled"
-                _kaku_last_injected_rprompt="\$evaled"
+                _manda_last_injected_rprompt="\$evaled"
             fi
         fi
     }
-    if [[ \${precmd_functions[(Ie)_kaku_fix_starship_rprompt]} -eq 0 ]]; then
-        precmd_functions+=(_kaku_fix_starship_rprompt)
+    if [[ \${precmd_functions[(Ie)_manda_fix_starship_rprompt]} -eq 0 ]]; then
+        precmd_functions+=(_manda_fix_starship_rprompt)
     fi
 fi
 
@@ -943,7 +943,7 @@ setopt interactive_comments
 bindkey -e
 
 # Prefix history search on Up/Down (e.g. type "curl" then press Up)
-# This is shell behavior, not terminal behavior, so Kaku configures it here.
+# This is shell behavior, not terminal behavior, so MANDA configures it here.
 # Skip if an external history navigator (atuin, mcfly, etc.) already owns the
 # Up key. After "bindkey -e" the emacs default for ^[[A is "up-line-or-history";
 # any other value means a third-party tool has already claimed it.
@@ -952,55 +952,55 @@ if [[ "\$(bindkey -M emacs '^[[A' 2>/dev/null)" == *"up-line-or-history"* ]]; th
     zle -N up-line-or-beginning-search
     zle -N down-line-or-beginning-search
     zmodload zsh/terminfo 2>/dev/null || true
-    for _kaku_keymap in emacs viins; do
-        [[ -n "\${terminfo[kcuu1]:-}" ]] && bindkey -M "\$_kaku_keymap" "\${terminfo[kcuu1]}" up-line-or-beginning-search
-        [[ -n "\${terminfo[kcud1]:-}" ]] && bindkey -M "\$_kaku_keymap" "\${terminfo[kcud1]}" down-line-or-beginning-search
-        bindkey -M "\$_kaku_keymap" '^[[A' up-line-or-beginning-search
-        bindkey -M "\$_kaku_keymap" '^[[B' down-line-or-beginning-search
-        bindkey -M "\$_kaku_keymap" '^[OA' up-line-or-beginning-search
-        bindkey -M "\$_kaku_keymap" '^[OB' down-line-or-beginning-search
+    for _manda_keymap in emacs viins; do
+        [[ -n "\${terminfo[kcuu1]:-}" ]] && bindkey -M "\$_manda_keymap" "\${terminfo[kcuu1]}" up-line-or-beginning-search
+        [[ -n "\${terminfo[kcud1]:-}" ]] && bindkey -M "\$_manda_keymap" "\${terminfo[kcud1]}" down-line-or-beginning-search
+        bindkey -M "\$_manda_keymap" '^[[A' up-line-or-beginning-search
+        bindkey -M "\$_manda_keymap" '^[[B' down-line-or-beginning-search
+        bindkey -M "\$_manda_keymap" '^[OA' up-line-or-beginning-search
+        bindkey -M "\$_manda_keymap" '^[OB' down-line-or-beginning-search
     done
-    unset _kaku_keymap
+    unset _manda_keymap
 fi
 
-# Kaku line-selection widgets for modified arrows in prompt editing.
-_kaku_select_left_char() {
+# MANDA line-selection widgets for modified arrows in prompt editing.
+_manda_select_left_char() {
     emulate -L zsh
     if (( ! REGION_ACTIVE )); then
         zle set-mark-command
     fi
     zle backward-char
 }
-_kaku_select_right_char() {
+_manda_select_right_char() {
     emulate -L zsh
     if (( ! REGION_ACTIVE )); then
         zle set-mark-command
     fi
     zle forward-char
 }
-_kaku_select_line_start() {
+_manda_select_line_start() {
     emulate -L zsh
     if (( ! REGION_ACTIVE )); then
         zle set-mark-command
     fi
     zle beginning-of-line
 }
-_kaku_select_line_end() {
+_manda_select_line_end() {
     emulate -L zsh
     if (( ! REGION_ACTIVE )); then
         zle set-mark-command
     fi
     zle end-of-line
 }
-_kaku_has_active_region() {
+_manda_has_active_region() {
     emulate -L zsh
     # Require both an active region flag and a non-empty span. Either one can
     # be stale on its own and would cause false-positive kill-region deletes.
     (( REGION_ACTIVE && MARK != CURSOR ))
 }
-_kaku_deactivate_region() {
+_manda_deactivate_region() {
     emulate -L zsh
-    if ! _kaku_has_active_region; then
+    if ! _manda_has_active_region; then
         return 1
     fi
     if (( \${+widgets[deactivate-region]} )); then
@@ -1013,10 +1013,10 @@ _kaku_deactivate_region() {
     return 0
 }
 # Unconditional region deactivation helper (not bound to any key; called from
-# _kaku_mv_* widgets below). Unlike _kaku_deactivate_region this always clears
+# _manda_mv_* widgets below). Unlike _manda_deactivate_region this always clears
 # REGION_ACTIVE without checking MARK vs CURSOR, ensuring stale region flags
 # are removed even when the selection span is empty.
-_kaku_force_deactivate_region() {
+_manda_force_deactivate_region() {
     emulate -L zsh
     (( ! REGION_ACTIVE )) && return
     if (( \${+widgets[deactivate-region]} )); then
@@ -1028,40 +1028,40 @@ _kaku_force_deactivate_region() {
     fi
 }
 # Movement widgets that auto-deactivate any active region before moving.
-# The Kaku GUI sends ^B/^F/^A/^E when collapsing a selection with a plain or
+# The MANDA GUI sends ^B/^F/^A/^E when collapsing a selection with a plain or
 # Cmd+arrow key; these wrappers ensure zsh clears REGION_ACTIVE in the same
 # keystroke, preventing spurious region-extension or stale region highlights.
-_kaku_mv_backward_char() {
+_manda_mv_backward_char() {
     emulate -L zsh
-    _kaku_force_deactivate_region
+    _manda_force_deactivate_region
     zle backward-char
 }
-_kaku_mv_forward_char() {
+_manda_mv_forward_char() {
     emulate -L zsh
-    _kaku_force_deactivate_region
+    _manda_force_deactivate_region
     zle forward-char
 }
-_kaku_mv_beginning_of_line() {
+_manda_mv_beginning_of_line() {
     emulate -L zsh
-    _kaku_force_deactivate_region
+    _manda_force_deactivate_region
     zle beginning-of-line
 }
-_kaku_mv_end_of_line() {
+_manda_mv_end_of_line() {
     emulate -L zsh
-    _kaku_force_deactivate_region
+    _manda_force_deactivate_region
     zle end-of-line
 }
-zle -N _kaku_mv_backward_char
-zle -N _kaku_mv_forward_char
-zle -N _kaku_mv_beginning_of_line
-zle -N _kaku_mv_end_of_line
-zle -N _kaku_select_left_char
-zle -N _kaku_select_right_char
-zle -N _kaku_select_line_start
-zle -N _kaku_select_line_end
+zle -N _manda_mv_backward_char
+zle -N _manda_mv_forward_char
+zle -N _manda_mv_beginning_of_line
+zle -N _manda_mv_end_of_line
+zle -N _manda_select_left_char
+zle -N _manda_select_right_char
+zle -N _manda_select_line_start
+zle -N _manda_select_line_end
 
-# Terminal-assisted selection shortcuts (Kaku GUI sends these directly).
-_kaku_cmd_a_select_all() {
+# Terminal-assisted selection shortcuts (MANDA GUI sends these directly).
+_manda_cmd_a_select_all() {
     emulate -L zsh
     # Move to beginning first so MARK is anchored there, then extend to end.
     # If set-mark-command were called first, MARK would be at the current cursor
@@ -1070,55 +1070,55 @@ _kaku_cmd_a_select_all() {
     zle set-mark-command
     zle end-of-line
 }
-_kaku_cmd_shift_left() {
+_manda_cmd_shift_left() {
     emulate -L zsh
     zle set-mark-command
     zle beginning-of-line
 }
-_kaku_cmd_shift_right() {
+_manda_cmd_shift_right() {
     emulate -L zsh
     zle set-mark-command
     zle end-of-line
 }
-zle -N _kaku_cmd_a_select_all
-zle -N _kaku_cmd_shift_left
-zle -N _kaku_cmd_shift_right
+zle -N _manda_cmd_a_select_all
+zle -N _manda_cmd_shift_left
+zle -N _manda_cmd_shift_right
 
-# Cancel selection without moving cursor (ESC key in Kaku GUI).
-_kaku_cancel_selection() {
+# Cancel selection without moving cursor (ESC key in MANDA GUI).
+_manda_cancel_selection() {
     emulate -L zsh
-    _kaku_force_deactivate_region
+    _manda_force_deactivate_region
 }
-zle -N _kaku_cancel_selection
+zle -N _manda_cancel_selection
 
 # Shift+Left/Right: char expand; Shift+Home/End: to line boundary.
-bindkey '^[[1;2D' _kaku_select_left_char
-bindkey '^[[1;2C' _kaku_select_right_char
-bindkey '^[[1;2H' _kaku_select_line_start
-bindkey '^[[1;2F' _kaku_select_line_end
+bindkey '^[[1;2D' _manda_select_left_char
+bindkey '^[[1;2C' _manda_select_right_char
+bindkey '^[[1;2H' _manda_select_line_start
+bindkey '^[[1;2F' _manda_select_line_end
 
-# Terminal-assisted selection shortcuts (distinct CSI sequences from Kaku GUI).
-bindkey '^[[990~' _kaku_cmd_a_select_all
-bindkey '^[[991~' _kaku_cmd_shift_left
-bindkey '^[[992~' _kaku_cmd_shift_right
-bindkey '^[[995~' _kaku_cancel_selection
+# Terminal-assisted selection shortcuts (distinct CSI sequences from MANDA GUI).
+bindkey '^[[990~' _manda_cmd_a_select_all
+bindkey '^[[991~' _manda_cmd_shift_left
+bindkey '^[[992~' _manda_cmd_shift_right
+bindkey '^[[995~' _manda_cancel_selection
 
 # Emacs movement keys wrapped to auto-deactivate any active region.
-# ^B/^F/^A/^E are sent by the Kaku GUI when collapsing a selection with a
+# ^B/^F/^A/^E are sent by the MANDA GUI when collapsing a selection with a
 # plain or Cmd+arrow key. Wrapping them (rather than using a custom CSI escape)
 # avoids stray characters if the sequence is received in an unexpected context.
-bindkey '^B' _kaku_mv_backward_char
-bindkey '^F' _kaku_mv_forward_char
-bindkey '^A' _kaku_mv_beginning_of_line
-bindkey '^E' _kaku_mv_end_of_line
+bindkey '^B' _manda_mv_backward_char
+bindkey '^F' _manda_mv_forward_char
+bindkey '^A' _manda_mv_beginning_of_line
+bindkey '^E' _manda_mv_end_of_line
 
-# Bind delete keys to native zsh widgets. The Kaku GUI handles selection-aware
+# Bind delete keys to native zsh widgets. The MANDA GUI handles selection-aware
 # deletion directly (sending kill sequences via line_editor_selection), so the
 # shell side does not need a wrapper here.
 bindkey '^?' backward-delete-char
 bindkey '^H' backward-delete-char
 bindkey '^[[3~' delete-char
-# Cmd+Backspace sends ^U via the default Kaku key binding. zsh emacs mode
+# Cmd+Backspace sends ^U via the default MANDA key binding. zsh emacs mode
 # defaults ^U to kill-whole-line, which also deletes text after the cursor;
 # backward-kill-line matches macOS/readline delete-to-line-start behavior.
 bindkey '^U' backward-kill-line
@@ -1175,7 +1175,7 @@ alias glgp='git log --stat -p'
     emulate -L zsh
     setopt local_options no_sh_word_split
 
-    local yazi_cmd="\$KAKU_ZSH_DIR/bin/yazi"
+    local yazi_cmd="\$MANDA_ZSH_DIR/bin/yazi"
     if [[ ! -x "\$yazi_cmd" ]]; then
         yazi_cmd="\$(command -v yazi 2>/dev/null || true)"
     fi
@@ -1194,21 +1194,21 @@ alias glgp='git log --stat -p'
     rm -f -- "\$tmp"
 }
 
-# k - AI chat CLI bundled with Kaku.
-'k'() {
+# k - AI chat CLI bundled with MANDA.
+'m'() {
     emulate -L zsh
     local k_cmd
     for _candidate in \
-        "\${KAKU_ZSH_DIR:+\$KAKU_ZSH_DIR/../../MacOS/k}" \
-        "\$HOME/Applications/Kaku.app/Contents/MacOS/k" \
-        "/Applications/Kaku.app/Contents/MacOS/k"; do
+        "\${MANDA_ZSH_DIR:+\$MANDA_ZSH_DIR/../../MacOS/m}" \
+        "\$HOME/Applications/Manda.app/Contents/MacOS/m" \
+        "/Applications/Manda.app/Contents/MacOS/m"; do
         if [[ -x "\$_candidate" ]]; then
             k_cmd="\$_candidate"
             break
         fi
     done
     if [[ -z "\$k_cmd" ]]; then
-        echo "k: Kaku app not found. Install Kaku from https://github.com/tw93/Kaku"
+        echo "k: MANDA app not found. Install MANDA from https://github.com/WILFREDY-X/manda"
         return 127
     fi
     "\$k_cmd" "\$@"
@@ -1218,8 +1218,8 @@ alias glgp='git log --stat -p'
 
 # Load zsh-completions into fpath before compinit.
 # If the user already added this path, do not duplicate it.
-if [[ -d "\$KAKU_ZSH_DIR/plugins/zsh-completions/src" ]] && (( \${fpath[(Ie)\$KAKU_ZSH_DIR/plugins/zsh-completions/src]} == 0 )); then
-    fpath=("\$KAKU_ZSH_DIR/plugins/zsh-completions/src" \$fpath)
+if [[ -d "\$MANDA_ZSH_DIR/plugins/zsh-completions/src" ]] && (( \${fpath[(Ie)\$MANDA_ZSH_DIR/plugins/zsh-completions/src]} == 0 )); then
+    fpath=("\$MANDA_ZSH_DIR/plugins/zsh-completions/src" \$fpath)
 fi
 
 # Optimized compinit:
@@ -1236,7 +1236,7 @@ if ! (( \${+functions[_main_complete]} )) || ! (( \${+_comps} )); then
     fi
 fi
 
-_kaku_has_jump_provider() {
+_manda_has_jump_provider() {
     (( \${+functions[z]} )) \
         || (( \${+functions[zshz]} )) \
         || (( \${+functions[__zoxide_z]} )) \
@@ -1244,20 +1244,20 @@ _kaku_has_jump_provider() {
 }
 
 # Load zsh-z (smart directory jumping) if not already provided by user config.
-if [[ -f "\$KAKU_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh" ]] && ! _kaku_has_jump_provider; then
-    # Default to smart case matching so \`z kaku\` prefers \`Kaku\` over lowercase
+if [[ -f "\$MANDA_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh" ]] && ! _manda_has_jump_provider; then
+    # Default to smart case matching so \`z manda\` prefers \`MANDA\` over lowercase
     # path entries. Users can still override this in their own shell config.
     : "\${ZSHZ_CASE:=smart}"
     export ZSHZ_CASE
-    source "\$KAKU_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh"
+    source "\$MANDA_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh"
 fi
-unset -f _kaku_has_jump_provider 2>/dev/null
+unset -f _manda_has_jump_provider 2>/dev/null
 
 # cd + Tab falls back to zsh-z frecency history when filesystem completion
 # has no match. Delegate ranking to zshz --complete so behavior stays aligned
 # with the plugin (frecency ordering, smart-case, future plugin changes).
 if (( \${+functions[zshz]} )); then
-    _kaku_cd_history_complete() {
+    _manda_cd_history_complete() {
         emulate -L zsh
         setopt extended_glob no_sh_word_split
 
@@ -1288,14 +1288,14 @@ if (( \${+functions[zshz]} )); then
     }
 
     if (( \${+functions[compdef]} )); then
-        compdef _kaku_cd_history_complete cd
+        compdef _manda_cd_history_complete cd
     fi
 fi
 
 # Detect if any autosuggest system is already active (e.g., Kiro CLI, Fig, etc.)
 # These systems wrap zle widgets with names containing "autosuggest", which would
 # conflict with zsh-autosuggestions and cause FUNCNEST recursion errors.
-_kaku_has_autosuggest_system() {
+_manda_has_autosuggest_system() {
     local w
     for w in \${(k)widgets}; do
         case "\${w:l}" in
@@ -1307,29 +1307,29 @@ _kaku_has_autosuggest_system() {
 }
 
 $AUTOSUGGEST_BLOCK
-unset -f _kaku_has_autosuggest_system 2>/dev/null
+unset -f _manda_has_autosuggest_system 2>/dev/null
 
 # Smart Tab behavior:
 # - Use completion while typing arguments/path-like tokens
-# - When Kaku sets KAKU_TAB_ACCEPT_SUGGEST_FIRST=1, accept a visible
+# - When MANDA sets MANDA_TAB_ACCEPT_SUGGEST_FIRST=1, accept a visible
 #   autosuggestion before falling back to completion
-# - Without KAKU_TAB_ACCEPT_SUGGEST_FIRST, prefer completion so Tab reveals
+# - Without MANDA_TAB_ACCEPT_SUGGEST_FIRST, prefer completion so Tab reveals
 #   candidates instead of accepting recent-history suggestions
-# - Only claim Tab inside Kaku sessions unless explicitly disabled
-if [[ -z "\${KAKU_SMART_TAB_DISABLE:-}" ]] && [[ "\${TERM_PROGRAM:-}" == "Kaku" ]]; then
-    _kaku_tab_widget() {
+# - Only claim Tab inside MANDA sessions unless explicitly disabled
+if [[ -z "\${MANDA_SMART_TAB_DISABLE:-}" ]] && [[ "\${TERM_PROGRAM:-}" == "MANDA" ]]; then
+    _manda_tab_widget() {
         emulate -L zsh
 
         local has_suggestion=0
         local prefer_suggestion_first=0
 
-        if [[ "\${KAKU_TAB_ACCEPT_SUGGEST_FIRST:-0}" == "1" ]]; then
+        if [[ "\${MANDA_TAB_ACCEPT_SUGGEST_FIRST:-0}" == "1" ]]; then
             prefer_suggestion_first=1
         fi
 
-        # When Kaku defers autosuggestions to an external provider, keep Tab
+        # When MANDA defers autosuggestions to an external provider, keep Tab
         # as completion-only to avoid widget recursion.
-        if [[ "\${_kaku_external_autosuggest_provider:-0}" != "1" ]] && (( \${+widgets[autosuggest-accept]} )) && [[ -n "\${POSTDISPLAY:-}" ]]; then
+        if [[ "\${_manda_external_autosuggest_provider:-0}" != "1" ]] && (( \${+widgets[autosuggest-accept]} )) && [[ -n "\${POSTDISPLAY:-}" ]]; then
             has_suggestion=1
         fi
 
@@ -1350,17 +1350,17 @@ if [[ -z "\${KAKU_SMART_TAB_DISABLE:-}" ]] && [[ "\${TERM_PROGRAM:-}" == "Kaku" 
             zle expand-or-complete
         fi
     }
-    zle -N _kaku_tab_widget
-    bindkey '^I' _kaku_tab_widget
+    zle -N _manda_tab_widget
+    bindkey '^I' _manda_tab_widget
 fi
 
 # Defer fast-syntax-highlighting to first prompt (~40ms saved at startup)
 # This plugin must be loaded LAST, and we delay it for faster shell startup.
 # If user config already loaded it, skip to avoid overriding user settings.
-if ! (( \${+functions[_zsh_highlight]} )) && [[ -f "\$KAKU_ZSH_DIR/plugins/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh" ]]; then
+if ! (( \${+functions[_zsh_highlight]} )) && [[ -f "\$MANDA_ZSH_DIR/plugins/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh" ]]; then
     # Defer loading until first prompt display
     fast_syntax_highlighting_defer() {
-        source "\$KAKU_ZSH_DIR/plugins/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh"
+        source "\$MANDA_ZSH_DIR/plugins/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh"
 
         # Override comment color: fsh default (fg=8) is invisible on dark backgrounds.
         typeset -gA FAST_HIGHLIGHT_STYLES
@@ -1368,7 +1368,7 @@ if ! (( \${+functions[_zsh_highlight]} )) && [[ -f "\$KAKU_ZSH_DIR/plugins/fast-
 
         # Drop the underline on existing-directory paths: fsh default for
         # path-to-dir is fg=magenta,underline, and that underline stacks with
-        # Kaku's hyperlink hover underline into a confusing double line. Keep
+        # MANDA's hyperlink hover underline into a confusing double line. Keep
         # the magenta color so a valid directory still reads as a path.
         FAST_HIGHLIGHT_STYLES[path-to-dir]='fg=magenta'
 
@@ -1380,20 +1380,20 @@ if ! (( \${+functions[_zsh_highlight]} )) && [[ -f "\$KAKU_ZSH_DIR/plugins/fast-
     precmd_functions+=(fast_syntax_highlighting_defer)
 fi
 
-# Kaku AI fix hooks (error-only):
+# MANDA AI fix hooks (error-only):
 # - preexec captures the command text
 # - precmd captures the previous command exit code
 # Lua listens to these user vars and only suggests fixes when exit code != 0.
-_kaku_set_user_var() {
+_manda_set_user_var() {
     local name="\$1"
     local value="\$2"
 
-    # Kaku defaults TERM to xterm-256color for SSH compatibility.
-    # Use WEZTERM_PANE presence to detect Kaku/WezTerm panes reliably.
+    # MANDA defaults TERM to xterm-256color for SSH compatibility.
+    # Use WEZTERM_PANE presence to detect MANDA/WezTerm panes reliably.
     # These guards return 1: a bare return inherits the guard's own success
     # status, which made callers believe the var was emitted and left the
-    # zle # widget blocking Enter in non-Kaku terminals (#511).
-    if [[ "\$TERM" != "kaku" && -z "\${WEZTERM_PANE:-}" ]]; then
+    # zle # widget blocking Enter in non-MANDA terminals (#511).
+    if [[ "\$TERM" != "manda" && -z "\${WEZTERM_PANE:-}" ]]; then
         return 1
     fi
 
@@ -1415,12 +1415,12 @@ _kaku_set_user_var() {
     fi
 }
 
-# Authenticate Kaku's privileged control messages so arbitrary PTY output
+# Authenticate MANDA's privileged control messages so arbitrary PTY output
 # cannot trigger local AI requests or reuse the user's assistant credentials.
-_kaku_set_ai_user_var() {
+_manda_set_ai_user_var() {
     local name="\$1"
     local value="\$2"
-    local capability_file="\$HOME/.config/kaku/ai_inline_capability"
+    local capability_file="\$HOME/.config/manda/ai_inline_capability"
     local capability=""
 
     [[ -r "\$capability_file" ]] || return 1
@@ -1428,89 +1428,89 @@ _kaku_set_ai_user_var() {
     # but still fills the variable; accept that case (#511).
     IFS= read -r capability < "\$capability_file" || [[ -n "\$capability" ]] || return 1
     [[ -n "\$capability" ]] || return 1
-    _kaku_set_user_var "\$name" "\${capability}:\${value}"
+    _manda_set_user_var "\$name" "\${capability}:\${value}"
 }
 
 # Only emit exit code when a real command was executed.
 # Empty Enter should not re-trigger AI suggestions for the previous failure.
-typeset -g _kaku_ai_cmd_pending=0
+typeset -g _manda_ai_cmd_pending=0
 
-_kaku_ai_preexec() {
-    if [[ -n "\${KAKU_AUTO_DISABLE:-}" ]]; then
+_manda_ai_preexec() {
+    if [[ -n "\${MANDA_AUTO_DISABLE:-}" ]]; then
         return
     fi
-    _kaku_ai_cmd_pending=1
-    _kaku_set_ai_user_var "kaku_last_cmd" "\$1" || true
+    _manda_ai_cmd_pending=1
+    _manda_set_ai_user_var "manda_last_cmd" "\$1" || true
 }
 
-_kaku_ai_precmd() {
+_manda_ai_precmd() {
     local last_exit_code="\$?"
-    if [[ -n "\${KAKU_AUTO_DISABLE:-}" ]]; then
-        _kaku_ai_cmd_pending=0
+    if [[ -n "\${MANDA_AUTO_DISABLE:-}" ]]; then
+        _manda_ai_cmd_pending=0
         return 0
     fi
-    if [[ "\${_kaku_ai_cmd_pending:-0}" != "1" ]]; then
+    if [[ "\${_manda_ai_cmd_pending:-0}" != "1" ]]; then
         return 0
     fi
-    _kaku_set_ai_user_var "kaku_last_exit_code" "\$last_exit_code" || true
-    _kaku_ai_cmd_pending=0
+    _manda_set_ai_user_var "manda_last_exit_code" "\$last_exit_code" || true
+    _manda_ai_cmd_pending=0
 }
 
-if [[ \${preexec_functions[(Ie)_kaku_ai_preexec]} -eq 0 ]]; then
-    preexec_functions+=(_kaku_ai_preexec)
+if [[ \${preexec_functions[(Ie)_manda_ai_preexec]} -eq 0 ]]; then
+    preexec_functions+=(_manda_ai_preexec)
 fi
-if [[ \${precmd_functions[(Ie)_kaku_ai_precmd]} -eq 0 ]]; then
-    precmd_functions=(_kaku_ai_precmd "\${precmd_functions[@]}")
+if [[ \${precmd_functions[(Ie)_manda_ai_precmd]} -eq 0 ]]; then
+    precmd_functions=(_manda_ai_precmd "\${precmd_functions[@]}")
 fi
 
 # Cancel AI suggestions when user starts typing (before pressing Enter).
 # This prevents AI notices from appearing after the user has already begun
 # entering a new command, avoiding interruption.
-typeset -g _kaku_ai_cancel_sent=0
+typeset -g _manda_ai_cancel_sent=0
 
-_kaku_cancel_ai_on_typing() {
-    if [[ "\$_kaku_ai_cancel_sent" == "0" && -n "\$BUFFER" ]]; then
-        _kaku_set_ai_user_var "kaku_user_typing" "1" || true
-        _kaku_ai_cancel_sent=1
+_manda_cancel_ai_on_typing() {
+    if [[ "\$_manda_ai_cancel_sent" == "0" && -n "\$BUFFER" ]]; then
+        _manda_set_ai_user_var "manda_user_typing" "1" || true
+        _manda_ai_cancel_sent=1
     fi
 }
 
-_kaku_reset_ai_cancel_flag() {
-    _kaku_ai_cancel_sent=0
+_manda_reset_ai_cancel_flag() {
+    _manda_ai_cancel_sent=0
 }
 
 autoload -Uz add-zle-hook-widget 2>/dev/null
 if (( \$+functions[add-zle-hook-widget] )); then
-    add-zle-hook-widget line-pre-redraw _kaku_cancel_ai_on_typing
-    add-zle-hook-widget line-init _kaku_reset_ai_cancel_flag
+    add-zle-hook-widget line-pre-redraw _manda_cancel_ai_on_typing
+    add-zle-hook-widget line-init _manda_reset_ai_cancel_flag
 fi
 
 # AI generate: intercept Enter on "# query" lines via accept-line widget.
 # preexec does not fire for comment-only lines (zsh strips them before execution),
 # so we wrap accept-line instead. Registration is deferred to first prompt so it
 # runs after zsh-autosuggestions finishes binding its own widgets.
-_kaku_ai_waiting=0
-_kaku_ai_waiting_ts=0
-_kaku_ai_reset_waiting() { _kaku_ai_waiting=0; }
-add-zsh-hook precmd _kaku_ai_reset_waiting
+_manda_ai_waiting=0
+_manda_ai_waiting_ts=0
+_manda_ai_reset_waiting() { _manda_ai_waiting=0; }
+add-zsh-hook precmd _manda_ai_reset_waiting
 
-_kaku_ai_query_accept_line() {
+_manda_ai_query_accept_line() {
     # Block repeat Enter only while buffer still shows the # query.
     # Auto-reset after 30 seconds to prevent permanent blocking if Lua side fails.
-    if (( _kaku_ai_waiting )); then
+    if (( _manda_ai_waiting )); then
         if [[ "\${BUFFER[1]}" == '#' ]]; then
             local now=\$EPOCHSECONDS
-            if (( now - _kaku_ai_waiting_ts > 30 )); then
-                _kaku_ai_waiting=0
+            if (( now - _manda_ai_waiting_ts > 30 )); then
+                _manda_ai_waiting=0
             else
                 return
             fi
         else
-            _kaku_ai_waiting=0
+            _manda_ai_waiting=0
         fi
     fi
     # Only intercept a single-line comment (no newlines in buffer)
-    if [[ -z "\${KAKU_AUTO_DISABLE:-}" && -n "\$BUFFER" && "\${BUFFER[1]}" == '#' && "\$BUFFER" != *\$'\\n'* ]]; then
+    if [[ -z "\${MANDA_AUTO_DISABLE:-}" && -n "\$BUFFER" && "\${BUFFER[1]}" == '#' && "\$BUFFER" != *\$'\\n'* ]]; then
         # Prefix variants:
         #   '#? ...'  -> force explain (skip command synthesis)
         #   '## ...'  -> request multiple command candidates as a list
@@ -1527,9 +1527,9 @@ _kaku_ai_query_accept_line() {
         body="\${body# }"
         if [[ -n "\$body" ]]; then
             print -s -- "\${BUFFER}"
-            if _kaku_set_ai_user_var "kaku_ai_query" "[mode:\${mode}] \${body}"; then
-                _kaku_ai_waiting=1
-                _kaku_ai_waiting_ts=\$EPOCHSECONDS
+            if _manda_set_ai_user_var "manda_ai_query" "[mode:\${mode}] \${body}"; then
+                _manda_ai_waiting=1
+                _manda_ai_waiting_ts=\$EPOCHSECONDS
                 # Keep # query visible; Lua sends \x15 to clear it when result arrives.
                 # Do NOT call 'zle reset-prompt' here: it redraws the prompt with
                 # BUFFER still set, causing the query line to appear twice.
@@ -1542,17 +1542,17 @@ _kaku_ai_query_accept_line() {
     zle .accept-line
 }
 
-_kaku_ai_query_register_widget() {
-    zle -N accept-line _kaku_ai_query_accept_line
-    precmd_functions=("\${precmd_functions[@]:#_kaku_ai_query_register_widget}")
+_manda_ai_query_register_widget() {
+    zle -N accept-line _manda_ai_query_accept_line
+    precmd_functions=("\${precmd_functions[@]:#_manda_ai_query_register_widget}")
 }
-precmd_functions+=(_kaku_ai_query_register_widget)
+precmd_functions+=(_manda_ai_query_register_widget)
 
-# Auto-set TERM to xterm-256color for SSH connections when running under kaku,
-# since remote hosts typically lack the kaku terminfo entry.
+# Auto-set TERM to xterm-256color for SSH connections when running under manda,
+# since remote hosts typically lack the manda terminfo entry.
 # Also auto-detect 1Password SSH agent and add IdentitiesOnly=yes to prevent
 # "Too many authentication failures" caused by 1Password offering all stored keys.
-# Set KAKU_SSH_SKIP_1PASSWORD_FIX=1 to disable the 1Password behavior.
+# Set MANDA_SSH_SKIP_1PASSWORD_FIX=1 to disable the 1Password behavior.
 # Guard: only define if no existing ssh function is present, so user-defined
 # wrappers (e.g. from fzf-ssh, autossh plugins) are not silently replaced.
 # The wrapper body must stay self-contained: agent snapshot tools (Claude
@@ -1560,38 +1560,38 @@ precmd_functions+=(_kaku_ai_query_register_widget)
 # _-prefixed helpers, so calling one from here leaves a dangling reference
 # in snapshot-restored shells (#493).
 if (( \$+aliases[ssh] )); then
-    typeset _kaku_existing_ssh_alias="\${aliases[ssh]}"
+    typeset _manda_existing_ssh_alias="\${aliases[ssh]}"
     function ssh {
-        local -a _kaku_alias_words _kaku_ssh_cmd _kaku_ssh_args
-        _kaku_alias_words=(\${(z)_kaku_existing_ssh_alias})
+        local -a _manda_alias_words _manda_ssh_cmd _manda_ssh_args
+        _manda_alias_words=(\${(z)_manda_existing_ssh_alias})
         # Snapshot-restored shells keep this function but not the alias
         # variable; fall back to plain ssh instead of exec'ing "\$1".
-        if [[ \${#_kaku_alias_words[@]} -eq 0 ]]; then
-            _kaku_ssh_cmd=(command ssh)
-            _kaku_ssh_args=("\$@")
-        elif [[ "\${_kaku_alias_words[1]-}" == "ssh" ]]; then
-            _kaku_ssh_cmd=(command ssh)
-            _kaku_ssh_args=("\${(@)_kaku_alias_words[2,-1]}" "\$@")
-        elif [[ "\${_kaku_alias_words[1]-}" == "command" && "\${_kaku_alias_words[2]-}" == "ssh" ]]; then
-            _kaku_ssh_cmd=(command ssh)
-            _kaku_ssh_args=("\${(@)_kaku_alias_words[3,-1]}" "\$@")
-        elif [[ "\${_kaku_alias_words[1]-}" == *=* ]]; then
+        if [[ \${#_manda_alias_words[@]} -eq 0 ]]; then
+            _manda_ssh_cmd=(command ssh)
+            _manda_ssh_args=("\$@")
+        elif [[ "\${_manda_alias_words[1]-}" == "ssh" ]]; then
+            _manda_ssh_cmd=(command ssh)
+            _manda_ssh_args=("\${(@)_manda_alias_words[2,-1]}" "\$@")
+        elif [[ "\${_manda_alias_words[1]-}" == "command" && "\${_manda_alias_words[2]-}" == "ssh" ]]; then
+            _manda_ssh_cmd=(command ssh)
+            _manda_ssh_args=("\${(@)_manda_alias_words[3,-1]}" "\$@")
+        elif [[ "\${_manda_alias_words[1]-}" == *=* ]]; then
             # Alias starts with VAR=value prefixes (e.g. alias ssh='TERM=xterm ssh');
             # expanded array words are not re-parsed as assignments, so route
             # through env to keep them out of command position.
-            _kaku_ssh_cmd=(env "\${_kaku_alias_words[@]}")
-            _kaku_ssh_args=("\$@")
+            _manda_ssh_cmd=(env "\${_manda_alias_words[@]}")
+            _manda_ssh_args=("\$@")
         else
-            _kaku_ssh_cmd=("\${_kaku_alias_words[@]}")
-            _kaku_ssh_args=("\$@")
+            _manda_ssh_cmd=("\${_manda_alias_words[@]}")
+            _manda_ssh_args=("\$@")
         fi
 
         local -a extra_opts=()
-        if [[ -z "\${KAKU_SSH_SKIP_1PASSWORD_FIX-}" ]]; then
+        if [[ -z "\${MANDA_SSH_SKIP_1PASSWORD_FIX-}" ]]; then
             local sock="\${SSH_AUTH_SOCK:-}"
             if [[ "\$sock" == *1password* || "\$sock" == *2BUA8C4S2C* ]]; then
                 local has_identitiesonly=false prev="" arg
-                for arg in "\${_kaku_ssh_args[@]}"; do
+                for arg in "\${_manda_ssh_args[@]}"; do
                     [[ "\$prev" == "-o" && "\$arg" == IdentitiesOnly=* ]] && has_identitiesonly=true
                     [[ "\$arg" == -oIdentitiesOnly=* ]] && has_identitiesonly=true
                     prev="\$arg"
@@ -1600,17 +1600,17 @@ if (( \$+aliases[ssh] )); then
             fi
         fi
 
-        if [[ -z "\${KAKU_SSH_SKIP_TERM_FIX-}" && "\$TERM" == "kaku" ]]; then
-            TERM=xterm-256color "\${_kaku_ssh_cmd[@]}" "\${extra_opts[@]}" "\${_kaku_ssh_args[@]}"
+        if [[ -z "\${MANDA_SSH_SKIP_TERM_FIX-}" && "\$TERM" == "manda" ]]; then
+            TERM=xterm-256color "\${_manda_ssh_cmd[@]}" "\${extra_opts[@]}" "\${_manda_ssh_args[@]}"
         else
-            "\${_kaku_ssh_cmd[@]}" "\${extra_opts[@]}" "\${_kaku_ssh_args[@]}"
+            "\${_manda_ssh_cmd[@]}" "\${extra_opts[@]}" "\${_manda_ssh_args[@]}"
         fi
     }
     unalias ssh
 elif ! typeset -f ssh > /dev/null 2>&1; then
 function ssh {
     local -a extra_opts=()
-    if [[ -z "\${KAKU_SSH_SKIP_1PASSWORD_FIX-}" ]]; then
+    if [[ -z "\${MANDA_SSH_SKIP_1PASSWORD_FIX-}" ]]; then
         local sock="\${SSH_AUTH_SOCK:-}"
         if [[ "\$sock" == *1password* || "\$sock" == *2BUA8C4S2C* ]]; then
             local has_identitiesonly=false prev="" arg
@@ -1622,7 +1622,7 @@ function ssh {
             \$has_identitiesonly || extra_opts+=(-o "IdentitiesOnly=yes")
         fi
     fi
-    if [[ -z "\${KAKU_SSH_SKIP_TERM_FIX-}" && "\$TERM" == "kaku" ]]; then
+    if [[ -z "\${MANDA_SSH_SKIP_TERM_FIX-}" && "\$TERM" == "manda" ]]; then
         TERM=xterm-256color command ssh "\${extra_opts[@]}" "\$@"
     else
         command ssh "\${extra_opts[@]}" "\$@"
@@ -1631,11 +1631,11 @@ function ssh {
 fi
 
 # Same TERM fix for mosh: mosh-server inherits TERM on the remote side, so a
-# kaku TERM breaks remote rendering exactly like plain ssh would. Guard: keep
+# manda TERM breaks remote rendering exactly like plain ssh would. Guard: keep
 # user-defined mosh functions and aliases untouched. Self-contained (#493).
 if command -v mosh > /dev/null 2>&1 && ! typeset -f mosh > /dev/null 2>&1 && ! (( \$+aliases[mosh] )); then
 function mosh {
-    if [[ -z "\${KAKU_SSH_SKIP_TERM_FIX-}" && "\$TERM" == "kaku" ]]; then
+    if [[ -z "\${MANDA_SSH_SKIP_TERM_FIX-}" && "\$TERM" == "manda" ]]; then
         TERM=xterm-256color command mosh "\$@"
     else
         command mosh "\$@"
@@ -1643,17 +1643,17 @@ function mosh {
 }
 fi
 
-# Auto-set TERM to xterm-256color for sudo commands when running under kaku.
+# Auto-set TERM to xterm-256color for sudo commands when running under manda.
 # sudo usually resets TERMINFO_DIRS, so root processes (e.g. nano) can fail
-# with "unknown terminal type 'kaku'" even though Kaku set TERMINFO_DIRS for the
-# user shell. Set KAKU_SUDO_SKIP_TERM_FIX=1 to disable this behavior.
+# with "unknown terminal type 'manda'" even though MANDA set TERMINFO_DIRS for the
+# user shell. Set MANDA_SUDO_SKIP_TERM_FIX=1 to disable this behavior.
 # Guard: only define if no existing sudo function is present.
 # If sudo is an alias, zsh expands it during function-definition parsing and
 # raises a syntax error ("defining function based on alias"). Unalias first.
 if ! typeset -f sudo > /dev/null 2>&1; then
 unalias sudo 2>/dev/null || true
 function sudo {
-    if [[ -z "\${KAKU_SUDO_SKIP_TERM_FIX-}" && "\$TERM" == "kaku" ]]; then
+    if [[ -z "\${MANDA_SUDO_SKIP_TERM_FIX-}" && "\$TERM" == "manda" ]]; then
         TERM=xterm-256color command sudo "\$@"
     else
         command sudo "\$@"
@@ -1661,18 +1661,18 @@ function sudo {
 }
 fi
 
-# Kaku Dark maps ANSI 8 / bright_black to #3A3942, which makes any text rendered
+# MANDA Dark maps ANSI 8 / bright_black to #3A3942, which makes any text rendered
 # at fg=8 (the default comment color in fast-syntax-highlighting and
 # zsh-syntax-highlighting) invisible. The deferred loader blocks above already
-# override the comment color when Kaku itself loaded the plugin, but they are
+# override the comment color when MANDA itself loaded the plugin, but they are
 # skipped when the user pre-loaded their own copy in .zshrc (oh-my-zsh, brew,
 # etc.). This one-shot precmd guard reapplies the override after .zshrc has
 # fully run, only when the comment style is still at an invisible default, so
 # users who picked their own color are preserved.
-_kaku_apply_highlight_styles() {
+_manda_apply_highlight_styles() {
     # Both fast-syntax-highlighting and zsh-syntax-highlighting ship the same
     # invisible default for \`[comment]\`: fg=black,bold (older versions: fg=8).
-    # Kaku Dark's color_overrides collapse those to #3A3942 against #1F1D2C,
+    # MANDA Dark's color_overrides collapse those to #3A3942 against #1F1D2C,
     # so the # character and any zsh-style # comment becomes unreadable.
     # Replace ONLY the known defaults; leave any other value alone so a user
     # who picked their own comment color in .zshrc keeps it.
@@ -1688,33 +1688,33 @@ _kaku_apply_highlight_styles() {
                 ZSH_HIGHLIGHT_STYLES[comment]='fg=249' ;;
         esac
     fi
-    precmd_functions=("\${precmd_functions[@]:#_kaku_apply_highlight_styles}")
+    precmd_functions=("\${precmd_functions[@]:#_manda_apply_highlight_styles}")
 }
-precmd_functions+=(_kaku_apply_highlight_styles)
+precmd_functions+=(_manda_apply_highlight_styles)
 EOF
 
-if [[ -s "$KAKU_INIT_TMPFILE" ]]; then
-    mv "$KAKU_INIT_TMPFILE" "$KAKU_INIT_FILE"
+if [[ -s "$MANDA_INIT_TMPFILE" ]]; then
+    mv "$MANDA_INIT_TMPFILE" "$MANDA_INIT_FILE"
     # Byte-compile the (~1600 line) init file so each new shell skips the
-    # parse. zsh's `source` automatically prefers kaku.zsh.zwc while it is
-    # not older than kaku.zsh, and falls back to the source file otherwise,
+    # parse. zsh's `source` automatically prefers manda.zsh.zwc while it is
+    # not older than manda.zsh, and falls back to the source file otherwise,
     # so a failed or skipped zcompile is harmless.
-    zsh -fc 'zcompile -R -- "$1"' zcompile "$KAKU_INIT_FILE" 2>/dev/null || rm -f "${KAKU_INIT_FILE}.zwc"
+    zsh -fc 'zcompile -R -- "$1"' zcompile "$MANDA_INIT_FILE" 2>/dev/null || rm -f "${MANDA_INIT_FILE}.zwc"
 else
-    echo -e "  ${RED}✗${NC} Generated kaku.zsh is empty, keeping previous version" >&2
-    rm -f "$KAKU_INIT_TMPFILE"
+    echo -e "  ${RED}✗${NC} Generated manda.zsh is empty, keeping previous version" >&2
+    rm -f "$MANDA_INIT_TMPFILE"
 fi
 
-echo -e "  ${GREEN}✓${NC} ${BOLD}Script${NC}      Generated kaku.zsh init script"
+echo -e "  ${GREEN}✓${NC} ${BOLD}Script${NC}      Generated manda.zsh init script"
 
 # 4. Configure tmux (Optional)
-TMUX_SOURCE_LINE='source-file "$HOME/.config/kaku/tmux/kaku.tmux.conf" # Kaku tmux Integration'
+TMUX_SOURCE_LINE='source-file "$HOME/.config/manda/tmux/manda.tmux.conf" # MANDA tmux Integration'
 
-write_kaku_tmux_file() {
-	mkdir -p "$KAKU_TMUX_DIR"
-	cat <<'EOF' >"$KAKU_TMUX_FILE"
-# Kaku tmux Integration - DO NOT EDIT MANUALLY
-# This file is managed by Kaku.app. Any changes may be overwritten.
+write_manda_tmux_file() {
+	mkdir -p "$MANDA_TMUX_DIR"
+	cat <<'EOF' >"$MANDA_TMUX_FILE"
+# MANDA tmux Integration - DO NOT EDIT MANUALLY
+# This file is managed by Manda.app. Any changes may be overwritten.
 
 set -g mouse on
 bind-key -n S-WheelUpPane if-shell -F '#{pane_in_mode}' 'send-keys -X -N 5 scroll-up' 'copy-mode -e -u'
@@ -1723,13 +1723,13 @@ EOF
 	echo -e "  ${GREEN}✓${NC} ${BOLD}Script${NC}      Generated managed tmux integration"
 }
 
-normalize_kaku_tmux_source_line() {
+normalize_manda_tmux_source_line() {
 	if [[ ! -f "$TMUXRC" ]]; then
 		return
 	fi
 
 	local tmp_file
-	tmp_file="$(mktemp "${TMPDIR:-/tmp}/kaku-tmuxrc.XXXXXX")"
+	tmp_file="$(mktemp "${TMPDIR:-/tmp}/manda-tmuxrc.XXXXXX")"
 
 	if awk -v source_line="$TMUX_SOURCE_LINE" '
 BEGIN { replaced = 0; extra = 0 }
@@ -1740,7 +1740,7 @@ BEGIN { replaced = 0; extra = 0 }
 	}
 
 	if ($0 ~ /^[[:space:]]*source-file[[:space:]]+/ &&
-	    $0 ~ /kaku\/tmux\/kaku\.tmux\.conf/) {
+	    $0 ~ /manda\/tmux\/manda\.tmux\.conf/) {
 		if (!replaced) {
 			print source_line
 			replaced = 1
@@ -1764,7 +1764,7 @@ END {
 		if ! cmp -s "$TMUXRC" "$tmp_file"; then
 			backup_tmuxrc_once
 			mv "$tmp_file" "$TMUXRC"
-			echo -e "  ${GREEN}✓${NC} ${BOLD}Integrate${NC}   Updated Kaku source line in .tmux.conf"
+			echo -e "  ${GREEN}✓${NC} ${BOLD}Integrate${NC}   Updated MANDA source line in .tmux.conf"
 		else
 			rm -f "$tmp_file"
 		fi
@@ -1774,20 +1774,20 @@ END {
 			if ! cmp -s "$TMUXRC" "$tmp_file"; then
 				backup_tmuxrc_once
 				mv "$tmp_file" "$TMUXRC"
-				echo -e "  ${GREEN}✓${NC} ${BOLD}Integrate${NC}   Removed duplicate Kaku source line(s) from .tmux.conf"
+				echo -e "  ${GREEN}✓${NC} ${BOLD}Integrate${NC}   Removed duplicate MANDA source line(s) from .tmux.conf"
 			else
 				rm -f "$tmp_file"
 			fi
 		else
 			rm -f "$tmp_file"
 			if [[ "$awk_status" != "3" ]]; then
-				echo -e "${YELLOW}Warning: failed to normalize Kaku source line in .tmux.conf; leaving it unchanged.${NC}"
+				echo -e "${YELLOW}Warning: failed to normalize MANDA source line in .tmux.conf; leaving it unchanged.${NC}"
 			fi
 		fi
 	fi
 }
 
-has_kaku_tmux_source_line() {
+has_manda_tmux_source_line() {
 	if [[ ! -f "$TMUXRC" ]]; then
 		return 1
 	fi
@@ -1796,10 +1796,10 @@ has_kaku_tmux_source_line() {
 		return 0
 	fi
 
-	grep -Eq '^[[:space:]]*source-file[[:space:]].*kaku/tmux/kaku\.tmux\.conf([[:space:]]|$)' "$TMUXRC"
+	grep -Eq '^[[:space:]]*source-file[[:space:]].*manda/tmux/manda\.tmux\.conf([[:space:]]|$)' "$TMUXRC"
 }
 
-ensure_kaku_tmux_integration() {
+ensure_manda_tmux_integration() {
 	# GUI-launched shells inherit a minimal PATH (no Homebrew/MacPorts). Probe
 	# common install locations so tmux is found even when PATH is stripped down.
 	local tmux_cmd=""
@@ -1818,10 +1818,10 @@ ensure_kaku_tmux_integration() {
 		return
 	fi
 
-	write_kaku_tmux_file
-	normalize_kaku_tmux_source_line
+	write_manda_tmux_file
+	normalize_manda_tmux_source_line
 
-	if has_kaku_tmux_source_line; then
+	if has_manda_tmux_source_line; then
 		echo -e "  ${GREEN}✓${NC} ${BOLD}Integrate${NC}   Already linked in .tmux.conf"
 	else
 		backup_tmuxrc_once
@@ -1833,16 +1833,16 @@ ensure_kaku_tmux_integration() {
 	fi
 }
 
-ensure_kaku_tmux_integration
+ensure_manda_tmux_integration
 
 # 5. Configure .zshrc
-PATH_LINE='[[ ":$PATH:" != *":$HOME/.config/kaku/zsh/bin:"* ]] && export PATH="$HOME/.config/kaku/zsh/bin:$PATH" # Kaku PATH Integration'
-SOURCE_LINE='[[ -f "$HOME/.config/kaku/zsh/kaku.zsh" ]] && source "$HOME/.config/kaku/zsh/kaku.zsh" # Kaku Shell Integration'
+PATH_LINE='[[ ":$PATH:" != *":$HOME/.config/manda/zsh/bin:"* ]] && export PATH="$HOME/.config/manda/zsh/bin:$PATH" # MANDA PATH Integration'
+SOURCE_LINE='[[ -f "$HOME/.config/manda/zsh/manda.zsh" ]] && source "$HOME/.config/manda/zsh/manda.zsh" # MANDA Shell Integration'
 LEGACY_INLINE_BLOCK_PRESERVED=0
 
-# SYNC: the heredoc below must stay in sync with KAKU_LEGACY_INLINE_KNOWN_LINES
-# in kaku/src/reset.rs. When adding or removing lines, update both places.
-legacy_inline_block_has_only_kaku_managed_lines() {
+# SYNC: the heredoc below must stay in sync with MANDA_LEGACY_INLINE_KNOWN_LINES
+# in manda/src/reset.rs. When adding or removing lines, update both places.
+legacy_inline_block_has_only_manda_managed_lines() {
 	local line
 
 	for line in "$@"; do
@@ -1851,15 +1851,15 @@ legacy_inline_block_has_only_kaku_managed_lines() {
 		fi
 
 		if ! grep -Fqx -- "$line" <<'EOF'
-# Kaku Zsh Integration - DO NOT EDIT MANUALLY
-# This file is managed by Kaku.app. Any changes may be overwritten.
-export KAKU_ZSH_DIR="$HOME/.config/kaku/zsh"
+# MANDA Zsh Integration - DO NOT EDIT MANUALLY
+# This file is managed by Manda.app. Any changes may be overwritten.
+export MANDA_ZSH_DIR="$HOME/.config/manda/zsh"
 # Add bundled binaries to PATH
-export PATH="$KAKU_ZSH_DIR/bin:$PATH"
+export PATH="$MANDA_ZSH_DIR/bin:$PATH"
 # Initialize Starship (Cross-shell prompt)
 # Check file existence to avoid "no such file" errors in some zsh configurations
-if [[ -x "$KAKU_ZSH_DIR/bin/starship" ]]; then
-    eval "$("$KAKU_ZSH_DIR/bin/starship" init zsh)"
+if [[ -x "$MANDA_ZSH_DIR/bin/starship" ]]; then
+    eval "$("$MANDA_ZSH_DIR/bin/starship" init zsh)"
 elif command -v starship &> /dev/null; then
     # Fallback to system starship if available
     eval "$(starship init zsh)"
@@ -1921,8 +1921,8 @@ alias glg='git log --stat'
 alias glgp='git log --stat -p'
 # Load Plugins (Performance Optimized)
 # Load zsh-completions into fpath before compinit
-if [[ -d "$KAKU_ZSH_DIR/plugins/zsh-completions/src" ]]; then
-    fpath=("$KAKU_ZSH_DIR/plugins/zsh-completions/src" $fpath)
+if [[ -d "$MANDA_ZSH_DIR/plugins/zsh-completions/src" ]]; then
+    fpath=("$MANDA_ZSH_DIR/plugins/zsh-completions/src" $fpath)
 fi
 # Optimized compinit: Use cache and only rebuild when needed (~30ms saved)
 autoload -Uz compinit
@@ -1934,45 +1934,45 @@ else
     compinit -C
 fi
 # Load zsh-z (smart directory jumping) - Fast, no delay needed
-if [[ -f "$KAKU_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh" ]]; then
-    # Default to smart case matching so `z kaku` prefers `Kaku` over lowercase
+if [[ -f "$MANDA_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh" ]]; then
+    # Default to smart case matching so `z manda` prefers `MANDA` over lowercase
     # path entries. Users can still override this in their own shell config.
     : "${ZSHZ_CASE:=smart}"
     export ZSHZ_CASE
-    source "$KAKU_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh"
+    source "$MANDA_ZSH_DIR/plugins/zsh-z/zsh-z.plugin.zsh"
 fi
 # Load zsh-autosuggestions only if:
 # 1. User config has not loaded it yet (_zsh_autosuggest_start not defined)
 # 2. No other autosuggest system is active (to avoid widget wrapping conflicts)
-if ! (( ${+functions[_zsh_autosuggest_start]} )) && [[ "${_kaku_external_autosuggest_provider:-0}" != "1" ]] && [[ -f "$KAKU_ZSH_DIR/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh" ]]; then
-    source "$KAKU_ZSH_DIR/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
-    # Smart Tab: suggestion-first when KAKU_TAB_ACCEPT_SUGGEST_FIRST=1,
+if ! (( ${+functions[_zsh_autosuggest_start]} )) && [[ "${_manda_external_autosuggest_provider:-0}" != "1" ]] && [[ -f "$MANDA_ZSH_DIR/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh" ]]; then
+    source "$MANDA_ZSH_DIR/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
+    # Smart Tab: suggestion-first when MANDA_TAB_ACCEPT_SUGGEST_FIRST=1,
     # otherwise completion-first.
     # Keep this widget out of autosuggestions rebinding, otherwise POSTDISPLAY is
     # cleared before our condition check and Tab always falls back to completion.
     typeset -ga ZSH_AUTOSUGGEST_IGNORE_WIDGETS
-    ZSH_AUTOSUGGEST_IGNORE_WIDGETS+=(kaku_tab_accept_or_complete)
-    kaku_tab_accept_or_complete() {
-        if [[ "${KAKU_TAB_ACCEPT_SUGGEST_FIRST:-0}" == "1" ]] && [[ -n "$POSTDISPLAY" ]]; then
+    ZSH_AUTOSUGGEST_IGNORE_WIDGETS+=(manda_tab_accept_or_complete)
+    manda_tab_accept_or_complete() {
+        if [[ "${MANDA_TAB_ACCEPT_SUGGEST_FIRST:-0}" == "1" ]] && [[ -n "$POSTDISPLAY" ]]; then
             zle autosuggest-accept
         else
             zle expand-or-complete
         fi
     }
-    zle -N kaku_tab_accept_or_complete
-    bindkey -M emacs '^I' kaku_tab_accept_or_complete
-    bindkey -M main '^I' kaku_tab_accept_or_complete
-    bindkey -M viins '^I' kaku_tab_accept_or_complete
+    zle -N manda_tab_accept_or_complete
+    bindkey -M emacs '^I' manda_tab_accept_or_complete
+    bindkey -M main '^I' manda_tab_accept_or_complete
+    bindkey -M viins '^I' manda_tab_accept_or_complete
 fi
 # Defer zsh-syntax-highlighting to first prompt (~40ms saved at startup)
 # This plugin must be loaded LAST, and we delay it for faster shell startup
-source "$KAKU_ZSH_DIR/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
-if [[ -f "$KAKU_ZSH_DIR/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]]; then
+source "$MANDA_ZSH_DIR/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+if [[ -f "$MANDA_ZSH_DIR/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]]; then
     # Simplified highlighters for better performance (removed brackets, pattern, cursor)
     export ZSH_HIGHLIGHT_HIGHLIGHTERS=(main)
     # Defer loading until first prompt display
     zsh_syntax_highlighting_defer() {
-        source "$KAKU_ZSH_DIR/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+        source "$MANDA_ZSH_DIR/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
         # Override comment color: default (fg=8) is invisible on dark backgrounds.
         ZSH_HIGHLIGHT_STYLES[comment]='fg=249'
         # Remove this hook after first run
@@ -1996,7 +1996,7 @@ cleanup_legacy_inline_block() {
 		return
 	fi
 
-	if ! grep -q "^# Kaku Shell Integration$" "$ZSHRC"; then
+	if ! grep -q "^# MANDA Shell Integration$" "$ZSHRC"; then
 		return
 	fi
 
@@ -2004,7 +2004,7 @@ cleanup_legacy_inline_block() {
 		return
 	fi
 
-	if ! grep -q "KAKU_ZSH_DIR" "$ZSHRC"; then
+	if ! grep -q "MANDA_ZSH_DIR" "$ZSHRC"; then
 		return
 	fi
 
@@ -2012,12 +2012,12 @@ cleanup_legacy_inline_block() {
 	local line
 	local -a block_lines=()
 	local in_block=0
-	local saw_kaku_var=0
+	local saw_manda_var=0
 	local saw_syntax=0
 	local removed_block=0
 	local preserved_block=0
 	local skip_blank_after_removed=0
-	tmp_file="$(mktemp "${TMPDIR:-/tmp}/kaku-zshrc.XXXXXX")"
+	tmp_file="$(mktemp "${TMPDIR:-/tmp}/manda-zshrc.XXXXXX")"
 
 	while IFS= read -r line || [[ -n "$line" ]]; do
 		if [[ "$in_block" == "0" ]]; then
@@ -2026,9 +2026,9 @@ cleanup_legacy_inline_block() {
 			fi
 			skip_blank_after_removed=0
 
-			if [[ "$line" == "# Kaku Shell Integration" ]]; then
+			if [[ "$line" == "# MANDA Shell Integration" ]]; then
 				in_block=1
-				saw_kaku_var=0
+				saw_manda_var=0
 				saw_syntax=0
 				block_lines=()
 				continue
@@ -2039,16 +2039,16 @@ cleanup_legacy_inline_block() {
 		fi
 
 		block_lines+=("$line")
-		[[ "$line" == *KAKU_ZSH_DIR* ]] && saw_kaku_var=1
+		[[ "$line" == *MANDA_ZSH_DIR* ]] && saw_manda_var=1
 		[[ "$line" == *zsh-syntax-highlighting/zsh-syntax-highlighting.zsh* ]] && saw_syntax=1
 
-		if [[ "$saw_kaku_var" == "1" && "$saw_syntax" == "1" && "$line" =~ ^[[:space:]]*fi[[:space:]]*$ ]]; then
-			if legacy_inline_block_has_only_kaku_managed_lines "${block_lines[@]}"; then
+		if [[ "$saw_manda_var" == "1" && "$saw_syntax" == "1" && "$line" =~ ^[[:space:]]*fi[[:space:]]*$ ]]; then
+			if legacy_inline_block_has_only_manda_managed_lines "${block_lines[@]}"; then
 				removed_block=1
 				skip_blank_after_removed=1
 			else
 				preserved_block=1
-				printf '%s\n' "# Kaku Shell Integration" >>"$tmp_file"
+				printf '%s\n' "# MANDA Shell Integration" >>"$tmp_file"
 				local block_line
 				for block_line in "${block_lines[@]}"; do
 					printf '%s\n' "$block_line" >>"$tmp_file"
@@ -2056,7 +2056,7 @@ cleanup_legacy_inline_block() {
 			fi
 
 			in_block=0
-			saw_kaku_var=0
+			saw_manda_var=0
 			saw_syntax=0
 			block_lines=()
 		fi
@@ -2065,7 +2065,7 @@ cleanup_legacy_inline_block() {
 	if [[ "$in_block" == "1" ]]; then
 		rm -f "$tmp_file"
 		LEGACY_INLINE_BLOCK_PRESERVED=1
-		echo -e "${YELLOW}Warning: found unterminated legacy Kaku block; leaving .zshrc unchanged.${NC}"
+		echo -e "${YELLOW}Warning: found unterminated legacy MANDA block; leaving .zshrc unchanged.${NC}"
 		return
 	fi
 
@@ -2073,33 +2073,33 @@ cleanup_legacy_inline_block() {
 		backup_zshrc_once
 		mv "$tmp_file" "$ZSHRC"
 		if [[ "$removed_block" == "1" ]]; then
-			echo -e "  ${GREEN}✓${NC} ${BOLD}Migrate${NC}     Removed legacy inline Kaku block from .zshrc"
+			echo -e "  ${GREEN}✓${NC} ${BOLD}Migrate${NC}     Removed legacy inline MANDA block from .zshrc"
 		fi
 		if [[ "$preserved_block" == "1" ]]; then
 			LEGACY_INLINE_BLOCK_PRESERVED=1
-			echo -e "${YELLOW}Warning: kept legacy Kaku block with custom lines to avoid deleting user shell config.${NC}"
+			echo -e "${YELLOW}Warning: kept legacy MANDA block with custom lines to avoid deleting user shell config.${NC}"
 		fi
 	else
 		rm -f "$tmp_file"
 		if [[ "$preserved_block" == "1" ]]; then
 			LEGACY_INLINE_BLOCK_PRESERVED=1
-			echo -e "${YELLOW}Warning: kept legacy Kaku block with custom lines to avoid deleting user shell config.${NC}"
+			echo -e "${YELLOW}Warning: kept legacy MANDA block with custom lines to avoid deleting user shell config.${NC}"
 		fi
 	fi
 }
 
 cleanup_legacy_inline_block
 
-normalize_kaku_path_line() {
+normalize_manda_path_line() {
 	if [[ ! -f "$ZSHRC" ]]; then
 		return
 	fi
 
 	local tmp_file
-	tmp_file="$(mktemp "${TMPDIR:-/tmp}/kaku-zshrc.XXXXXX")"
+	tmp_file="$(mktemp "${TMPDIR:-/tmp}/manda-zshrc.XXXXXX")"
 
 	# Exit codes: 0 = replaced exactly 1 line, 2 = collapsed duplicates, 3 = no match.
-	# Only normalize Kaku's single-line PATH guard variants; leave user-managed
+	# Only normalize MANDA's single-line PATH guard variants; leave user-managed
 	# multi-line or custom PATH logic untouched.
 	if awk -v path_line="$PATH_LINE" '
 BEGIN { replaced = 0; extra = 0 }
@@ -2110,7 +2110,7 @@ BEGIN { replaced = 0; extra = 0 }
 	}
 
 	if ($0 ~ /^[[:space:]]*\[\[/ &&
-	    $0 ~ /kaku\/zsh\/bin/ &&
+	    $0 ~ /manda\/zsh\/bin/ &&
 	    $0 ~ /&&[[:space:]]*export[[:space:]]+PATH=/) {
 		if (!replaced) {
 			print path_line
@@ -2135,7 +2135,7 @@ END {
 		if ! cmp -s "$ZSHRC" "$tmp_file"; then
 			backup_zshrc_once
 			mv "$tmp_file" "$ZSHRC"
-			echo -e "  ${GREEN}✓${NC} ${BOLD}Integrate${NC}   Updated Kaku PATH line in .zshrc"
+			echo -e "  ${GREEN}✓${NC} ${BOLD}Integrate${NC}   Updated MANDA PATH line in .zshrc"
 		else
 			rm -f "$tmp_file"
 		fi
@@ -2145,28 +2145,28 @@ END {
 			if ! cmp -s "$ZSHRC" "$tmp_file"; then
 				backup_zshrc_once
 				mv "$tmp_file" "$ZSHRC"
-				echo -e "  ${GREEN}✓${NC} ${BOLD}Integrate${NC}   Removed duplicate Kaku PATH line(s) from .zshrc"
+				echo -e "  ${GREEN}✓${NC} ${BOLD}Integrate${NC}   Removed duplicate MANDA PATH line(s) from .zshrc"
 			else
 				rm -f "$tmp_file"
 			fi
 		else
 			rm -f "$tmp_file"
 			if [[ "$awk_status" != "3" ]]; then
-				echo -e "${YELLOW}Warning: failed to normalize Kaku PATH line in .zshrc; leaving it unchanged.${NC}"
+				echo -e "${YELLOW}Warning: failed to normalize MANDA PATH line in .zshrc; leaving it unchanged.${NC}"
 			fi
 		fi
 	fi
 }
 
-normalize_kaku_path_line
+normalize_manda_path_line
 
-normalize_kaku_source_line() {
+normalize_manda_source_line() {
 	if [[ ! -f "$ZSHRC" ]]; then
 		return
 	fi
 
 	local tmp_file
-	tmp_file="$(mktemp "${TMPDIR:-/tmp}/kaku-zshrc.XXXXXX")"
+	tmp_file="$(mktemp "${TMPDIR:-/tmp}/manda-zshrc.XXXXXX")"
 
 	# Exit codes: 0 = replaced exactly 1 line, 2 = collapsed duplicates, 3 = no match.
 	if awk -v source_line="$SOURCE_LINE" '
@@ -2178,7 +2178,7 @@ BEGIN { replaced = 0; extra = 0 }
 	}
 
 	if ($0 ~ /^[[:space:]]*\[\[/ &&
-	    $0 ~ /kaku\/zsh\/kaku\.zsh/ &&
+	    $0 ~ /manda\/zsh\/manda\.zsh/ &&
 	    $0 ~ /&&[[:space:]]*source[[:space:]]/) {
 		if (!replaced) {
 			print source_line
@@ -2203,7 +2203,7 @@ END {
 		if ! cmp -s "$ZSHRC" "$tmp_file"; then
 			backup_zshrc_once
 			mv "$tmp_file" "$ZSHRC"
-			echo -e "  ${GREEN}✓${NC} ${BOLD}Integrate${NC}   Updated Kaku source line in .zshrc"
+			echo -e "  ${GREEN}✓${NC} ${BOLD}Integrate${NC}   Updated MANDA source line in .zshrc"
 		else
 			rm -f "$tmp_file"
 		fi
@@ -2214,22 +2214,22 @@ END {
 			if ! cmp -s "$ZSHRC" "$tmp_file"; then
 				backup_zshrc_once
 				mv "$tmp_file" "$ZSHRC"
-				echo -e "  ${GREEN}✓${NC} ${BOLD}Integrate${NC}   Removed duplicate Kaku source line(s) from .zshrc"
+				echo -e "  ${GREEN}✓${NC} ${BOLD}Integrate${NC}   Removed duplicate MANDA source line(s) from .zshrc"
 			else
 				rm -f "$tmp_file"
 			fi
 		else
 			rm -f "$tmp_file"
 			if [[ "$awk_status" != "3" ]]; then
-				echo -e "${YELLOW}Warning: failed to normalize Kaku source line in .zshrc; leaving it unchanged.${NC}"
+				echo -e "${YELLOW}Warning: failed to normalize MANDA source line in .zshrc; leaving it unchanged.${NC}"
 			fi
 		fi
 	fi
 }
 
-normalize_kaku_source_line
+normalize_manda_source_line
 
-has_kaku_path_line() {
+has_manda_path_line() {
 	if [[ ! -f "$ZSHRC" ]]; then
 		return 1
 	fi
@@ -2238,10 +2238,10 @@ has_kaku_path_line() {
 		return 0
 	fi
 
-	grep -Eq '^[[:space:]]*\[\[.*kaku/zsh/bin.*\]\][[:space:]]*&&[[:space:]]*export[[:space:]]+PATH=.*kaku/zsh/bin' "$ZSHRC"
+	grep -Eq '^[[:space:]]*\[\[.*manda/zsh/bin.*\]\][[:space:]]*&&[[:space:]]*export[[:space:]]+PATH=.*manda/zsh/bin' "$ZSHRC"
 }
 
-has_kaku_source_line() {
+has_manda_source_line() {
 	if [[ ! -f "$ZSHRC" ]]; then
 		return 1
 	fi
@@ -2252,30 +2252,30 @@ has_kaku_source_line() {
 	fi
 
 	# Fallback: accept equivalent active source lines while avoiding comment-only matches.
-	grep -Eq '^[[:space:]]*\[\[.*kaku/zsh/kaku\.zsh.*\]\][[:space:]]*&&[[:space:]]*source[[:space:]].*kaku/zsh/kaku\.zsh([[:space:]]|$)' "$ZSHRC"
+	grep -Eq '^[[:space:]]*\[\[.*manda/zsh/manda\.zsh.*\]\][[:space:]]*&&[[:space:]]*source[[:space:]].*manda/zsh/manda\.zsh([[:space:]]|$)' "$ZSHRC"
 }
 
 # Check if the managed lines already exist
-if has_kaku_path_line && has_kaku_source_line; then
+if has_manda_path_line && has_manda_source_line; then
 	echo -e "  ${GREEN}✓${NC} ${BOLD}Integrate${NC}   Already linked in .zshrc"
 elif [[ "$LEGACY_INLINE_BLOCK_PRESERVED" == "1" ]]; then
-	echo -e "  ${BLUE}•${NC} ${BOLD}Integrate${NC}   Preserved legacy inline Kaku block ${NC}(move custom lines outside it, then rerun kaku init)${NC}"
+	echo -e "  ${BLUE}•${NC} ${BOLD}Integrate${NC}   Preserved legacy inline MANDA block ${NC}(move custom lines outside it, then rerun manda init)${NC}"
 else
 	if [[ -f "$ZSHRC" && ! -w "$ZSHRC" ]]; then
 		echo -e "  ${YELLOW}!${NC} ${BOLD}Integrate${NC}   .zshrc is read-only (symlink or permission). Add manually:"
 		echo -e "              $PATH_LINE"
 		echo -e "              $SOURCE_LINE"
 	else
-		# Backup existing .zshrc only if it doesn't have Kaku logic yet
+		# Backup existing .zshrc only if it doesn't have MANDA logic yet
 		backup_zshrc_once
 
 		if [[ -f "$ZSHRC" && -s "$ZSHRC" ]]; then
 			echo "" >>"$ZSHRC"
 		fi
-		if ! has_kaku_path_line; then
+		if ! has_manda_path_line; then
 			echo "$PATH_LINE" >>"$ZSHRC"
 		fi
-		if ! has_kaku_source_line; then
+		if ! has_manda_source_line; then
 			echo "$SOURCE_LINE" >>"$ZSHRC"
 		fi
 		echo -e "  ${GREEN}✓${NC} ${BOLD}Integrate${NC}   Successfully patched .zshrc"

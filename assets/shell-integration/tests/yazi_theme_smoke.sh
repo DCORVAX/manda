@@ -35,7 +35,7 @@ assert_file_not_contains() {
 	fi
 }
 
-tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/kaku-yazi-theme.XXXXXX")"
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/manda-yazi-theme.XXXXXX")"
 cleanup() {
 	rm -rf "$tmp_dir"
 }
@@ -47,10 +47,10 @@ run_setup() {
 	local home_dir="$1"
 	HOME="$home_dir" \
 	ZDOTDIR="$home_dir" \
-	KAKU_INIT_INTERNAL=1 \
-	KAKU_SKIP_TOOL_BOOTSTRAP=1 \
-	KAKU_SKIP_TERMINFO_BOOTSTRAP=1 \
-	KAKU_VENDOR_DIR="$tmp_dir/vendor" \
+	MANDA_INIT_INTERNAL=1 \
+	MANDA_SKIP_TOOL_BOOTSTRAP=1 \
+	MANDA_SKIP_TERMINFO_BOOTSTRAP=1 \
+	MANDA_VENDOR_DIR="$tmp_dir/vendor" \
 	bash "$REPO_ROOT/assets/shell-integration/setup_zsh.sh" --update-only >/dev/null
 }
 
@@ -59,12 +59,12 @@ expected_auto_flavor() {
 		local appearance
 		appearance="$(defaults read -g AppleInterfaceStyle 2>/dev/null || true)"
 		if [[ "$appearance" != "Dark" ]]; then
-			printf '%s\n' "kaku-light"
+			printf '%s\n' "manda-light"
 			return
 		fi
 	fi
 
-	printf '%s\n' "kaku-dark"
+	printf '%s\n' "manda-dark"
 }
 
 expected_flavor="$(expected_auto_flavor)"
@@ -74,9 +74,9 @@ mkdir -p "$home_new"
 run_setup "$home_new"
 
 theme_new="$home_new/.config/yazi/theme.toml"
-dark_new="$home_new/.config/yazi/flavors/kaku-dark.yazi/flavor.toml"
-light_new="$home_new/.config/yazi/flavors/kaku-light.yazi/flavor.toml"
-wrapper_new="$home_new/.config/kaku/zsh/bin/yazi"
+dark_new="$home_new/.config/yazi/flavors/manda-dark.yazi/flavor.toml"
+light_new="$home_new/.config/yazi/flavors/manda-light.yazi/flavor.toml"
+wrapper_new="$home_new/.config/manda/zsh/bin/yazi"
 
 [[ -f "$theme_new" ]]
 [[ -f "$dark_new" ]]
@@ -108,7 +108,7 @@ assert_file_not_contains 'border_style = { fg = "#555555" }' "$theme_legacy"
 home_static="$tmp_dir/home-static"
 mkdir -p "$home_static/.config/yazi"
 cat <<'EOF' >"$home_static/.config/yazi/theme.toml"
-# Kaku-aligned theme for Yazi 26.x
+# MANDA-aligned theme for Yazi 26.x
 
 [app]
 overall = { bg = "#15141b" }
@@ -130,14 +130,14 @@ run_setup "$home_static"
 
 theme_static="$home_static/.config/yazi/theme.toml"
 assert_file_contains '[flavor]' "$theme_static"
-assert_file_not_contains '# Kaku-aligned theme for Yazi 26.x' "$theme_static"
+assert_file_not_contains '# MANDA-aligned theme for Yazi 26.x' "$theme_static"
 assert_file_not_contains 'overall = { bg = "#15141b" }' "$theme_static"
 assert_file_contains "dark = \"$expected_flavor\"" "$theme_static"
 assert_file_contains "light = \"$expected_flavor\"" "$theme_static"
 
 home_auto="$tmp_dir/home-auto"
-mkdir -p "$home_auto/.config/kaku"
-cat <<'EOF' >"$home_auto/.config/kaku/kaku.lua"
+mkdir -p "$home_auto/.config/manda"
+cat <<'EOF' >"$home_auto/.config/manda/manda.lua"
 local wezterm = require 'wezterm'
 local config = wezterm.config_builder()
 config.color_scheme = 'Auto'
@@ -152,11 +152,11 @@ assert_file_contains "dark = \"$auto_flavor\"" "$theme_auto"
 assert_file_contains "light = \"$auto_flavor\"" "$theme_auto"
 
 home_light="$tmp_dir/home-light"
-mkdir -p "$home_light/.config/kaku"
-cat <<'EOF' >"$home_light/.config/kaku/kaku.lua"
+mkdir -p "$home_light/.config/manda"
+cat <<'EOF' >"$home_light/.config/manda/manda.lua"
 local wezterm = require 'wezterm'
 local config = wezterm.config_builder()
-config.color_scheme = 'Kaku Light'
+config.color_scheme = 'MANDA Light'
 return config
 EOF
 
@@ -169,16 +169,16 @@ echo "real-yazi $*"
 EOF
 chmod +x "$tmp_dir/realbin/yazi"
 
-wrapper_light="$home_light/.config/kaku/zsh/bin/yazi"
+wrapper_light="$home_light/.config/manda/zsh/bin/yazi"
 theme_light="$home_light/.config/yazi/theme.toml"
 output="$(
   HOME="$home_light" \
-  PATH="$home_light/.config/kaku/zsh/bin:$tmp_dir/realbin:$PATH" \
+  PATH="$home_light/.config/manda/zsh/bin:$tmp_dir/realbin:$PATH" \
   "$wrapper_light" --version
 )"
 [[ "$output" == "real-yazi --version" ]]
-assert_file_contains 'dark = "kaku-light"' "$theme_light"
-assert_file_contains 'light = "kaku-light"' "$theme_light"
+assert_file_contains 'dark = "manda-light"' "$theme_light"
+assert_file_contains 'light = "manda-light"' "$theme_light"
 
 # Fresh configs must use the #:schema comment yazi supports, never a $schema key
 # (yazi >= 26.5.6 rejects the key and fails to start, see issue #457).
@@ -188,7 +188,7 @@ assert_file_not_contains '$schema' "$theme_new"
 assert_file_contains '#:schema https://yazi-rs.github.io/schemas/keymap.json' "$keymap_new"
 assert_file_not_contains '$schema' "$keymap_new"
 
-# Setup migrates $schema keys written by older Kaku versions, quoted or bare,
+# Setup migrates $schema keys written by older MANDA versions, quoted or bare,
 # and keeps the user's own content.
 home_schema="$tmp_dir/home-schema"
 mkdir -p "$home_schema/.config/yazi"
@@ -226,7 +226,7 @@ prepend_keymap = []
 EOF
 output="$(
   HOME="$home_light" \
-  PATH="$home_light/.config/kaku/zsh/bin:$tmp_dir/realbin:$PATH" \
+  PATH="$home_light/.config/manda/zsh/bin:$tmp_dir/realbin:$PATH" \
   "$wrapper_light" --version
 )"
 [[ "$output" == "real-yazi --version" ]]

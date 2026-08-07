@@ -108,7 +108,7 @@ jobs:
         run: |
           set -euo pipefail
           tests=(
-            assets/shell-integration/tests/normalize_kaku_source_line_smoke.sh
+            assets/shell-integration/tests/normalize_manda_source_line_smoke.sh
             assets/shell-integration/tests/cleanup_legacy_inline_block_smoke.sh
             assets/shell-integration/tests/z_jump_provider_smoke.sh
             assets/shell-integration/tests/yazi_theme_smoke.sh
@@ -139,7 +139,7 @@ jobs:
           if ! command -v shellcheck >/dev/null 2>&1; then
             brew install shellcheck
           fi
-          # Lint the bundled bash integration scripts. kaku.sh is zsh and
+          # Lint the bundled bash integration scripts. manda.sh is zsh and
           # state_common.sh is a sourced fragment, so scope to files with a bash
           # shebang (shellcheck cannot parse zsh). --severity=error catches the
           # recurring class such as SC2168 (`local` outside a function, #432/#441)
@@ -171,7 +171,7 @@ jobs:
 
       - name: Guard silent write flush ok
         run: |
-          if grep -R -nE "write!\(.*\)\.ok\(\)|write_all\(.*\)\.ok\(\)|write_fmt\(.*\)\.ok\(\)|\.flush\(\)\.ok\(\)" --include='*.rs' term kaku kaku-gui mux; then
+          if grep -R -nE "write!\(.*\)\.ok\(\)|write_all\(.*\)\.ok\(\)|write_fmt\(.*\)\.ok\(\)|\.flush\(\)\.ok\(\)" --include='*.rs' term manda manda-gui mux; then
             echo "ERROR: write/flush must not silently ignore errors in core crates"
             exit 1
           fi
@@ -183,7 +183,7 @@ jobs:
         run: ./scripts/check_prompts.sh
 
       - name: Check key crates
-        run: cargo check --locked -p kaku -p kaku-gui
+        run: cargo check --locked -p manda -p manda-gui
 
   relay-check:
     name: Relay Build
@@ -200,16 +200,16 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          workspaces: crates/kaku-relay
+          workspaces: crates/manda-relay
 
-      # kaku-relay is in `workspace.exclude` because it ships to fly.io with
+      # manda-relay is in `workspace.exclude` because it ships to fly.io with
       # its own dependency closure. CI builds and tests it here so the main
       # branch never lands a relay that doesn't compile.
-      - name: Check kaku-relay
-        run: cargo check --locked --manifest-path crates/kaku-relay/Cargo.toml
+      - name: Check manda-relay
+        run: cargo check --locked --manifest-path crates/manda-relay/Cargo.toml
 
-      - name: Test kaku-relay
-        run: cargo test --locked --manifest-path crates/kaku-relay/Cargo.toml
+      - name: Test manda-relay
+        run: cargo test --locked --manifest-path crates/manda-relay/Cargo.toml
 
   clippy:
     name: Clippy
@@ -233,7 +233,7 @@ jobs:
       - name: Run clippy on lint-opt-in crates
         run: |
           cargo clippy --locked --all-targets \
-            -p kaku -p kaku-gui -p mux -p config \
+            -p manda -p manda-gui -p mux -p config \
             -- -D warnings
 
   release-notes-check:

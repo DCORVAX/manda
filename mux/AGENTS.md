@@ -36,6 +36,6 @@ The `mux` crate owns tab, pane, domain, and mux state management.
 
 ## Cross-References
 
-- [`kaku-gui/AGENTS.md`](../kaku-gui/AGENTS.md) - GUI rendering for mux state.
+- [`manda-gui/AGENTS.md`](../manda-gui/AGENTS.md) - GUI rendering for mux state.
 - [`lua-api-crates/AGENTS.md`](../lua-api-crates/AGENTS.md) - Lua APIs for mux control.
 - [`term/AGENTS.md`](../term/AGENTS.md) - Terminal instances owned by panes.

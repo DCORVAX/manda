@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Funciones — MANDA</title>
+<meta name="description" content="Todas las funciones de MANDA: configuración por defecto sin fricción, experiencia consciente del tema, suite de shell seleccionada, asistente de IA con ajustes predefinidos y config Lua compatible con WezTerm.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23121212'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='13' fill='%23faf9f6' text-anchor='middle'%3E%26gt;_%3C/text%3E%3C/svg%3E">
+<script>try{if(localStorage.getItem('manda-theme')==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Sans:wght@400;500;600;700&family=Hedvig+Letters+Serif:opsz,wght@12..24,400;12..24,600;12..24,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="index.html" aria-label="Inicio de MANDA">
+      <span class="brand-mark">&gt;_</span>
+      <span class="brand-name">MANDA</span>
+    </a>
+    <div class="nav-links" id="nav-links">
+      <a class="active" href="features.html" aria-current="page">Funciones</a>
+      <a href="shortcuts.html">Atajos</a>
+      <a href="https://github.com/WILFREDY-X/manda">GitHub</a>
+      <div class="nav-right">
+        <span class="lang"><a href="../features.html">EN</a><a class="active" href="features.html" aria-current="page">ES</a></span>
+        <button class="theme-btn" onclick="toggleTheme()" aria-label="Cambiar tema">
+          <span class="icon-moon">&#9789;</span><span class="icon-sun">&#9788;</span>
+        </button>
+      </div>
+    </div>
+    <button class="nav-toggle" onclick="toggleNav()" aria-label="Menú" aria-expanded="false">&#9776;</button>
+  </div>
+</nav>
+
+<header class="page-head wrap">
+  <span class="kicker">Funciones</span>
+  <h1 class="display">Rápido por defecto. <em>Tú decides cómo configurarlo.</em></h1>
+  <p class="lead">Cada ajuste por defecto está pensado para un uso práctico desde el primer día, manteniendo un 100% de compatibilidad con la configuración Lua de WezTerm — trae tu config actual sin migrar nada.</p>
+</header>
+
+<section class="wrap section">
+  <div class="grid">
+    <div class="card">
+      <span class="num">01</span>
+      <h3>Cero configuración</h3>
+      <p>JetBrains Mono, renderizado tipográfico optimizado para macOS y tamaños de fuente ajustados de serie. Ábrelo y listo.</p>
+    </div>
+    <div class="card">
+      <span class="num">02</span>
+      <h3>Experiencia consciente del tema</h3>
+      <p>Cambia automáticamente entre modo oscuro y claro con macOS, con colores de selección ajustados, peso de fuente y overrides prácticos.</p>
+    </div>
+    <div class="card">
+      <span class="num">03</span>
+      <h3>Suite de shell seleccionada</h3>
+      <p>Plugins de zsh integrados con herramientas CLI opcionales para prompt, diff y navegación — configurados en el primer arranque.</p>
+    </div>
+    <div class="card">
+      <span class="num">04</span>
+      <h3>Rápido y ligero</h3>
+      <p>Binario un 40% más pequeño, arranque instantáneo, carga diferida y un núcleo GPU-acelerado depurado.</p>
+    </div>
+    <div class="card">
+      <span class="num">05</span>
+      <h3>Config compatible con WezTerm</h3>
+      <p>Usa la configuración Lua de WezTerm directamente con compatibilidad total de API. Sin migración, sin bloqueos.</p>
+    </div>
+    <div class="card">
+      <span class="num">06</span>
+      <h3>Ajustes pulidos</h3>
+      <p>Copiar al seleccionar, rutas de archivo clicables, vistazo al historial desde apps a pantalla completa, broadcast de entrada entre paneles y campana visual.</p>
+    </div>
+  </div>
+</section>
+
+<section class="wrap section" id="ai">
+  <span class="kicker">Asistente integrado</span>
+  <h2>IA que vive en tu terminal.</h2>
+  <p class="lead">No es un widget de chat pegado encima — es un asistente que entiende el contexto de lo que haces, justo donde lo haces.</p>
+  <div class="steps">
+    <div class="step">
+      <span class="num">01</span>
+      <h3>Recuperación de errores</h3>
+      <p>Cuando un comando falla, MANDA sugiere automáticamente una solución. Pulsa <code>Cmd+Shift+E</code> para aplicarla.</p>
+    </div>
+    <div class="step">
+      <span class="num">02</span>
+      <h3>Del lenguaje natural al comando</h3>
+      <p>Escribe <code># describe la tarea</code> en el prompt y MANDA inyecta el comando resultante, listo para que lo revises y ejecutes.</p>
+    </div>
+    <div class="step">
+      <span class="num">03</span>
+      <h3>Tu proveedor, tus reglas</h3>
+      <p>Configura Claude Code, Codex, Gemini CLI, Copilot CLI y más — con ajustes de un clic y autenticación por API key o login CLI.</p>
+    </div>
+  </div>
+  <div class="chips"><span class="chip">NVIDIA</span><span class="chip">Gemini</span><span class="chip">OpenRouter</span><span class="chip">Groq</span><span class="chip">Cerebras</span></div>
+</section>
+
+<section class="wrap section">
+  <div class="panel">
+    <span class="kicker">Empieza ahora</span>
+    <h2>Descargar MANDA</h2>
+    <p>macOS 12+ &middot; Apple Silicon e Intel. Build con firma ad-hoc — en el primer arranque haz clic derecho &rarr; Abrir, y MANDA configura tu entorno de shell automáticamente.</p>
+    <a class="btn btn-primary btn-lg" href="https://github.com/WILFREDY-X/manda/releases/download/v0.1.0/MANDA.dmg">&#8595;&nbsp; Descargar la última versión</a>
+    <div class="install">
+      <p class="install-label">O instala desde la terminal</p>
+      <pre>curl -fsSL https://raw.githubusercontent.com/WILFREDY-X/manda/main/install/install.sh | bash</pre>
+      <pre>brew install WILFREDY-X/tap/manda</pre>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="footer-grid">
+      <div class="footer-col">
+        <h4>Producto</h4>
+        <a href="features.html">Funciones</a>
+        <a href="shortcuts.html">Atajos</a>
+        <a href="faq.html">FAQ</a>
+        <a href="index.html#download">Descargar</a>
+      </div>
+      <div class="footer-col">
+        <h4>Proyecto</h4>
+        <a href="https://github.com/WILFREDY-X/manda">GitHub</a>
+        <a href="https://github.com/WILFREDY-X/manda/blob/main/README.md">README</a>
+        <a href="https://github.com/WILFREDY-X/manda/blob/main/LICENSE.md">Licencia</a>
+      </div>
+      <div class="footer-col">
+        <h4>Idioma</h4>
+        <a href="../features.html">English</a>
+        <a href="features.html">Español</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>&copy; 2024&ndash;2026 WILFREDY-X &middot; Licencia MIT</span>
+      <span class="right"><a href="https://github.com/WILFREDY-X/manda">GitHub</a><a href="https://manda-terminal.vercel.app/">manda-terminal.vercel.app</a></span>
+    </div>
+  </div>
+</footer>
+
+<script src="../script.js"></script>
+</body>
+</html>

@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # Verify every shipped prompt file under assets/prompts/ carries the metadata
-# header expected by Kaku's prompt loader. Format mirrors Piebald's
+# header expected by MANDA's prompt loader. Format mirrors Piebald's
 # claude-code-system-prompts so each file is independently auditable.
 #
 # Required header (first non-blank lines of the file):
 #   <!--
 #   name: '...'
 #   description: ...
-#   kakuVersion: <version>
+#   mandaVersion: <version>
 #   ...
 #   -->
 #
 # Exit non-zero if any prompt is missing one of: <!-- opener, name:, description:,
-# kakuVersion:, --> closer.
+# mandaVersion:, --> closer.
 #
 # Used by release gating; also safe to run locally.
 
@@ -21,11 +21,11 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROMPTS_DIR="$REPO_ROOT/assets/prompts"
 
-# `kakuVersion` records the Kaku version a prompt was authored / last revised
+# `mandaVersion` records the MANDA version a prompt was authored / last revised
 # for. It only needs to be a well-formed version, not the current release:
 # requiring an exact match would force every prompt file to be re-touched on
 # every version bump for no auditing benefit.
-VERSION_RE='^kakuVersion:[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.]+)?$'
+VERSION_RE='^mandaVersion:[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.]+)?$'
 
 if [[ ! -d "$PROMPTS_DIR" ]]; then
   echo "[check_prompts] No assets/prompts directory; nothing to check." >&2
@@ -62,7 +62,7 @@ if [[ $failed -ne 0 ]]; then
   echo "   <!--" >&2
   echo "   name: '...'" >&2
   echo "   description: ..." >&2
-  echo "   kakuVersion: <major.minor.patch>" >&2
+  echo "   mandaVersion: <major.minor.patch>" >&2
   echo "   -->" >&2
   exit 1
 fi

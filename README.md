@@ -1,26 +1,23 @@
 <div align="center">
   <img src="https://gw.alipayobjects.com/zos/k/6h/dwarf.svg" width="120" />
-  <h1>Kaku</h1>
+  <h1>MANDA</h1>
   <p><em>A fast, out-of-the-box terminal built for AI coding.</em></p>
 </div>
 
 <p align="center">
-  <a href="https://github.com/tw93/Kaku/stargazers"><img src="https://img.shields.io/github/stars/tw93/Kaku?style=flat-square" alt="Stars"></a>
-  <a href="https://github.com/tw93/Kaku/releases"><img src="https://img.shields.io/github/v/tag/tw93/Kaku?label=version&style=flat-square" alt="Version"></a>
+  <a href="https://github.com/WILFREDY-X/manda/stargazers"><img src="https://img.shields.io/github/stars/WILFREDY-X/manda?style=flat-square" alt="Stars"></a>
+  <a href="https://manda-terminal.vercel.app/"><img src="https://img.shields.io/badge/version-0.1.0-blue?style=flat-square" alt="Version"></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License"></a>
-  <a href="https://github.com/tw93/Kaku/commits"><img src="https://img.shields.io/github/commit-activity/m/tw93/Kaku?style=flat-square" alt="Commits"></a>
-  <a href="https://twitter.com/HiTw93"><img src="https://img.shields.io/badge/follow-Tw93-red?style=flat-square&logo=Twitter" alt="Twitter"></a>
+  <a href="https://github.com/WILFREDY-X/manda/commits"><img src="https://img.shields.io/github/commit-activity/m/WILFREDY-X/manda?style=flat-square" alt="Commits"></a>
 </p>
 
 <p align="center">
-  <img src="assets/kaku.jpg" alt="Kaku Screenshot" width="1000" />
+  <img src="web/screenshots/manda.png" alt="MANDA Screenshot" width="1000" />
 </p>
 
 ## Why
 
-Kaku (書く, かく) is the Japanese word for writing: the act of putting thought into form. A deeply customized fork of WezTerm, built for practical defaults on day one while keeping full Lua customization and a fast, lightweight feel.
-
-Part of a trilogy: [Kaku](https://github.com/tw93/Kaku) (書く) writes code, [Waza](https://github.com/tw93/Waza) (技) drills habits, [Kami](https://github.com/tw93/Kami) (紙) ships documents. Think of them as a family: Kaku is the dad, Waza the big sister, Kami the little sister.
+MANDA is a deeply customized fork of WezTerm, built for practical defaults on day one while keeping full Lua customization and a fast, lightweight feel. Designed for AI-assisted coding workflows with built-in provider presets for NVIDIA, Gemini, OpenRouter, Groq, and Cerebras.
 
 ## Features
 
@@ -33,10 +30,15 @@ Part of a trilogy: [Kaku](https://github.com/tw93/Kaku) (書く) writes code, [W
 
 ## Quick Start
 
-1. [Download Kaku DMG](https://github.com/tw93/Kaku/releases/latest) & Drag to Applications
-2. Or install with Homebrew: `brew install tw93/tap/kakuku`
-3. Open Kaku. The app is notarized by Apple, so it opens without security warnings
-4. On first launch, Kaku will automatically set up your shell environment
+**Option A — one-liner installer** (downloads the DMG from GitHub Releases):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/WILFREDY-X/manda/main/install/install.sh | bash
+```
+
+**Option B — manual**: download `MANDA.dmg` from the [releases page](https://github.com/WILFREDY-X/manda/releases) and drag `MANDA.app` to Applications.
+
+On first launch, MANDA sets up your shell environment automatically. The current v0.1.0 build uses an ad-hoc signature — if macOS shows "developer cannot be verified", right-click the app → Open.
 
 ## Usage Guide
 
@@ -59,23 +61,23 @@ Part of a trilogy: [Kaku](https://github.com/tw93/Kaku) (書く) writes code, [W
 
 Full keybinding reference: [docs/keybindings.md](docs/keybindings.md)
 
-## Kaku AI
+## MANDA AI
 
-Kaku has a built-in assistant with two modes and a settings page for AI coding tools.
+MANDA has a built-in assistant with two modes and a settings page for AI coding tools.
 
-- **Error recovery**: When a command fails, Kaku automatically suggests a fix. Press `Cmd + Shift + E` to apply.
-- **Natural language to command**: Type `# <description>` at the prompt and press Enter. Kaku sends the query to the LLM and injects the resulting command back into the prompt, ready to review and run.
+- **Error recovery**: When a command fails, MANDA automatically suggests a fix. Press `Cmd + Shift + E` to apply.
+- **Natural language to command**: Type `# <description>` at the prompt and press Enter. MANDA sends the query to the LLM and injects the resulting command back into the prompt, ready to review and run.
 - **AI Tools Config**: Manage settings for Claude Code, Codex, Gemini CLI, Copilot CLI, Kimi Code, and more.
 
 ### Assistant Setup
 
-Run `kaku ai` to configure the assistant fields directly:
+Run `manda ai` to configure the assistant fields directly:
 
 | Field | Use |
 | :--- | :--- |
 | Auth Type | API key or Codex CLI login |
 | Simple Model | Lightweight command generation and quick chat model |
-| Deep Model | Primary `Cmd + L` / `k` chat model |
+| Deep Model | Primary `Cmd + L` / `m` chat model |
 | Base URL | OpenAI-compatible API root, such as `https://api.openai.com/v1` |
 | API Key | Provider API key when Auth Type is API key |
 
@@ -83,7 +85,7 @@ Full AI assistant docs: [docs/features.md](docs/features.md)
 
 ## Performance
 
-| Metric | Upstream | Kaku | Methodology |
+| Metric | Upstream | MANDA | Methodology |
 | :--- | :--- | :--- | :--- |
 | **Executable Size** | ~67 MB | ~40 MB | Aggressive symbol stripping & feature pruning |
 | **Resources Volume** | ~100 MB | ~80 MB | Asset optimization & lazy-loaded assets |
@@ -92,11 +94,11 @@ Full AI assistant docs: [docs/features.md](docs/features.md)
 
 ## FAQ
 
-**Is there a Windows or Linux version?** Not currently. Kaku is macOS-only for now.
+**Is there a Windows or Linux version?** Not currently. MANDA is macOS-only for now.
 
-**Can I use transparent windows?** Yes, set `config.window_background_opacity` in `~/.config/kaku/kaku.lua`.
+**Can I use transparent windows?** Yes, set `config.window_background_opacity` in `~/.config/manda/manda.lua`.
 
-**The `kaku` command is missing.** Run `/Applications/Kaku.app/Contents/MacOS/kaku init --update-only && exec zsh -l`, then `kaku doctor`.
+**The `manda` command is missing.** Run `/Applications/Manda.app/Contents/MacOS/manda init --update-only && exec zsh -l`, then `manda doctor`.
 
 Full FAQ: [docs/faq.md](docs/faq.md)
 
@@ -105,36 +107,20 @@ Full FAQ: [docs/faq.md](docs/faq.md)
 - [Keybindings](docs/keybindings.md) - full shortcut reference
 - [Features](docs/features.md) - AI assistant, lazygit, yazi, remote files, shell suite
 - [Configuration](docs/configuration.md) - themes, fonts, custom keybindings, Lua API
-- [CLI Reference](docs/cli.md) - `kaku ai`, `kaku config`, `kaku doctor`, and more
+- [CLI Reference](docs/cli.md) - `manda ai`, `manda config`, `manda doctor`, and more
 - [FAQ](docs/faq.md) - common questions and troubleshooting
 
 ## Background
 
-I heavily rely on the CLI for both work and personal projects. Tools I've built, like [Mole](https://github.com/tw93/mole) and [Pake](https://github.com/tw93/pake), reflect this.
+MANDA is built on top of WezTerm's robust and highly hackable engine. It adds AI-first features, curated provider presets, and polished defaults for developers who want speed, simplicity, and AI coding assistance in one terminal.
 
-I used Alacritty for years and learned to value speed and simplicity. As my workflow shifted toward AI-assisted coding, I wanted stronger tab and pane ergonomics. I also explored Kitty, Ghostty, Warp, and iTerm2. Each is strong in different areas, but I still wanted a setup that matched my own balance of performance, defaults, and control.
+## Website
 
-WezTerm is robust and highly hackable, and I am grateful for its engine and ecosystem. So I built Kaku to be that environment: fast, polished, and ready to work.
-
-## Contributors
-
-Big thanks to all contributors who helped build Kaku. Go follow them! ❤️
-
-<a href="https://github.com/tw93/Kaku/graphs/contributors">
-  <img src="./CONTRIBUTORS.svg?v=2" width="1000" />
-</a>
+The landing page source lives in [`web/`](web/index.html) and deploys to [manda-terminal.vercel.app](https://manda-terminal.vercel.app/).
 
 ## Support
 
-- The most direct way to support me is getting [Mole for Mac](https://mole.fit), my paid Mac cleanup app.
-- If Kaku helped you, give it a star, [share it](https://twitter.com/intent/tweet?url=https://github.com/tw93/Kaku&text=Kaku%20-%20A%20fast%20terminal%20built%20for%20AI%20coding.), or open an issue or PR.
-- I have two cats, TangYuan and Coke. If you think Kaku delights your life, you can feed them <a href="https://cats.tw93.fun?name=Kaku" target="_blank">canned food 🥩</a>.
-
-<details>
-<summary>These lovely people already did 🐱</summary>
-<br/>
-<a href="https://cats.tw93.fun?name=Kaku"><img src="https://cdn.jsdelivr.net/gh/tw93/sponsors@main/assets/sponsors.svg" width="1000" loading="lazy" /></a>
-</details>
+- If MANDA helped you, give it a star, [share it](https://twitter.com/intent/tweet?url=https://github.com/WILFREDY-X/manda&text=MANDA%20-%20A%20fast%20terminal%20built%20for%20AI%20coding.), or open an issue or PR.
 
 ## License
 

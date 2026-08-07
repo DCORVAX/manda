@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2024-Present Tw93
+Copyright (c) 2024-Present WILFREDY-X
 Copyright (c) 2018-Present Wez Furlong (original WezTerm code)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -25,7 +25,7 @@ SOFTWARE.
 
 **Attribution & Bundled Assets**
 
-Kaku is a customized fork of [WezTerm](https://github.com/wez/wezterm), created by Wez Furlong.
+MANDA is a customized fork of [WezTerm](https://github.com/wez/wezterm), created by Wez Furlong.
 Deep gratitude to Wez for building such a powerful terminal engine.
 
 WezTerm bundles `JetBrains Mono`, `Noto Color Emoji` and `Roboto` fonts.

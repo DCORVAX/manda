@@ -11,7 +11,7 @@ fail() {
   exit 1
 }
 
-tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/kaku-cmd-backspace-binding.XXXXXX")"
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/manda-cmd-backspace-binding.XXXXXX")"
 cleanup() {
   rm -rf "$tmp_dir"
 }
@@ -30,10 +30,10 @@ setup_status=0
 setup_out="$(
   HOME="$HOME" \
   ZDOTDIR="$ZDOTDIR" \
-  KAKU_INIT_INTERNAL=1 \
-  KAKU_SKIP_TOOL_BOOTSTRAP=1 \
-  KAKU_SKIP_TERMINFO_BOOTSTRAP=1 \
-  KAKU_VENDOR_DIR="$vendor_dir" \
+  MANDA_INIT_INTERNAL=1 \
+  MANDA_SKIP_TOOL_BOOTSTRAP=1 \
+  MANDA_SKIP_TERMINFO_BOOTSTRAP=1 \
+  MANDA_VENDOR_DIR="$vendor_dir" \
   bash "$REPO_ROOT/assets/shell-integration/setup_zsh.sh" --update-only 2>&1
 )" || setup_status=$?
 if [[ "$setup_status" -ne 0 ]]; then
@@ -41,8 +41,8 @@ if [[ "$setup_status" -ne 0 ]]; then
   fail "setup_zsh.sh failed with exit $setup_status"
 fi
 
-kaku_zsh="$HOME/.config/kaku/zsh/kaku.zsh"
-[[ -f "$kaku_zsh" ]] || fail "managed init file not created at $kaku_zsh"
+manda_zsh="$HOME/.config/manda/zsh/manda.zsh"
+[[ -f "$manda_zsh" ]] || fail "managed init file not created at $manda_zsh"
 
 binding_out=""
 if ! binding_out="$(
@@ -50,12 +50,12 @@ if ! binding_out="$(
   HOME="$HOME" \
   ZDOTDIR="$ZDOTDIR" \
   zsh -f -c '
-source "$HOME/.config/kaku/zsh/kaku.zsh"
+source "$HOME/.config/manda/zsh/manda.zsh"
 bindkey "^U"
 ' 2>&1
 )"; then
   echo "$binding_out" >&2
-  fail "sourcing generated kaku.zsh failed"
+  fail "sourcing generated manda.zsh failed"
 fi
 
 case "$binding_out" in

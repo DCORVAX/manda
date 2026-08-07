@@ -1,12 +1,12 @@
 # Features
 
-## Kaku Assistant
+## MANDA Assistant
 
-Kaku Assistant has two modes: automatic error recovery and on-demand command generation from natural language.
+MANDA Assistant has two modes: automatic error recovery and on-demand command generation from natural language.
 
 **Setup**
 
-Run `kaku ai` to open the AI settings panel. Enable Kaku Assistant and edit the model, auth, base URL, and API key fields directly.
+Run `manda ai` to open the AI settings panel. Enable MANDA Assistant and edit the model, auth, base URL, and API key fields directly.
 
 | Field | Description |
 | :--- | :--- |
@@ -26,11 +26,11 @@ for project files, shell commands, web search, and memory. Press `Shift + Tab`
 inside the panel to toggle between the Simple Model and Deep Model when they
 are different.
 
-From a shell, use `k` or `kaku chat` for the same conversation store:
+From a shell, use `k` or `manda chat` for the same conversation store:
 
 ```bash
 k "summarize the current project"
-kaku chat
+manda chat
 ```
 
 The standalone CLI is intentionally simpler than the overlay: it streams plain
@@ -39,13 +39,13 @@ and `/exit`.
 
 **Error recovery**
 
-When a command exits with a non-zero status, Kaku Assistant automatically sends the failed command, exit code, working directory, and git branch to the LLM and displays a suggested fix inline. Press `Cmd + Shift + E` to paste the suggestion into the terminal. Dangerous commands (e.g. `rm -rf`, `git reset --hard`) are pasted but never auto-executed.
+When a command exits with a non-zero status, MANDA Assistant automatically sends the failed command, exit code, working directory, and git branch to the LLM and displays a suggested fix inline. Press `Cmd + Shift + E` to paste the suggestion into the terminal. Dangerous commands (e.g. `rm -rf`, `git reset --hard`) are pasted but never auto-executed.
 
 The assistant does not trigger on: `Ctrl+C` exits, help flags, bare package manager calls, git pull conflicts, or non-shell foreground processes.
 
 **Natural language to command**
 
-Type `# <description>` at the prompt and press Enter to generate a shell command from plain English. Kaku intercepts the line before the shell sees it, sends your query along with the current directory and git branch to the LLM, and injects the resulting command back into the prompt ready to review and run.
+Type `# <description>` at the prompt and press Enter to generate a shell command from plain English. MANDA intercepts the line before the shell sees it, sends your query along with the current directory and git branch to the LLM, and injects the resulting command back into the prompt ready to review and run.
 
 ```
 # list all files modified in the last 7 days
@@ -57,7 +57,7 @@ The `#` prefix works in both zsh and fish. The original query stays visible whil
 
 **assistant.toml fields**
 
-The config lives at `~/.config/kaku/assistant.toml`:
+The config lives at `~/.config/manda/assistant.toml`:
 
 | Field | Description |
 | :--- | :--- |
@@ -78,11 +78,11 @@ The config lives at `~/.config/kaku/assistant.toml`:
 | `auth_type` | Advanced auth mode, e.g. `api_key` or `codex` |
 | `memory_curator_model` | Optional cheaper model for background memory curation |
 
-Older configs may still contain `fast_model`; Kaku treats it as the Simple Model
+Older configs may still contain `fast_model`; MANDA treats it as the Simple Model
 and folds it back into `model` the next time the assistant settings are saved.
 
 For a Responses-compatible endpoint, select `responses` under **API Mode** in
-`kaku ai`, or configure it directly:
+`manda ai`, or configure it directly:
 
 ```toml
 base_url = "https://api.openai.com/v1"
@@ -90,7 +90,7 @@ api_mode = "responses"
 native_web_search = true
 ```
 
-Kaku sends these requests to `{base_url}/responses`. Native web search runs at
+MANDA sends these requests to `{base_url}/responses`. Native web search runs at
 the model provider, so `web_search_provider` and `web_search_api_key` are not
 needed. Keep `chat_completions` for providers that only implement
 `/chat/completions`.
@@ -112,9 +112,9 @@ clicks into scrollback are ignored rather than mangling history.
 
 ## Window Snapshots
 
-Kaku saves multi-tab and multi-pane window layouts automatically when you close
+MANDA saves multi-tab and multi-pane window layouts automatically when you close
 or hide a window. Use **Shell > Restore Previous Window** or
-`Cmd + Option + Shift + T` to reopen the last saved layout. Kaku tolerates
+`Cmd + Option + Shift + T` to reopen the last saved layout. MANDA tolerates
 missing or corrupted snapshot files and simply reports that no snapshot is
 available.
 
@@ -122,28 +122,28 @@ available.
 
 ## AppleScript
 
-Kaku ships a minimal AppleScript dictionary so it shows up in Script Editor and other automation tools. The exposed surface is intentionally small and read-only apart from `quit`.
+MANDA ships a minimal AppleScript dictionary so it shows up in Script Editor and other automation tools. The exposed surface is intentionally small and read-only apart from `quit`.
 
 ```applescript
-tell application "Kaku"
-  get name        -- "Kaku"
+tell application "MANDA"
+  get name        -- "MANDA"
   get version     -- e.g. "0.10.0"
   get frontmost   -- true / false
   quit            -- optional `saving ask|yes|no`
 end tell
 ```
 
-Open `/Applications/Kaku.app` in Script Editor → File → Open Dictionary to browse the full dictionary. There is no `do script` verb — Kaku does not expose shell execution to AppleScript.
+Open `/Applications/Manda.app` in Script Editor → File → Open Dictionary to browse the full dictionary. There is no `do script` verb — MANDA does not expose shell execution to AppleScript.
 
 ---
 
 ## Lazygit Integration
 
-Press `Cmd + Shift + G` to launch lazygit in the current pane. Kaku auto-detects the lazygit binary from PATH or common Homebrew locations.
+Press `Cmd + Shift + G` to launch lazygit in the current pane. MANDA auto-detects the lazygit binary from PATH or common Homebrew locations.
 
-When a git repo has uncommitted changes and lazygit has not been used in that directory yet, Kaku shows a one-time hint to remind you it is available.
+When a git repo has uncommitted changes and lazygit has not been used in that directory yet, MANDA shows a one-time hint to remind you it is available.
 
-Install lazygit with `brew install lazygit` or via `kaku init`.
+Install lazygit with `brew install lazygit` or via `manda init`.
 
 ---
 
@@ -151,9 +151,9 @@ Install lazygit with `brew install lazygit` or via `kaku init`.
 
 Press `Cmd + Shift + Y` to launch yazi in the current pane. The shell wrapper `y` also launches yazi and syncs the shell working directory on exit.
 
-**Theme sync**: Kaku automatically updates `~/.config/yazi/theme.toml` to match the active color scheme (Kaku Dark or Kaku Light). No manual yazi theme setup needed.
+**Theme sync**: MANDA automatically updates `~/.config/yazi/theme.toml` to match the active color scheme (MANDA Dark or MANDA Light). No manual yazi theme setup needed.
 
-Install yazi with `brew install yazi` or via `kaku init`.
+Install yazi with `brew install yazi` or via `manda init`.
 
 ---
 
@@ -161,7 +161,7 @@ Install yazi with `brew install yazi` or via `kaku init`.
 
 Press `Cmd + Shift + R` to mount the current SSH session's remote filesystem locally via `sshfs` and open it in yazi.
 
-Kaku auto-detects the SSH target from the active pane. The mount lives at `~/Library/Caches/dev.kaku/sshfs/<host>`.
+MANDA auto-detects the SSH target from the active pane. The mount lives at `~/Library/Caches/dev.manda/sshfs/<host>`.
 
 Requirements: `sshfs` installed (`brew install macfuse sshfs`) and passwordless SSH auth (key-based) for the remote host.
 
@@ -169,7 +169,7 @@ Requirements: `sshfs` installed (`brew install macfuse sshfs`) and passwordless 
 
 ## Shell Suite
 
-Kaku ships a curated set of shell plugins that load automatically inside Kaku sessions.
+MANDA ships a curated set of shell plugins that load automatically inside MANDA sessions.
 
 **Zsh plugins (built-in)**
 
@@ -180,9 +180,9 @@ Kaku ships a curated set of shell plugins that load automatically inside Kaku se
 
 **Fish support**
 
-Run `kaku init` to provision `~/.config/kaku/fish/kaku.fish` for fish users. `kaku doctor` verifies both zsh and fish integration paths.
+Run `manda init` to provision `~/.config/manda/fish/manda.fish` for fish users. `manda doctor` verifies both zsh and fish integration paths.
 
-**Optional tools (installed via `kaku init`)**
+**Optional tools (installed via `manda init`)**
 
 - **Starship**: Fast, customizable prompt with git and environment info.
 - **Delta**: Syntax-highlighting pager for git diff and grep.
@@ -191,15 +191,15 @@ Run `kaku init` to provision `~/.config/kaku/fish/kaku.fish` for fish users. `ka
 
 **Smart Tab**
 
-Kaku's Smart Tab overrides the Tab key in zsh to provide smarter completion behavior. It supports three modes:
+MANDA's Smart Tab overrides the Tab key in zsh to provide smarter completion behavior. It supports three modes:
 
 | Mode | Behavior | Environment Variable |
 | :--- | :--- | :--- |
 | Completion First | Tab shows the completion list; use `->` to accept autosuggestions | - |
-| Suggestion First (default) | Tab accepts autosuggestions when available, falls back to completion | `KAKU_TAB_ACCEPT_SUGGEST_FIRST=1` |
-| Off | Disables Smart Tab entirely, restoring native zsh Tab behavior | `KAKU_SMART_TAB_DISABLE=1` |
+| Suggestion First (default) | Tab accepts autosuggestions when available, falls back to completion | `MANDA_TAB_ACCEPT_SUGGEST_FIRST=1` |
+| Off | Disables Smart Tab entirely, restoring native zsh Tab behavior | `MANDA_SMART_TAB_DISABLE=1` |
 
-You can also set the mode via `kaku config` (the **Smart Tab** option under Behavior) or in `kaku.lua`:
+You can also set the mode via `manda config` (the **Smart Tab** option under Behavior) or in `manda.lua`:
 
 ```lua
 config.smart_tab_mode = "suggestion_first"   -- default; Tab accepts autosuggestions first
@@ -207,16 +207,16 @@ config.smart_tab_mode = "completion_first"   -- Tab shows the completion list in
 config.smart_tab_mode = "off"                -- disable Smart Tab
 ```
 
-If you prefer environment variables (for example, because you share your zshrc across terminals), add one of these before sourcing the Kaku shell integration:
+If you prefer environment variables (for example, because you share your zshrc across terminals), add one of these before sourcing the MANDA shell integration:
 
 ```zsh
-export KAKU_TAB_ACCEPT_SUGGEST_FIRST=1  # suggestion-first mode
+export MANDA_TAB_ACCEPT_SUGGEST_FIRST=1  # suggestion-first mode
 # or
-export KAKU_SMART_TAB_DISABLE=1         # disable Smart Tab
+export MANDA_SMART_TAB_DISABLE=1         # disable Smart Tab
 ```
 
 ```fish
-set -gx KAKU_SMART_TAB_DISABLE 1
+set -gx MANDA_SMART_TAB_DISABLE 1
 ```
 
-Environment variables set in your shell rc take precedence over `kaku.lua` settings. Smart Tab is only active inside Kaku sessions (`TERM_PROGRAM=Kaku`).
+Environment variables set in your shell rc take precedence over `manda.lua` settings. Smart Tab is only active inside MANDA sessions (`TERM_PROGRAM=MANDA`).

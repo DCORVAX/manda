@@ -542,8 +542,8 @@ pub fn user_config_path() -> PathBuf {
     CONFIG_DIRS
         .first()
         .cloned()
-        .unwrap_or_else(|| HOME_DIR.join(".config").join("kaku"))
-        .join("kaku.lua")
+        .unwrap_or_else(|| HOME_DIR.join(".config").join("manda"))
+        .join("manda.lua")
 }
 
 fn effective_config_file_path_from(
@@ -564,13 +564,13 @@ fn effective_config_file_path_from(
 ///
 /// Priority:
 /// 1) explicit `--config-file` override
-/// 2) path of the loaded config (`KAKU_CONFIG_FILE`)
+/// 2) path of the loaded config (`MANDA_CONFIG_FILE`)
 /// 3) default user config path
 pub fn effective_config_file_path() -> PathBuf {
     let config_file_override = CONFIG_FILE_OVERRIDE.lock().unwrap().clone();
     effective_config_file_path_from(
         config_file_override,
-        std::env::var_os("KAKU_CONFIG_FILE"),
+        std::env::var_os("MANDA_CONFIG_FILE"),
         user_config_path(),
     )
 }
@@ -705,21 +705,21 @@ fn minimal_user_config_template() -> &'static str {
 
 local function resolve_bundled_config()
   local resource_dir = wezterm.executable_dir:gsub('MacOS/?$', 'Resources')
-  local bundled = resource_dir .. '/kaku.lua'
+  local bundled = resource_dir .. '/manda.lua'
   local f = io.open(bundled, 'r')
   if f then
     f:close()
     return bundled
   end
 
-  local dev_bundled = wezterm.executable_dir .. '/../../assets/macos/Kaku.app/Contents/Resources/kaku.lua'
+  local dev_bundled = wezterm.executable_dir .. '/../../assets/macos/Manda.app/Contents/Resources/manda.lua'
   f = io.open(dev_bundled, 'r')
   if f then
     f:close()
     return dev_bundled
   end
 
-  local app_bundled = '/Applications/Kaku.app/Contents/Resources/kaku.lua'
+  local app_bundled = '/Applications/Manda.app/Contents/Resources/manda.lua'
   f = io.open(app_bundled, 'r')
   if f then
     f:close()
@@ -727,7 +727,7 @@ local function resolve_bundled_config()
   end
 
   local home = os.getenv('HOME') or ''
-  local home_bundled = home .. '/Applications/Kaku.app/Contents/Resources/kaku.lua'
+  local home_bundled = home .. '/Applications/Manda.app/Contents/Resources/manda.lua'
   f = io.open(home_bundled, 'r')
   if f then
     f:close()
@@ -745,21 +745,21 @@ if bundled then
   if ok and type(loaded) == 'table' then
     config = loaded
   else
-    wezterm.log_error('Kaku: failed to load bundled defaults from ' .. bundled)
+    wezterm.log_error('MANDA: failed to load bundled defaults from ' .. bundled)
   end
 else
-  wezterm.log_error('Kaku: bundled defaults not found')
+  wezterm.log_error('MANDA: bundled defaults not found')
 end
 
--- Kaku follows macOS appearance by default. Uncomment one line to force a theme:
--- config.color_scheme = 'Kaku Dark'
--- config.color_scheme = 'Kaku Light'
+-- MANDA follows macOS appearance by default. Uncomment one line to force a theme:
+-- config.color_scheme = 'MANDA Dark'
+-- config.color_scheme = 'MANDA Light'
 
 -- User overrides:
--- Kaku intentionally keeps WezTerm-compatible Lua API names
+-- MANDA intentionally keeps WezTerm-compatible Lua API names
 -- for maximum compatibility, so `wezterm.*` here is expected.
 -- Full API docs: https://wezfurlong.org/wezterm/config/lua/
--- Kaku options:  https://github.com/tw93/Kaku/blob/main/docs/configuration.md
+-- MANDA options:  https://github.com/WILFREDY-X/manda/blob/main/docs/configuration.md
 --
 -- Changes apply automatically when you save this file.
 -- Every example below differs from the default, so uncommenting it takes effect.
@@ -823,7 +823,7 @@ end
 -- })
 --
 -- AI assistant settings (provider, model, API key) live in
--- ~/.config/kaku/assistant.toml, not in this file.
+-- ~/.config/manda/assistant.toml, not in this file.
 
 return config
 "#
@@ -835,7 +835,7 @@ fn xdg_config_home_from(home_dir: &Path, xdg_config_home: Option<OsString>) -> P
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| home_dir.join(".config"))
-        .join("kaku")
+        .join("manda")
 }
 
 fn config_dirs_from(
@@ -851,7 +851,7 @@ fn config_dirs_from(
             std::env::split_paths(&d)
                 // `XDG_CONFIG_DIRS` may contain empty segments (e.g. `::`).
                 .filter(|path| !path.as_os_str().is_empty())
-                .map(|path| path.join("kaku")),
+                .map(|path| path.join("manda")),
         );
     }
 
@@ -873,29 +873,29 @@ mod tests {
 
     #[test]
     fn empty_xdg_config_home_uses_default_home_config_dir() {
-        let home = PathBuf::from("/tmp/kaku-home");
+        let home = PathBuf::from("/tmp/manda-home");
         let path = xdg_config_home_from(&home, Some(OsString::new()));
-        assert_eq!(path, home.join(".config").join("kaku"));
+        assert_eq!(path, home.join(".config").join("manda"));
     }
 
     #[test]
     fn missing_xdg_config_home_uses_default_home_config_dir() {
-        let home = PathBuf::from("/tmp/kaku-home");
+        let home = PathBuf::from("/tmp/manda-home");
         let path = xdg_config_home_from(&home, None);
-        assert_eq!(path, home.join(".config").join("kaku"));
+        assert_eq!(path, home.join(".config").join("manda"));
     }
 
     #[test]
     fn valid_xdg_config_home_is_used() {
-        let home = PathBuf::from("/tmp/kaku-home");
+        let home = PathBuf::from("/tmp/manda-home");
         let path = xdg_config_home_from(&home, Some(OsString::from("/custom/config")));
-        assert_eq!(path, PathBuf::from("/custom/config").join("kaku"));
+        assert_eq!(path, PathBuf::from("/custom/config").join("manda"));
     }
 
     #[cfg(unix)]
     #[test]
     fn empty_xdg_config_dirs_entries_are_ignored() {
-        let home = PathBuf::from("/tmp/kaku-home");
+        let home = PathBuf::from("/tmp/manda-home");
         let dirs = config_dirs_from(
             &home,
             Some(OsString::new()),
@@ -904,9 +904,9 @@ mod tests {
         assert_eq!(
             dirs,
             vec![
-                home.join(".config").join("kaku"),
-                PathBuf::from("/etc/xdg").join("kaku"),
-                PathBuf::from("/usr/local/etc/xdg").join("kaku"),
+                home.join(".config").join("manda"),
+                PathBuf::from("/etc/xdg").join("manda"),
+                PathBuf::from("/usr/local/etc/xdg").join("manda"),
             ]
         );
     }
@@ -914,60 +914,60 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn missing_xdg_config_dirs_returns_primary_only() {
-        let home = PathBuf::from("/tmp/kaku-home");
+        let home = PathBuf::from("/tmp/manda-home");
         let dirs = config_dirs_from(&home, Some(OsString::from("/custom/config")), None);
-        assert_eq!(dirs, vec![PathBuf::from("/custom/config").join("kaku")]);
+        assert_eq!(dirs, vec![PathBuf::from("/custom/config").join("manda")]);
     }
 
     #[cfg(unix)]
     #[test]
     fn empty_xdg_config_dirs_returns_primary_only() {
-        let home = PathBuf::from("/tmp/kaku-home");
+        let home = PathBuf::from("/tmp/manda-home");
         let dirs = config_dirs_from(
             &home,
             Some(OsString::from("/custom/config")),
             Some(OsString::new()),
         );
-        assert_eq!(dirs, vec![PathBuf::from("/custom/config").join("kaku")]);
+        assert_eq!(dirs, vec![PathBuf::from("/custom/config").join("manda")]);
     }
 
     #[test]
     fn effective_config_file_path_prefers_override() {
         let path = effective_config_file_path_from(
-            Some(PathBuf::from("/override/kaku.lua")),
-            Some(OsString::from("/loaded/kaku.lua")),
-            PathBuf::from("/default/kaku.lua"),
+            Some(PathBuf::from("/override/manda.lua")),
+            Some(OsString::from("/loaded/manda.lua")),
+            PathBuf::from("/default/manda.lua"),
         );
-        assert_eq!(path, PathBuf::from("/override/kaku.lua"));
+        assert_eq!(path, PathBuf::from("/override/manda.lua"));
     }
 
     #[test]
     fn effective_config_file_path_uses_loaded_when_no_override() {
         let path = effective_config_file_path_from(
             None,
-            Some(OsString::from("/loaded/kaku.lua")),
-            PathBuf::from("/default/kaku.lua"),
+            Some(OsString::from("/loaded/manda.lua")),
+            PathBuf::from("/default/manda.lua"),
         );
-        assert_eq!(path, PathBuf::from("/loaded/kaku.lua"));
+        assert_eq!(path, PathBuf::from("/loaded/manda.lua"));
     }
 
     #[test]
     fn effective_config_file_path_falls_back_to_default() {
-        let path = effective_config_file_path_from(None, None, PathBuf::from("/default/kaku.lua"));
-        assert_eq!(path, PathBuf::from("/default/kaku.lua"));
+        let path = effective_config_file_path_from(None, None, PathBuf::from("/default/manda.lua"));
+        assert_eq!(path, PathBuf::from("/default/manda.lua"));
     }
 
     #[test]
-    fn bundled_kaku_lua_defaults_missing_theme_to_appearance() {
+    fn bundled_manda_lua_defaults_missing_theme_to_appearance() {
         let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
-        let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
+            .join("../assets/macos/Manda.app/Contents/Resources/manda.lua");
+        let content = std::fs::read_to_string(&bundled).expect("read bundled manda.lua");
 
         assert!(
             content.contains(
                 "if not scheme or scheme == '' then\n    return resolve_appearance_color_scheme()"
             ),
-            "bundled kaku.lua should resolve a missing color_scheme via appearance"
+            "bundled manda.lua should resolve a missing color_scheme via appearance"
         );
     }
 
@@ -976,37 +976,37 @@ mod tests {
         let content = minimal_user_config_template();
 
         assert!(
-            content.contains("Kaku follows macOS appearance by default"),
+            content.contains("MANDA follows macOS appearance by default"),
             "generated user config should explain the default theme behavior"
         );
         assert!(
-            !content.contains("\nconfig.color_scheme = 'Kaku Dark'\n"),
+            !content.contains("\nconfig.color_scheme = 'MANDA Dark'\n"),
             "generated user config must not pin first-run users to dark mode"
         );
         assert!(
-            content.contains("-- config.color_scheme = 'Kaku Dark'")
-                && content.contains("-- config.color_scheme = 'Kaku Light'"),
+            content.contains("-- config.color_scheme = 'MANDA Dark'")
+                && content.contains("-- config.color_scheme = 'MANDA Light'"),
             "generated user config should still show explicit theme examples"
         );
     }
 
     #[test]
-    fn bundled_kaku_lua_uses_config_for_remember_last_cwd() {
+    fn bundled_manda_lua_uses_config_for_remember_last_cwd() {
         let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
-        let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
+            .join("../assets/macos/Manda.app/Contents/Resources/manda.lua");
+        let content = std::fs::read_to_string(&bundled).expect("read bundled manda.lua");
 
         assert!(
             content.contains("return config.remember_last_cwd ~= false"),
-            "bundled kaku.lua should read remember_last_cwd from the parsed config table"
+            "bundled manda.lua should read remember_last_cwd from the parsed config table"
         );
     }
 
     #[test]
-    fn bundled_kaku_lua_multi_pane_titles_keep_full_segments() {
+    fn bundled_manda_lua_multi_pane_titles_keep_full_segments() {
         let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
-        let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
+            .join("../assets/macos/Manda.app/Contents/Resources/manda.lua");
+        let content = std::fs::read_to_string(&bundled).expect("read bundled manda.lua");
 
         assert!(
             content
@@ -1016,7 +1016,7 @@ mod tests {
                 && content.contains("local w = (#segs - 1) * sep_width")
                 && content
                     .contains("local avail = budget - math.max(0, #segments - 1) * sep_width"),
-            "bundled kaku.lua should keep the multi-pane tab title path"
+            "bundled manda.lua should keep the multi-pane tab title path"
         );
         assert!(
             !content.contains("local w = (#segs - 1) * 3")
@@ -1030,9 +1030,9 @@ mod tests {
     }
 
     #[test]
-    fn bundled_kaku_lua_tab_titles_fit_narrow_width_budgets() -> anyhow::Result<()> {
+    fn bundled_manda_lua_tab_titles_fit_narrow_width_budgets() -> anyhow::Result<()> {
         let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
+            .join("../assets/macos/Manda.app/Contents/Resources/manda.lua");
         let source = std::fs::read_to_string(&bundled)?;
         let lua = crate::lua::make_lua_context(&bundled)?;
         let wezterm: mlua::Table = lua.load("return require 'wezterm'").eval()?;
@@ -1153,37 +1153,37 @@ return tab, {{ tab }}, panes, effective_config
     }
 
     #[test]
-    fn bundled_kaku_lua_foreground_process_tab_titles_default_to_off() {
+    fn bundled_manda_lua_foreground_process_tab_titles_default_to_off() {
         let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
-        let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
+            .join("../assets/macos/Manda.app/Contents/Resources/manda.lua");
+        let content = std::fs::read_to_string(&bundled).expect("read bundled manda.lua");
 
         assert!(
             content.contains("config.tab_title_show_foreground_process = false")
                 && content.contains("tab_title_show_foreground_process == true"),
-            "foreground process tab titles should stay opt-in in bundled kaku.lua"
+            "foreground process tab titles should stay opt-in in bundled manda.lua"
         );
     }
 
     #[test]
-    fn bundled_kaku_lua_maps_claude_versioned_executables() {
+    fn bundled_manda_lua_maps_claude_versioned_executables() {
         let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
-        let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
+            .join("../assets/macos/Manda.app/Contents/Resources/manda.lua");
+        let content = std::fs::read_to_string(&bundled).expect("read bundled manda.lua");
 
         assert!(
             content.contains("is_version_like_process_name(name)")
                 && content.contains("lowered:find('/claude/versions/', 1, true)")
                 && content.contains("return 'claude'"),
-            "bundled kaku.lua should title Claude Code versioned executables as claude"
+            "bundled manda.lua should title Claude Code versioned executables as claude"
         );
     }
 
     #[test]
-    fn bundled_kaku_lua_sets_colorfgbg_from_user_theme_scan() {
+    fn bundled_manda_lua_sets_colorfgbg_from_user_theme_scan() {
         let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
-        let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
+            .join("../assets/macos/Manda.app/Contents/Resources/manda.lua");
+        let content = std::fs::read_to_string(&bundled).expect("read bundled manda.lua");
 
         assert!(
             content.contains("local initial_is_light_theme = is_user_light_theme()")
@@ -1195,10 +1195,10 @@ return tab, {{ tab }}, panes, effective_config
     }
 
     #[test]
-    fn bundled_kaku_lua_closes_fullscreen_last_window_on_cmd_w() {
+    fn bundled_manda_lua_closes_fullscreen_last_window_on_cmd_w() {
         let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
-        let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
+            .join("../assets/macos/Manda.app/Contents/Resources/manda.lua");
+        let content = std::fs::read_to_string(&bundled).expect("read bundled manda.lua");
 
         assert!(
             content.contains("local is_full_screen = dims and dims.is_full_screen")
@@ -1208,56 +1208,56 @@ return tab, {{ tab }}, panes, effective_config
     }
 
     #[test]
-    fn bundled_kaku_lua_defaults_close_confirmation_to_smart_prompt() {
+    fn bundled_manda_lua_defaults_close_confirmation_to_smart_prompt() {
         let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
-        let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
+            .join("../assets/macos/Manda.app/Contents/Resources/manda.lua");
+        let content = std::fs::read_to_string(&bundled).expect("read bundled manda.lua");
 
         assert!(
             content.contains("config.tab_close_confirmation = 'SmartPrompt'")
                 && content.contains("config.pane_close_confirmation = 'SmartPrompt'")
                 && content.contains("config.window_close_confirmation = 'SmartPrompt'"),
-            "bundled kaku.lua should default tab, pane, and window close confirmation to SmartPrompt"
+            "bundled manda.lua should default tab, pane, and window close confirmation to SmartPrompt"
         );
     }
 
     #[test]
-    fn bundled_kaku_lua_defaults_smart_tab_to_suggestion_first() {
+    fn bundled_manda_lua_defaults_smart_tab_to_suggestion_first() {
         let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
-        let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
+            .join("../assets/macos/Manda.app/Contents/Resources/manda.lua");
+        let content = std::fs::read_to_string(&bundled).expect("read bundled manda.lua");
 
         assert!(
             content.contains("config.smart_tab_mode = 'suggestion_first'"),
-            "bundled kaku.lua should default Smart Tab to suggestion-first"
+            "bundled manda.lua should default Smart Tab to suggestion-first"
         );
     }
 
     #[test]
-    fn bundled_kaku_lua_enables_minimum_text_contrast() {
+    fn bundled_manda_lua_enables_minimum_text_contrast() {
         let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
-        let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
+            .join("../assets/macos/Manda.app/Contents/Resources/manda.lua");
+        let content = std::fs::read_to_string(&bundled).expect("read bundled manda.lua");
 
         assert!(
             content.contains("config.text_min_contrast_ratio = 3.0"),
-            "bundled kaku.lua should guard against low-contrast terminal text"
+            "bundled manda.lua should guard against low-contrast terminal text"
         );
     }
 
     #[test]
-    fn bundled_kaku_dark_maps_black_foregrounds_to_readable_text() {
+    fn bundled_manda_dark_maps_black_foregrounds_to_readable_text() {
         let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../assets/macos/Kaku.app/Contents/Resources/kaku.lua");
-        let content = std::fs::read_to_string(&bundled).expect("read bundled kaku.lua");
+            .join("../assets/macos/Manda.app/Contents/Resources/manda.lua");
+        let content = std::fs::read_to_string(&bundled).expect("read bundled manda.lua");
 
         assert!(
             content.contains("ANSI_BLACK = '#c8c6cc'")
-                && content.contains("[KAKU.ANSI_BLACK] = KAKU.BLACK")
-                && content.contains("['#000000'] = KAKU.WHITE")
-                && content.contains("['#15141b'] = KAKU.WHITE")
-                && content.contains("['#1c1c1c'] = KAKU.WHITE"),
-            "Kaku Dark should render Hermes black foregrounds as readable light text"
+                && content.contains("[MANDA.ANSI_BLACK] = MANDA.BLACK")
+                && content.contains("['#000000'] = MANDA.WHITE")
+                && content.contains("['#15141b'] = MANDA.WHITE")
+                && content.contains("['#1c1c1c'] = MANDA.WHITE"),
+            "MANDA Dark should render Hermes black foregrounds as readable light text"
         );
     }
 }
@@ -1580,7 +1580,7 @@ impl ConfigInner {
     }
 
     fn accumulate_watch_paths(lua: &Lua, watch_paths: &mut Vec<PathBuf>) {
-        if let Ok(mlua::Value::Table(tbl)) = lua.named_registry_value("kaku-watch-paths") {
+        if let Ok(mlua::Value::Table(tbl)) = lua.named_registry_value("manda-watch-paths") {
             for path in tbl.sequence_values::<String>() {
                 if let Ok(path) = path {
                     watch_paths.push(PathBuf::from(path));

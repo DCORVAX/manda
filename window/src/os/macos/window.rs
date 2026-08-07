@@ -81,7 +81,7 @@ const FULLSCREEN_DISPLAY_CHANGE_OPENGL_PRESENT_DEFER_MS: u64 = 300;
 const WINDOWED_DISPLAY_CHANGE_OPENGL_PRESENT_DEFER_MS: u64 = 150;
 const MOVE_PERSIST_DELAY_SECS: f64 = 0.35;
 // cocoa 0.25 does not expose these newer AppKit collection-behavior bits.
-// Keep the raw values local so Kaku can opt into native macOS window tiling
+// Keep the raw values local so MANDA can opt into native macOS window tiling
 // without broadening the dependency surface.
 const NS_WINDOW_COLLECTION_BEHAVIOR_FULLSCREEN_ALLOWS_TILING_BITS: NSUInteger = 1 << 11;
 const NS_WINDOW_COLLECTION_BEHAVIOR_FULLSCREEN_DISALLOWS_TILING_BITS: NSUInteger = 1 << 12;
@@ -619,7 +619,7 @@ struct PersistedWindowPosition {
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct PersistedState {
     // Never serialize an absent version as `null`. A missing version marks an
-    // incomplete initialization that bundled kaku.lua will retry while
+    // incomplete initialization that bundled manda.lua will retry while
     // preserving the window fields written here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     config_version: Option<u64>,
@@ -643,7 +643,7 @@ fn config_dir_file(name: &str) -> PathBuf {
     config::CONFIG_DIRS
         .first()
         .cloned()
-        .unwrap_or_else(|| config::HOME_DIR.join(".config").join("kaku"))
+        .unwrap_or_else(|| config::HOME_DIR.join(".config").join("manda"))
         .join(name)
 }
 
@@ -652,7 +652,7 @@ fn state_file() -> PathBuf {
 }
 
 fn legacy_window_geometry_file() -> PathBuf {
-    config_dir_file(".kaku_window_geometry")
+    config_dir_file(".manda_window_geometry")
 }
 
 fn window_position(window: *mut Object) -> Option<ScreenPoint> {
@@ -1306,7 +1306,7 @@ impl Window {
             window.setReleasedWhenClosed_(NO);
             // Opt out of AppKit's Windows menu: on macOS 26 a closed window can
             // leave a dangling NSWindowRepresentingMenuItem, and a later
-            // setTitle: PAC-faults in _rebuildWindowsMenu. Kaku has its own
+            // setTitle: PAC-faults in _rebuildWindowsMenu. MANDA has its own
             // tab/window switching, so we don't need the system menu.
             let _: () = msg_send![*window, setExcludedFromWindowsMenu: YES];
             window.setBackgroundColor_(cocoa::appkit::NSColor::clearColor(nil));
@@ -2580,7 +2580,7 @@ impl WindowInner {
         // NSWindow::isZoomed can falsely return YES after screen changes,
         // which would cause the zoom call to be skipped even though the
         // window is not actually maximized.
-        // <https://github.com/tw93/Kaku/issues/131>
+        // <https://github.com/WILFREDY-X/manda/issues/131>
         self.arm_transition_content_hide(ZOOM_HIDE_CONTENT_MS, "zoom_maximize", false);
         unsafe {
             NSWindow::zoom_(*self.window, nil);
@@ -3244,8 +3244,8 @@ impl Inner {
     }
 }
 
-const VIEW_CLS_NAME: &str = "KakuWindowView";
-const WINDOW_CLS_NAME: &str = "KakuWindow";
+const VIEW_CLS_NAME: &str = "MANDAWindowView";
+const WINDOW_CLS_NAME: &str = "MANDAWindow";
 const TITLEBAR_VIEW_NAME: &str = "NSTitlebarContainerView";
 
 #[derive(Debug, Clone, Copy)]
@@ -3514,7 +3514,7 @@ fn should_intercept_special_shortcut(chars: &str, modifiers: Modifiers, virtual_
         // Preserve macOS built-in Cmd+` and Cmd+Shift+` window cycling.
         && virtual_key != kVK_ANSI_Grave;
     // Intercept Cmd+Shift+Space so the system "select previous input source"
-    // shortcut cannot consume it before Kaku's own kaku-ai-chat binding fires.
+    // shortcut cannot consume it before MANDA's own manda-ai-chat binding fires.
     let command_shift_space =
         modifiers == (Modifiers::SUPER | Modifiers::SHIFT) && virtual_key == kVK_Space;
 
@@ -4122,8 +4122,8 @@ fn get_window_class() -> &'static Class {
         /// yabai, etc.) from entering a feedback loop where the WM requests an
         /// exact size, AppKit adjusts it (resize increments or screen clamping),
         /// the WM detects the mismatch and re-requests, causing flicker.
-        /// <https://github.com/tw93/Kaku/issues/131>
-        /// <https://github.com/tw93/Kaku/issues/183>
+        /// <https://github.com/WILFREDY-X/manda/issues/131>
+        /// <https://github.com/WILFREDY-X/manda/issues/183>
         extern "C" fn constrain_frame_rect(
             _this: &mut Object,
             _sel: Sel,
@@ -4162,7 +4162,7 @@ impl WindowView {
             let _: () = msg_send![
                 class!(NSObject),
                 cancelPreviousPerformRequestsWithTarget: view
-                selector: sel!(kakuPersistWindowStateAfterMove:)
+                selector: sel!(mandaPersistWindowStateAfterMove:)
                 object: nil
             ];
             let _: () = msg_send![
@@ -4659,15 +4659,15 @@ impl WindowView {
         }
     }
 
-    extern "C" fn kaku_perform_key_assignment(
+    extern "C" fn manda_perform_key_assignment(
         this: &mut Object,
         _sel: Sel,
         menu_item: *mut Object,
     ) {
         let menu_item = MenuItem::with_menu_item(menu_item);
-        // Safe because kakuPerformKeyAssignment: is only used with KeyAssignment
+        // Safe because mandaPerformKeyAssignment: is only used with KeyAssignment
         let action = menu_item.get_represented_item();
-        log::debug!("kaku_perform_key_assignment {action:?}",);
+        log::debug!("manda_perform_key_assignment {action:?}",);
         match action {
             Some(RepresentedItem::KeyAssignment(action)) => {
                 if let Some(this) = Self::get_this(this) {
@@ -4700,7 +4700,7 @@ impl WindowView {
                 // Extract the raw window pointer while holding the borrow, then drop the
                 // borrow *before* calling into AppKit. persist_window_size_and_position
                 // and remember_last_closed_window_position both call Cocoa APIs that can
-                // spin the event loop and re-enter kaku_perform_key_assignment, which
+                // spin the event loop and re-enter manda_perform_key_assignment, which
                 // would fail with a double-borrow panic if we held the borrow here.
                 let raw_window = this.inner.borrow().window.as_ref().map(|w| w.load());
                 if let Some(window) = raw_window {
@@ -4735,12 +4735,12 @@ impl WindowView {
             let _: () = msg_send![
                 class!(NSObject),
                 cancelPreviousPerformRequestsWithTarget: this as *mut Object
-                selector: sel!(kakuPersistWindowStateAfterMove:)
+                selector: sel!(mandaPersistWindowStateAfterMove:)
                 object: nil
             ];
             let _: () = msg_send![
                 this,
-                performSelector: sel!(kakuPersistWindowStateAfterMove:)
+                performSelector: sel!(mandaPersistWindowStateAfterMove:)
                 withObject: nil
                 afterDelay: MOVE_PERSIST_DELAY_SECS
             ];
@@ -5784,7 +5784,7 @@ impl WindowView {
             // the prior bug where a truly maximized window lost its state
             // permanently after moving to another screen.
             // <https://github.com/wezterm/wezterm/issues/3503>
-            // <https://github.com/tw93/Kaku/issues/131>
+            // <https://github.com/WILFREDY-X/manda/issues/131>
             let is_zoomed = if screen_changed {
                 inner
                     .last_reported_window_state
@@ -5959,7 +5959,7 @@ impl WindowView {
     /// We return the screen's visible frame to ensure the window fills the entire
     /// available space, ignoring resize increments that would otherwise cause
     /// the window to not fill the screen completely.
-    /// <https://github.com/tw93/Kaku/issues/131>
+    /// <https://github.com/WILFREDY-X/manda/issues/131>
     extern "C" fn window_will_use_standard_frame(
         _this: &mut Object,
         _sel: Sel,
@@ -6226,8 +6226,8 @@ impl WindowView {
             );
 
             cls.add_method(
-                sel!(kakuPerformKeyAssignment:),
-                Self::kaku_perform_key_assignment as extern "C" fn(&mut Object, Sel, *mut Object),
+                sel!(mandaPerformKeyAssignment:),
+                Self::manda_perform_key_assignment as extern "C" fn(&mut Object, Sel, *mut Object),
             );
 
             cls.add_method(
@@ -6342,7 +6342,7 @@ impl WindowView {
                 Self::did_change_screen as extern "C" fn(&mut Object, Sel, id),
             );
             cls.add_method(
-                sel!(kakuPersistWindowStateAfterMove:),
+                sel!(mandaPersistWindowStateAfterMove:),
                 Self::persist_window_state_after_move as extern "C" fn(&mut Object, Sel, id),
             );
 
