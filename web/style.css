@@ -373,21 +373,49 @@ kbd {
 }
 .faq-item .answer a { text-decoration: underline; text-underline-offset: 2px; }
 
-/* ----- Footer ----- */
-footer { border-top: 1px solid var(--divider); margin-top: 110px; padding: 48px 0 56px; }
-.footer-grid { display: flex; flex-wrap: wrap; gap: 36px; justify-content: space-between; }
+/* ----- Footer (black band, theme-independent) ----- */
+footer {
+  margin-top: 110px;
+  padding: 64px 0 44px;
+  background: #0c0c0a;   /* near-black warm */
+  border-top: none;
+}
+.footer-head { display: flex; flex-direction: column; gap: 14px; margin-bottom: 42px; }
+.footer-head .brand-mark { background: #ece9e2; color: #121212; }
+.footer-head .brand-name { color: #ece9e2; }
+.footer-tagline {
+  margin: 0; max-width: 540px;
+  font-size: 14px; line-height: 1.7; color: #a49e92;
+}
+.footer-cols {
+  display: flex; flex-wrap: wrap; gap: 40px 80px;
+  padding-bottom: 44px; border-bottom: 1px solid #2a2721;
+}
 .footer-col h4 {
   font-size: 11px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase;
-  color: var(--ink-muted); margin: 0 0 12px;
+  color: #8a8478; margin: 0 0 14px;
 }
-.footer-col a { display: block; font-size: 14px; color: var(--ink-mid); text-decoration: none; margin-bottom: 8px; }
-.footer-col a:hover { color: var(--ink); }
+.footer-col a {
+  display: block; font-size: 14px; color: #b8b2a6; text-decoration: none; margin-bottom: 9px;
+  transition: color 0.15s ease;
+}
+.footer-col a:hover { color: #ffffff; }
+.footer-col a.mono { font-family: var(--mono); font-size: 12.5px; }
+.footer-ascii {
+  margin: 44px auto 0; max-width: 100%;
+  font-family: var(--mono); font-size: 11px; line-height: 1.35;
+  color: #524c44;          /* brand watermark */
+  text-align: center; white-space: pre;
+  overflow-x: auto;
+}
 .footer-bottom {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
-  margin-top: 40px; padding-top: 24px; border-top: 1px solid var(--divider);
-  font-size: 12.5px; color: var(--ink-muted);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  margin-top: 44px; padding-top: 26px; border-top: 1px solid #2a2721;
+  font-size: 12.5px; color: #8a8478;
 }
-.footer-bottom .right { margin-left: auto; display: flex; gap: 16px; }
+@media (max-width: 560px) {
+  .footer-ascii { font-size: 8px; line-height: 1.4; }
+}
 
 /* ----- Responsive ----- */
 @media (max-width: 880px) {
