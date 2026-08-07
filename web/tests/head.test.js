@@ -32,9 +32,13 @@ function runHead(opts) {
     hash = '',
     savedLang = null, /* null = no localStorage entry for manda-lang */
     savedTheme = null,
-    browserLang = 'en',
+    browserLanguages, /* optional; defaults to [browserLang] */
     navType = 'navigate',
+    noGetEntries = false, /* exercise the legacy performance.navigation fallback */
   } = opts;
+  /* 'in' check: passing browserLang: undefined must stay undefined (no
+     default), so the navigator.language-undefined fallback is testable. */
+  const browserLang = 'browserLang' in opts ? opts.browserLang : 'en';
   let replaced = null;
   const stored = {};
   const attrs = {};
@@ -47,7 +51,7 @@ function runHead(opts) {
       },
       setItem(k, v) { stored[k] = String(v); },
     },
-    navigator: { language: browserLang, languages: [browserLang] },
+    navigator: { language: browserLang, languages: browserLanguages !== undefined ? browserLanguages : [browserLang] },
     location: {
       pathname,
       search,
@@ -60,8 +64,8 @@ function runHead(opts) {
       },
     },
     performance: {
-      getEntriesByType: () => [{ type: navType }],
-      navigation: null,
+      getEntriesByType: () => (noGetEntries ? [] : [{ type: navType }]),
+      navigation: noGetEntries ? { type: navType === 'back_forward' ? 2 : 0 } : null,
     },
     console,
   };
@@ -181,6 +185,40 @@ test('/es (no slash) + es -> treated as ES root, no redirect', () => {
 test('/es (no slash) + en -> ../index.html (no self-loop)', () => {
   const r = runHead({ pathname: '/es', savedLang: 'en', browserLang: 'es' });
   assert.equal(r.replaced, '../index.html');
+});
+
+console.log('=== Language: defensive fallbacks ===');
+
+test('legacy performance.navigation.type===2 (no getEntriesByType) still suppresses the bounce', () => {
+  const r = runHead({
+    pathname: '/es/features.html', savedLang: 'en', browserLang: 'es',
+    navType: 'back_forward', noGetEntries: true,
+  });
+  assert.equal(r.replaced, null);
+});
+
+test('legacy performance.navigation.type===0 (normal) still redirects', () => {
+  const r = runHead({
+    pathname: '/index.html', savedLang: 'es', browserLang: 'en',
+    navType: 'navigate', noGetEntries: true,
+  });
+  assert.equal(r.replaced, 'es/index.html');
+});
+
+test('undefined navigator.language falls back to navigator.languages[0] (es)', () => {
+  const r = runHead({
+    pathname: '/index.html', browserLang: undefined, browserLanguages: ['es-ES'],
+  });
+  assert.equal(r.replaced, 'es/index.html');
+  assert.equal(r.stored['manda-lang'], 'es');
+});
+
+test('undefined navigator.language falls back to navigator.languages[0] (en)', () => {
+  const r = runHead({
+    pathname: '/index.html', browserLang: undefined, browserLanguages: ['en-US'],
+  });
+  assert.equal(r.replaced, null);
+  assert.equal(r.stored['manda-lang'], 'en');
 });
 
 /* ------------------------------------------------------------------ */
