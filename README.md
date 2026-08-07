@@ -9,6 +9,7 @@
   <a href="https://manda-term-one.vercel.app/"><img src="https://img.shields.io/badge/version-0.1.2-blue?style=flat-square" alt="Version"></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License"></a>
   <a href="https://github.com/DCORVAX/manda/commits"><img src="https://img.shields.io/github/commit-activity/m/DCORVAX/manda?style=flat-square" alt="Commits"></a>
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat-square" alt="Contributions Welcome"></a>
 </p>
 
 <p align="center">
@@ -198,6 +199,7 @@ The landing page source lives in [`web/`](web/index.html) and deploys to [manda-
 ## Support
 
 - If MANDA helped you, give it a star, [share it](https://twitter.com/intent/tweet?url=https://github.com/DCORVAX/manda&text=MANDA%20-%20A%20fast%20terminal%20built%20for%20AI%20coding.), or open an issue or PR.
+- **Want to contribute?** Read [CONTRIBUTING.md](CONTRIBUTING.md) — build-from-source steps, validation commands and the PR checklist.
 
 ## License
 
