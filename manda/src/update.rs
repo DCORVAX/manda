@@ -44,7 +44,7 @@ mod imp {
     const RELEASE_LATEST_URL: &str = "https://github.com/DCORVAX/manda/releases/latest";
     const UPDATE_ZIP_NAME: &str = "manda_for_update.zip";
     const UPDATE_SHA_NAME: &str = "manda_for_update.zip.sha256";
-    const BREW_CASK_NAME: &str = "DCORVAX/manda/manda";
+    const BREW_CASK_NAME: &str = "DCORVAX/tap/manda";
 
     #[derive(Debug, Deserialize)]
     struct GitHubRelease {

@@ -80,10 +80,7 @@ jobs:
               `> ${itemUrl}`,
             ].join('\n');
 
-            const commentEndpoint = isPR
-              ? github.rest.issues.createComment
-              : github.rest.issues.createComment;
-            await commentEndpoint({
+            await github.rest.issues.createComment({
               owner,
               repo,
               issue_number: currentNumber,
