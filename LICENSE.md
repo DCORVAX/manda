@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2024-Present WILFREDY-X
+Copyright (c) 2024-Present DCORVAX
 Copyright (c) 2018-Present Wez Furlong (original WezTerm code)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

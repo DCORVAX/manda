@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/DCORVAX/manda/stargazers"><img src="https://img.shields.io/github/stars/DCORVAX/manda?style=flat-square" alt="Stars"></a>
-  <a href="https://manda-terminal.vercel.app/"><img src="https://img.shields.io/badge/version-0.1.0-blue?style=flat-square" alt="Version"></a>
+  <a href="https://manda-terminal.vercel.app/"><img src="https://img.shields.io/badge/version-0.1.1-blue?style=flat-square" alt="Version"></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License"></a>
   <a href="https://github.com/DCORVAX/manda/commits"><img src="https://img.shields.io/github/commit-activity/m/DCORVAX/manda?style=flat-square" alt="Commits"></a>
 </p>
@@ -33,7 +33,7 @@ MANDA is a deeply customized fork of WezTerm, built for practical defaults on da
 **Option A — Homebrew (recommended)**:
 
 ```bash
-brew install wilfredy-x/tap/manda
+brew install dcorvax/tap/manda
 ```
 
 **Option B — one-liner installer** (downloads the DMG from GitHub Releases):
@@ -44,7 +44,7 @@ curl -fsSL https://raw.githubusercontent.com/DCORVAX/manda/main/install/install.
 
 **Option C — manual**: download `MANDA.dmg` from the [releases page](https://github.com/DCORVAX/manda/releases) and drag `MANDA.app` to Applications.
 
-On first launch, MANDA sets up your shell environment automatically. The current v0.1.0 build uses an ad-hoc signature — if macOS shows "developer cannot be verified", right-click the app → Open.
+On first launch, MANDA sets up your shell environment automatically. The current v0.1.1 build uses an ad-hoc signature — if macOS shows "developer cannot be verified", right-click the app → Open.
 
 ## Usage Guide
 

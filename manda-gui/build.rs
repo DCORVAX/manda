@@ -118,10 +118,10 @@ BEGIN
     BEGIN
         BLOCK "040904E4"
         BEGIN
-            VALUE "CompanyName",      "WILFREDY-X\\0"
+            VALUE "CompanyName",      "DCORVAX\\0"
             VALUE "FileDescription",  "MANDA - A fast terminal for AI coding\\0"
             VALUE "FileVersion",      "{version}\\0"
-            VALUE "LegalCopyright",   "WILFREDY-X, MIT licensed\\0"
+            VALUE "LegalCopyright",   "DCORVAX, MIT licensed\\0"
             VALUE "InternalName",     "\\0"
             VALUE "OriginalFilename", "\\0"
             VALUE "ProductName",      "MANDA\\0"

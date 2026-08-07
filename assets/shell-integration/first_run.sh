@@ -69,12 +69,11 @@ clear
 
 # Display Welcome Message
 echo -e "\033[1;35m"
-echo "  _  __      _          "
-echo " | |/ /     | |         "
-echo " | ' / __ _ | | __ _   _ "
-echo " |  < / _\` || |/ /| | | |"
-echo " | . \ (_| ||   < | |_| |"
-echo " |_|\_\__,_||_|\_\ \__,_|"
+echo "    __  ______    _   ______  ___ "
+echo "   /  |/  /   |  / | / / __ \/   |"
+echo "  / /|_/ / /| | /  |/ / / / / /| |"
+echo " / /  / / ___ |/ /|  / /_/ / ___ |"
+echo "/_/  /_/_/  |_/_/ |_/_____/_/  |_|"
 echo -e "\033[0m"
 echo "Welcome to MANDA!"
 echo "A fast, out-of-the-box terminal built for AI coding."

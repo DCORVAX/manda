@@ -3195,7 +3195,7 @@ dependencies = [
 
 [[package]]
 name = "manda"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3245,7 +3245,7 @@ version = "0.1.0"
 
 [[package]]
 name = "manda-gui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

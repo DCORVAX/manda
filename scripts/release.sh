@@ -43,7 +43,7 @@ BUILD_ARCH="${BUILD_ARCH:-universal}"
 RUN_CLIPPY="${RUN_CLIPPY:-0}"
 SKIP_TESTS="${SKIP_TESTS:-0}"
 GITHUB_REPO="${GITHUB_REPO:-DCORVAX/manda}"
-HOMEBREW_TAP_REPO="${HOMEBREW_TAP_REPO:-WILFREDY-X/homebrew-manda}"
+HOMEBREW_TAP_REPO="${HOMEBREW_TAP_REPO:-DCORVAX/homebrew-tap}"
 REQUIRE_HOMEBREW_TAP_UPDATE="${REQUIRE_HOMEBREW_TAP_UPDATE:-1}"
 DRY_RUN="${DRY_RUN:-0}"
 
@@ -311,7 +311,7 @@ notarize_release() {
 # Create and push git tag
 create_tag() {
     local version="$1"
-    local tag="V${version}"
+    local tag="v${version}"
     local head_sha
     local tag_sha
     local remote_tag_sha
@@ -347,7 +347,7 @@ create_tag() {
 # Create GitHub Release
 create_github_release() {
     local version="$1"
-    local tag="V${version}"
+    local tag="v${version}"
     local release_notes_file="$REPO_ROOT/.github/RELEASE_NOTES.md"
     local release_title="$APP_NAME $tag"
     local notes_arg=""
@@ -555,7 +555,7 @@ main() {
 
     if [[ "$DRY_RUN" == "1" ]]; then
         log_warn "[DRY-RUN] All pre-flight checks passed."
-        log_warn "[DRY-RUN] Would build → notarize → tag V${version} → upload → tap dispatch"
+        log_warn "[DRY-RUN] Would build → notarize → tag v${version} → upload → tap dispatch"
         log_warn "[DRY-RUN] Expected artifacts: $OUT_DIR/MANDA.dmg, $OUT_DIR/manda_for_update.zip, $OUT_DIR/manda_for_update.zip.sha256"
         log_warn "[DRY-RUN] GitHub repo: $GITHUB_REPO"
         log_warn "[DRY-RUN] Homebrew tap: $HOMEBREW_TAP_REPO"
@@ -596,7 +596,7 @@ main() {
     log_info "  - $OUT_DIR/manda_for_update.zip"
     log_info "  - $OUT_DIR/manda_for_update.zip.sha256"
     log_info ""
-    log_info "GitHub Release: https://github.com/${GITHUB_REPO}/releases/tag/V${version}"
+    log_info "GitHub Release: https://github.com/${GITHUB_REPO}/releases/tag/v${version}"
 }
 
 main "$@"
