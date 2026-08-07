@@ -46,6 +46,75 @@ curl -fsSL https://raw.githubusercontent.com/DCORVAX/manda/main/install/install.
 
 On first launch, MANDA sets up your shell environment automatically. The current v0.1.1 build uses an ad-hoc signature — if macOS shows "developer cannot be verified", right-click the app → Open.
 
+## Build from Source (clone & build from scratch)
+
+Steps validated against a fresh clone of this repository (`git clone` → `git fsck` → `cargo metadata` → full universal release build). The full repo (including vendored native deps in `deps/` and `Cargo.lock`) is committed, so a fresh clone builds without any extra downloads.
+
+### Prerequisites
+
+- **macOS 11+** — [`scripts/build.sh`](scripts/build.sh) is macOS-only.
+- **Rust toolchain** via [rustup](https://rustup.rs) — the pinned version is declared in [`rust-toolchain.toml`](rust-toolchain.toml) (channel `1.95.0`); `rustup` installs it automatically.
+- **Xcode Command Line Tools** — needed for code signing and `PlistBuddy`.
+- **Vendored deps** — `deps/` (cairo & friends, 400+ files) is already tracked in git. No `download_vendor` step required.
+
+### 1. Clone
+
+```bash
+git clone https://github.com/DCORVAX/manda.git
+cd manda
+```
+
+Optional integrity check — the history was rewritten to be fully clean, so `fsck` should pass:
+
+```bash
+git fsck --full
+```
+
+### 2. Verify the workspace resolves
+
+```bash
+cargo metadata --no-deps --format-version 1
+```
+
+This confirms the workspace (manda, manda-gui and the `crates/*` members) parses. A fresh clone passes without touching the network for sources.
+
+### 3. Build the app bundle (recommended)
+
+Fast debug bundle for your native architecture:
+
+```bash
+./scripts/build.sh --native-arch --app-only
+# → dist/MANDA.app
+```
+
+Full universal release (arm64 + x86_64, lipo-merged), takes ~20–25 min on a fresh checkout:
+
+```bash
+./scripts/build.sh
+# → dist/MANDA.app (universal)
+```
+
+`build.sh` auto-installs the missing Rust targets via `rustup target add`.
+
+### 4. Equivalent manual `cargo` build (what CI runs)
+
+```bash
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+cargo build --locked --release --target aarch64-apple-darwin -p manda -p manda-gui
+cargo build --locked --release --target x86_64-apple-darwin -p manda -p manda-gui
+
+# merge into a universal binary:
+mkdir -p target/universal/release
+lipo -create -output target/universal/release/manda \
+  target/aarch64-apple-darwin/release/manda \
+  target/x86_64-apple-darwin/release/manda
+```
+
+Artifacts: `target/<triple>/release/manda` and `manda-gui` binaries, or a ready-to-run `MANDA.app` from `build.sh`. The release profile is tuned with `lto = "fat"`, `strip = true` and `codegen-units = 1` (see [`Cargo.toml`](Cargo.toml)).
+
+> **Note:** the CI pipeline runs the same build (`Build Validation` workflow), and the `rust-toolchain.toml` pins the exact compiler, so local and CI builds are reproducible.
+
 ## Usage Guide
 
 | Action | Shortcut |
