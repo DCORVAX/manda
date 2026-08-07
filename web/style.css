@@ -376,7 +376,7 @@ kbd {
 /* ----- Footer — Ft5 Statement + editorial colophon (black band, theme-independent) ----- */
 footer.foot {
   margin-top: 110px;
-  padding: 96px 0 0;
+  padding: 110px 0 0;
   background: #0c0c0a;            /* near-black warm */
   color: #ece9e2;
   position: relative;
@@ -386,69 +386,83 @@ footer.foot .wrap { position: relative; z-index: 1; }
 
 /* Closing statement — the footer's voice */
 .foot-stmt {
-  margin: 0 0 56px;
-  max-width: 640px;
+  margin: 0 0 60px;
+  max-width: 680px;
   font-family: var(--serif);
   font-size: clamp(30px, 4.2vw, 46px);
   font-weight: 400;
   line-height: 1.12;
   letter-spacing: -0.015em;
+  color: #f5f2ea;
 }
-.foot-stmt-accent { color: #8a8478; }  /* muted echo of the closing line */
+.foot-stmt-accent { color: #a49e92; }  /* muted echo of the closing line */
 
 /* Link groups flow inline with · separators — colophon, not sitemap columns */
 .foot-groups {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 34px 0;
-  border-top: 1px solid #2a2721;
-  border-bottom: 1px solid #2a2721;
+  gap: 16px;
+  padding: 38px 0;
+  border-top: 1px solid #2e2a22;
+  border-bottom: 1px solid #2e2a22;
 }
-.foot-group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 18px; }
+.foot-group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 20px; }
 .foot-label {
-  font-size: 11px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase;
-  color: #6f695d; min-width: 92px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase;
+  color: #7d766a; min-width: 100px;
 }
 .foot-links {
-  display: inline; font-size: 14px; color: #b8b2a6;
+  display: inline; font-size: 14px; color: #c0baad;
 }
 .foot-links.mono { font-family: var(--mono); font-size: 12.5px; }
 .foot-links a {
-  color: #b8b2a6; text-decoration: none; white-space: nowrap;
-  transition: color 0.15s ease;
+  color: #c0baad; text-decoration: none; white-space: nowrap;
+  padding: 3px 1px;
+  background-image: linear-gradient(currentColor, currentColor);
+  background-size: 0% 1px; background-repeat: no-repeat;
+  background-position: 0 100%;
+  transition: color 0.15s ease, background-size 0.2s ease;
 }
-.foot-links a:hover { color: #ffffff; }
+.foot-links a:hover { color: #ffffff; background-size: 100% 1px; }
 .foot-links a:focus-visible { outline: 2px solid #ece9e2; outline-offset: 3px; border-radius: 2px; }
-.foot-dot { color: #524c44; margin: 0 2px; }
+.foot-dot { color: #4d483e; margin: 0 3px; }
 
 /* Bottom line: brand + legal + platforms */
 .foot-bottom {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px;
-  padding: 26px 0 64px;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 28px;
+  padding: 28px 0 60px;
   font-size: 12.5px; color: #8a8478;
 }
 .foot-brand {
+  display: inline-flex; align-items: center; gap: 8px;
   font-family: var(--mono); font-size: 13px; color: #ece9e2; letter-spacing: 0.02em;
   margin-right: auto;
 }
+.foot-brand .brand-mark {
+  width: 22px; height: 22px; font-size: 10px;
+  background: #ece9e2; color: #0c0c0a;
+}
+.foot-bottom .foot-legal { letter-spacing: 0.01em; }
+.foot-bottom .foot-platforms { color: #6f695d; }
 
 /* ASCII brand watermark — background texture, not a content block */
 .foot-ascii {
-  margin: 0; padding: 0 0 26px;
+  margin: 0; padding: 34px 0 24px;
   width: 100%;
   font-family: var(--mono); font-size: 12px; line-height: 1.4;
-  color: #3a352c;
+  color: #454035;
   text-align: center; white-space: pre;
   user-select: none; pointer-events: none;
+  opacity: 0.85;
 }
 @media (max-width: 560px) {
-  .foot-stmt { margin-bottom: 40px; }
-  .foot-groups { gap: 18px; }
-  .foot-label { min-width: 0; }
+  .foot-stmt { margin-bottom: 44px; font-size: 27px; }
+  .foot-groups { gap: 20px; padding: 30px 0; }
+  .foot-label { min-width: 0; flex-basis: 100%; }
+  .foot-group { gap: 8px 14px; }
   .foot-links a { white-space: normal; }
-  .foot-ascii { font-size: 7px; line-height: 1.45; padding-bottom: 18px; }
-  .foot-bottom { padding-bottom: 44px; }
+  .foot-ascii { font-size: 7px; line-height: 1.45; padding: 26px 0 16px; }
+  .foot-bottom { padding-bottom: 40px; }
 }
 
 /* ----- Responsive ----- */
