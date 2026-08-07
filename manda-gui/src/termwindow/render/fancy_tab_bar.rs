@@ -639,3 +639,22 @@ fn apply_tab_offsets(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    /// Reference anchor: keeps issue #3 pointed at the right place in this file
+    /// even if the file shifts. Fails loudly when the hardcoded macOS button
+    /// margin FIXME moves so the issue body can be updated.
+    #[test]
+    fn issue3_macos_button_margin_fixme_reference_anchor() {
+        let src = include_str!("fancy_tab_bar.rs");
+        assert!(
+            src.contains("Dimension::Cells(4.0)"),
+            "issue #3 anchor: hardcoded Dimension::Cells(4.0) margin must still exist"
+        );
+        assert!(
+            src.contains("FIXME: determine exact width of macos ... buttons"),
+            "issue #3 anchor: FIXME comment must still exist"
+        );
+    }
+}

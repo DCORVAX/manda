@@ -1468,4 +1468,20 @@ mod tests {
             "AUTO_CONFIRM must require auto_confirm flag, not every update tab"
         );
     }
+
+    /// Reference anchor: keeps issue #4 pointed at the right place in this file
+    /// even if the file shifts. Fails loudly when the notification-focus FIXME
+    /// moves so the issue body can be updated.
+    #[test]
+    fn issue4_notification_focus_fixme_reference_anchor() {
+        let frontend = include_str!("frontend.rs");
+        assert!(
+            frontend.contains("// FIXME: if notification.focus is true, we should do"),
+            "issue #4 anchor: notification.focus FIXME must still exist"
+        );
+        assert!(
+            frontend.contains("persistent_toast_notification(title, message);"),
+            "issue #4 anchor: persistent_toast_notification call must still exist"
+        );
+    }
 }

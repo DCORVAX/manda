@@ -1747,4 +1747,67 @@ mod test {
         assert_eq!(plain_text(&hover), "HOVER");
         Ok(())
     }
+
+    // ===== Issue #2 spec: indeterminate progress marker =====
+
+    /// Spec for https://github.com/DCORVAX/manda/issues/2 — a pane reporting
+    /// `Progress::Indeterminate` must render a visible marker in the classic tab
+    /// bar. The `Progress::Indeterminate` branch in `build_default_title` is
+    /// currently empty (tabbar.rs:483), so this test is `#[ignore]` until the
+    /// feature lands. Run it with: `cargo nextest run --run-ignored all`.
+    #[test]
+    #[ignore = "spec for issue #2: render indeterminate progress marker"]
+    fn indeterminate_progress_renders_visible_marker() {
+        use std::collections::HashMap;
+
+        let pane = PaneInformation {
+            pane_id: 1.into(),
+            pane_index: 0,
+            is_active: true,
+            is_zoomed: false,
+            has_unseen_output: false,
+            left: 0,
+            top: 0,
+            width: 80,
+            height: 24,
+            pixel_width: 800,
+            pixel_height: 480,
+            title: "worker".to_string(),
+            user_vars: HashMap::new(),
+            progress: Progress::Indeterminate,
+        };
+        let tab = TabInformation {
+            tab_id: 0.into(),
+            tab_index: 0,
+            is_active: true,
+            is_last_active: false,
+            active_pane: Some(pane),
+            window_id: 0,
+            tab_title: "worker".to_string(),
+        };
+        let config = ConfigHandle::default_config();
+        let title = build_default_title(&tab, &config, "worker", false, false);
+        let text = plain_text(&title);
+        assert_ne!(
+            text.trim(),
+            "worker",
+            "indeterminate progress must add a visible marker to the tab title; got: {text:?}"
+        );
+    }
+
+    /// Reference anchor: keeps issue #2 pointed at the right line even if the
+    /// file shifts. Fails loudly when the `Indeterminate` branch moves so the
+    /// issue body can be updated.
+    #[test]
+    fn issue2_indeterminate_branch_reference_anchor() {
+        let src = include_str!("tabbar.rs");
+        assert!(
+            src.contains("Progress::Indeterminate => {"),
+            "issue #2 anchor: Progress::Indeterminate branch must still exist"
+        );
+        assert!(
+            src.contains("// TODO: Decide what to do here to indicate this"),
+            "issue #2 anchor: TODO comment must still exist"
+        );
+    }
 }

@@ -875,3 +875,22 @@ impl crate::TermWindow {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    /// Reference anchor: keeps issue #1 pointed at the right place in this file
+    /// even if the file shifts. Fails loudly when the visual-bell TODO moves so
+    /// the issue body can be updated.
+    #[test]
+    fn issue1_visual_bell_todo_reference_anchor() {
+        let src = include_str!("pane.rs");
+        assert!(
+            src.contains("// TODO: visual bell background layer"),
+            "issue #1 anchor: visual bell background layer TODO must still exist"
+        );
+        assert!(
+            src.contains("// TODO: scrollbar"),
+            "issue #1 anchor: adjacent scrollbar TODO must still exist"
+        );
+    }
+}
