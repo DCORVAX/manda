@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FAQ — MANDA</title>
+<meta name="description" content="Las seis preguntas más comunes de MANDA, respondidas: plataformas, proveedores de LLM, atajos, el asistente de IA, reset y Homebrew.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23121212'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='13' fill='%23faf9f6' text-anchor='middle'%3E%26gt;_%3C/text%3E%3C/svg%3E">
+<script>try{if(localStorage.getItem('manda-theme')==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hedvig+Letters+Sans:wght@400;500;600;700&family=Hedvig+Letters+Serif:opsz,wght@12..24,400;12..24,600;12..24,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="index.html" aria-label="Inicio de MANDA">
+      <span class="brand-mark">&gt;_</span>
+      <span class="brand-name">MANDA</span>
+    </a>
+    <div class="nav-links" id="nav-links">
+      <a href="features.html">Funciones</a>
+      <a href="shortcuts.html">Atajos</a>
+      <a class="active" href="faq.html" aria-current="page">FAQ</a>
+      <a href="https://github.com/DCORVAX/manda">GitHub</a>
+      <div class="nav-right">
+        <span class="lang"><a href="../faq.html">EN</a><a class="active" href="faq.html" aria-current="page">ES</a></span>
+        <button class="theme-btn" onclick="toggleTheme()" aria-label="Cambiar tema">
+          <span class="icon-moon">&#9789;</span><span class="icon-sun">&#9788;</span>
+        </button>
+      </div>
+    </div>
+    <button class="nav-toggle" onclick="toggleNav()" aria-label="Menú" aria-expanded="false">&#9776;</button>
+  </div>
+</nav>
+
+<header class="page-head wrap">
+  <span class="kicker">FAQ</span>
+  <h1 class="display">Respuestas, <em>sin buscarlas.</em></h1>
+  <p class="lead">Las seis preguntas que más surgen. ¿Falta algo? <a href="https://github.com/DCORVAX/manda/issues">Abre un issue</a>.</p>
+</header>
+
+<section class="wrap section">
+  <div class="faq">
+    <details class="faq-item">
+      <summary>¿Hay una versión para Windows o Linux?<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Todavía no — por ahora solo macOS. Windows y Linux pueden llegar más adelante.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>¿Cómo uso un proveedor de LLM personalizado?<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Ejecuta <code>manda ai</code>, mantén Auth Type = API key e introduce tu Base URL, API Key, Simple Model y Deep Model. API Mode: <code>chat_completions</code> para <code>/v1/chat/completions</code>, <code>responses</code> para <code>/v1/responses</code>. Si el proveedor soporta búsqueda alojada, activa Native Web Search — no hace falta una API key de búsqueda aparte.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>¿Cómo personalizo los atajos de teclado?<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Añade a <code>config.keys</code> — no lo reemplaces:</p>
+        <pre>config.keys[#config.keys + 1] = {
+  key = "RightArrow",
+  mods = "CMD|SHIFT",
+  action = wezterm.action.ActivatePaneDirection("Right"),
+}</pre>
+        <p>Más ejemplos: <a href="https://github.com/DCORVAX/manda/blob/main/docs/keybindings.md">keybindings.md</a> &middot; <a href="https://github.com/DCORVAX/manda/blob/main/docs/configuration.md">configuration.md</a></p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>¿Cómo desactivo MANDA Assistant?<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Ejecuta <code>manda ai</code> &rarr; ajustes del asistente &rarr; Enabled: Off. O edita <code>~/.config/manda/assistant.toml</code>:</p>
+        <pre>enabled = false</pre>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>¿Cómo restauro la configuración por defecto?<span class="chev">+</span></summary>
+      <div class="answer">
+        <pre>manda reset</pre>
+        <p>Elimina la integración de shell/tmux, los defaults de git delta, el estado y los bloques de tema gestionados por MANDA. Tu Lua se conserva. Ejecuta <code>manda init</code> para reinstalar la integración de shell.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Homebrew no encuentra el binario / actualiza el paquete equivocado.<span class="chev">+</span></summary>
+      <div class="answer">
+        <p>Hay un paquete antiguo sin relación llamado <code>manda</code> en Homebrew. Instala MANDA con el instalador de una línea:</p>
+        <pre>curl -fsSL https://raw.githubusercontent.com/DCORVAX/manda/main/install/install.sh | bash</pre>
+      <pre>brew install DCORVAX/tap/manda</pre>
+      </div>
+    </details>
+  </div>
+</section>
+
+<section class="wrap section">
+  <div class="panel">
+    <span class="kicker">Empieza ahora</span>
+    <h2>Descargar MANDA</h2>
+    <p>macOS 12+ &middot; Apple Silicon e Intel. Build con firma ad-hoc — en el primer arranque haz clic derecho &rarr; Abrir, y MANDA configura tu entorno de shell automáticamente.</p>
+    <a class="btn btn-primary btn-lg" href="https://github.com/DCORVAX/manda/releases/download/v0.1.1/MANDA.dmg">&#8595;&nbsp; Descargar la última versión</a>
+    <div class="install">
+      <p class="install-label">O instala desde la terminal</p>
+      <pre>curl -fsSL https://raw.githubusercontent.com/DCORVAX/manda/main/install/install.sh | bash</pre>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="footer-head">
+      <a class="brand" href="index.html" aria-label="MANDA inicio">
+        <span class="brand-mark">&gt;_</span>
+        <span class="brand-name">MANDA</span>
+      </a>
+      <p class="footer-tagline">Asistente de escritorio nativo con IA, multiplataforma. El mismo asistente de IA en tu terminal, en cualquier sistema.</p>
+    </div>
+    <div class="footer-cols">
+      <div class="footer-col">
+        <h4>Producto</h4>
+        <a href="features.html">Características</a>
+        <a href="https://github.com/DCORVAX/manda">Demo</a>
+        <a href="index.html#download">Instalación</a>
+        <a href="shortcuts.html">Atajos</a>
+        <a href="faq.html">FAQ</a>
+      </div>
+      <div class="footer-col">
+        <h4>Comandos</h4>
+        <a class="mono" href="https://github.com/DCORVAX/manda/blob/main/docs/cli.md">manda ai</a>
+        <a class="mono" href="https://github.com/DCORVAX/manda/blob/main/docs/cli.md">manda chat</a>
+        <a class="mono" href="https://github.com/DCORVAX/manda/blob/main/docs/cli.md">manda suggest</a>
+        <a class="mono" href="https://github.com/DCORVAX/manda/blob/main/docs/cli.md">manda doctor</a>
+        <a class="mono" href="https://github.com/DCORVAX/manda/blob/main/docs/cli.md">manda provider</a>
+      </div>
+      <div class="footer-col">
+        <h4>Proyecto</h4>
+        <a href="https://github.com/DCORVAX/manda/tree/main/docs">Documentación</a>
+        <a href="https://github.com/DCORVAX/manda">GitHub</a>
+        <a href="https://github.com/DCORVAX/manda">Hoja de ruta</a>
+        <a href="https://github.com/DCORVAX/manda/blob/main/LICENSE.md">Licencia MIT</a>
+      </div>
+    </div>
+    <pre class="footer-ascii" aria-hidden="true">███╗   ███╗ █████╗ ███╗   ██╗██████╗  █████╗
+████╗ ████║██╔══██╗████╗  ██║██╔══██╗██╔══██╗
+██╔████╔██║███████║██╔██╗ ██║██║  ██║███████║
+██║╚██╔╝██║██╔══██║██║╚██╗██║██║  ██║██╔══██║
+██║ ╚═╝ ██║██║  ██║██║ ╚████║██████╔╝██║  ██║
+╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚═╝  ╚═╝</pre>
+    <div class="footer-bottom">
+      <span>&copy; 2026 MANDA &middot; Licencia MIT</span>
+      <span>macOS &middot; Windows &middot; Linux &mdash; un motor, una experiencia</span>
+    </div>
+  </div>
+</footer>
+
+<script src="../script.js"></script>
+</body>
+</html>
