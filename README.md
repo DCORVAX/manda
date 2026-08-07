@@ -18,7 +18,7 @@
 
 ## Why
 
-MANDA is a deeply customized fork of WezTerm, built for practical defaults on day one while keeping full Lua customization and a fast, lightweight feel. Designed for AI-assisted coding workflows with built-in provider presets for NVIDIA, Gemini, OpenRouter, Groq, and Cerebras.
+MANDA is a fast, out-of-the-box terminal built for practical defaults on day one while keeping full Lua customization and a lightweight feel. Designed for AI-assisted coding workflows with built-in provider presets for NVIDIA, Gemini, OpenRouter, Groq, and Cerebras.
 
 ## Features
 
@@ -26,7 +26,7 @@ MANDA is a deeply customized fork of WezTerm, built for practical defaults on da
 - **Theme-Aware Experience**: Auto-switches between dark and light modes with macOS, with tuned selection colors, font weight, and practical color overrides support.
 - **Curated Shell Suite**: Built-in zsh plugins with optional CLI tools for prompt, diff, and navigation workflows.
 - **Fast & Lightweight**: 40% smaller binary, instant startup, lazy loading, stripped-down GPU-accelerated core.
-- **WezTerm-Compatible Config**: Use WezTerm's Lua config directly with full API compatibility and no migration.
+- **Lua-Compatible Config**: Complete Lua configuration with full API compatibility and no migration.
 - **Polished Defaults**: Copy on select, clickable file paths, history peek from full-screen apps, pane input broadcast, and visual bell on background tab completion.
 
 ## Quick Start
@@ -190,7 +190,7 @@ Full FAQ: [docs/faq.md](docs/faq.md)
 
 ## Background
 
-MANDA is built on top of WezTerm's robust and highly hackable engine. It adds AI-first features, curated provider presets, and polished defaults for developers who want speed, simplicity, and AI coding assistance in one terminal.
+MANDA is built on a robust and highly hackable terminal engine. It adds AI-first features, curated provider presets, and polished defaults for developers who want speed, simplicity, and AI coding assistance in one terminal.
 
 ## Website
 

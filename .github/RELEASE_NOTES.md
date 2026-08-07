@@ -1,7 +1,7 @@
 # V0.1.2 🚀
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/DCORVAX/manda/main/assets/manda.jpg" alt="MANDA Logo" width="120" height="120" />
+  <img src="https://raw.githubusercontent.com/DCORVAX/manda/main/assets/mandaASCII.png" alt="MANDA Logo" width="120" height="120" />
   <h1 style="margin: 12px 0 6px;">MANDA V0.1.2</h1>
   <p><em>A fast, out-of-the-box terminal built for AI coding.</em></p>
 </div>

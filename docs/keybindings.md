@@ -96,15 +96,15 @@ Add bindings to `~/.config/manda/manda.lua` by **appending** to `config.keys`. D
 table.insert(config.keys, {
   key = 'RightArrow',
   mods = 'CMD|SHIFT',
-  action = wezterm.action.ActivatePaneDirection('Right'),
+  action = manda.action.ActivatePaneDirection('Right'),
 })
 
 -- Example: rebind AI Chat to Cmd+Shift+Space (original default):
 table.insert(config.keys, {
   key = 'Space',
   mods = 'CMD|SHIFT',
-  action = wezterm.action.EmitEvent('manda-ai-chat'),
+  action = manda.action.EmitEvent('manda-ai-chat'),
 })
 ```
 
-For the full list of available actions, see [WezTerm KeyAssignment reference](https://wezfurlong.org/wezterm/config/lua/keyassignment/).
+For the full list of available actions, see the [Lua KeyAssignment reference](https://wezfurlong.org/wezterm/config/lua/keyassignment/).

@@ -29,7 +29,7 @@ Append to `config.keys`, do not replace it:
 config.keys[#config.keys + 1] = {
   key = "RightArrow",
   mods = "CMD|SHIFT",
-  action = wezterm.action.ActivatePaneDirection("Right"),
+  action = manda.action.ActivatePaneDirection("Right"),
 }
 ```
 
@@ -114,7 +114,7 @@ config.alternate_screen_wheel_scrolls_terminal = true
 Font changes require explicitly setting `config.font` in your config:
 
 ```lua
-config.font = wezterm.font('Your Font Name')
+config.font = manda.font('Your Font Name')
 ```
 
 Note: MANDA's theme-aware font weight system only applies to the default JetBrains Mono stack. Once you set a custom font, MANDA will no longer override its weight automatically.
@@ -163,7 +163,7 @@ MANDA's notification permission may not be granted. Go to System Settings > Noti
 table.insert(config.keys, {
   key = 'k',  -- adjust to your layout's physical key
   mods = 'CMD|OPT|CTRL',
-  action = wezterm.action.EmitEvent('toggle-global-window'),
+  action = manda.action.EmitEvent('toggle-global-window'),
 })
 ```
 

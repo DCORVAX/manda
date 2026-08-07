@@ -7,10 +7,10 @@ MANDA auto-creates `~/.config/manda/manda.lua` with a commented template on firs
 The file loads the bundled MANDA defaults first, then applies your overrides on top:
 
 ```lua
-local wezterm = require 'wezterm'
+local manda = require 'manda'
 
 local function resolve_bundled_config()
-  local resource_dir = wezterm.executable_dir:gsub('MacOS/?$', 'Resources')
+  local resource_dir = manda.executable_dir:gsub('MacOS/?$', 'Resources')
   local bundled = resource_dir .. '/manda.lua'
   local f = io.open(bundled, 'r')
   if f then f:close(); return bundled end
@@ -48,9 +48,9 @@ config.window_background_opacity = 0.95
 -- config.color_scheme = "MANDA Light"
 ```
 
-Keep terminal behavior, appearance, key bindings, launch behavior, and other WezTerm-compatible settings in `manda.lua`.
+Keep terminal behavior, appearance, key bindings, and launch behavior in `manda.lua`.
 
-Manage MANDA Assistant settings with `manda ai`. That command writes `~/.config/manda/assistant.toml` for model, base URL, auth, API keys, and tool settings. The Lua/TOML split is intentional: `manda.lua` stays compatible with WezTerm-style terminal configuration, while `assistant.toml` is managed by the AI setup flow.
+Manage MANDA Assistant settings with `manda ai`. That command writes `~/.config/manda/assistant.toml` for model, base URL, auth, API keys, and tool settings. The Lua/TOML split is intentional: `manda.lua` holds terminal configuration, while `assistant.toml` is managed by the AI setup flow.
 
 ---
 
@@ -94,7 +94,7 @@ MANDA_FONT_FAMILY=Consolas manda
 Or persist it in your config:
 
 ```lua
-config.font = wezterm.font("Fira Code")
+config.font = manda.font("Fira Code")
 ```
 
 MANDA disables ligatures by default. Re-enable:
@@ -317,18 +317,18 @@ Always **insert** into `config.keys`, never replace it. Replacing erases all MAN
 table.insert(config.keys, {
   key = 'RightArrow',
   mods = 'CMD|SHIFT',
-  action = wezterm.action.ActivatePaneDirection('Right'),
+  action = manda.action.ActivatePaneDirection('Right'),
 })
 
 -- Split pane horizontally
 table.insert(config.keys, {
   key = 'Enter',
   mods = 'CMD|OPT',
-  action = wezterm.action.SplitHorizontal({ domain = 'CurrentPaneDomain' }),
+  action = manda.action.SplitHorizontal({ domain = 'CurrentPaneDomain' }),
 })
 ```
 
-Full list of available actions: [WezTerm KeyAssignment reference](https://wezfurlong.org/wezterm/config/lua/keyassignment/).
+Full list of available actions: [Lua KeyAssignment reference](https://wezfurlong.org/wezterm/config/lua/keyassignment/).
 
 ---
 
@@ -350,7 +350,7 @@ Note: `Authorization` and `Content-Type` are reserved and cannot be overridden.
 Add a custom command to Command Palette (`Cmd + Shift + P`) via `manda.lua`:
 
 ```lua
-wezterm.on('augment-command-palette', function(window, pane)
+manda.on('augment-command-palette', function(window, pane)
   if not pane then return {} end
 
   local cwd_obj = pane:get_current_working_dir()
@@ -360,7 +360,7 @@ wezterm.on('augment-command-palette', function(window, pane)
   -- so directories containing spaces or non-ASCII characters work too.
   local host = cwd_obj.host
   if cwd_obj.scheme ~= 'file'
-      or (host and host ~= '' and host ~= 'localhost' and host ~= wezterm.hostname():lower()) then
+      or (host and host ~= '' and host ~= 'localhost' and host ~= manda.hostname():lower()) then
     return {}
   end
   local cwd = cwd_obj.file_path
@@ -370,17 +370,17 @@ wezterm.on('augment-command-palette', function(window, pane)
     {
       brief = 'Reveal in Finder',
       doc = 'Reveal current directory in Finder',
-      action = wezterm.action_callback(function()
-        wezterm.run_child_process({ 'open', '-R', cwd })
+      action = manda.action_callback(function()
+        manda.run_child_process({ 'open', '-R', cwd })
       end),
     },
   }
 end)
 ```
 
-**Full WezTerm Lua API**
+**Full Lua API**
 
-MANDA uses WezTerm's configuration system. Any WezTerm config option works in `manda.lua`. For the complete reference, see:
+MANDA exposes a complete Lua configuration system. For the full reference, see:
 
-- [WezTerm config options](https://wezfurlong.org/wezterm/config/)
-- [WezTerm Lua API](https://wezfurlong.org/wezterm/config/lua/)
+- [config options](https://wezfurlong.org/wezterm/config/)
+- [Lua API](https://wezfurlong.org/wezterm/config/lua/)

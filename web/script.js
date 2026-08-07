@@ -23,6 +23,18 @@
     }
   };
 
+  /* ----- Language override: persist the visitor's manual choice ----- */
+  function setupLangOverride() {
+    var links = document.querySelectorAll('.lang a');
+    if (!links.length) return;
+    links.forEach(function (a) {
+      a.addEventListener('click', function () {
+        var lang = (a.textContent || '').trim().toLowerCase() === 'es' ? 'es' : 'en';
+        try { localStorage.setItem('manda-lang', lang); } catch (e) {}
+      });
+    });
+  }
+
   /* ----- Copy to clipboard ----- */
   function copyText(text, btn, doneLabel) {
     function success() {
@@ -187,6 +199,7 @@
   }
 
   function setup() {
+    setupLangOverride();
     setupInstallCopy();
     setupTyping();
   }
