@@ -1956,10 +1956,7 @@ impl App {
     }
 
     pub(crate) fn cmd_help(&mut self) {
-        let mut lines = vec![
-            "Available commands:".to_string(),
-            "".to_string(),
-        ];
+        let mut lines = vec!["Available commands:".to_string(), "".to_string()];
         for (cmd, desc) in slash_command_options_for_token("/") {
             if cmd.starts_with('/') && !cmd[1..].starts_with('/') {
                 lines.push(format!("  {:<12} {}", cmd, desc));
