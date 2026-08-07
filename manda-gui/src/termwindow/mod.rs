@@ -692,7 +692,7 @@ fn render_metrics_from_cache_or_compute(
     Ok((metrics, false))
 }
 
-pub const ICON_DATA: &'static [u8] = include_bytes!("../../../assets/logo.png");
+pub const ICON_DATA: &'static [u8] = include_bytes!("../../../assets/icnsligth.png");
 
 pub fn set_window_position(pos: GuiPosition) {
     POSITION.lock().unwrap().replace(pos);
