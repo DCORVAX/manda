@@ -43,7 +43,15 @@ jobs:
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
         with:
           toolchain: 1.93.0
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      # Los runners macos-latest son arm64 por defecto: el target x86_64 NO
+      # viene instalado, y el input 'targets' del action no siempre lo agrega.
+      # Lo instalamos de forma explícita y verificada para que el build
+      # universal (arm64 + x86_64) siempre tenga std de ambos targets.
+      - name: Install cross-compilation targets
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          rustup target list --installed | grep -E 'aarch64-apple-darwin|x86_64-apple-darwin'
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
