@@ -1,8 +1,8 @@
 # Mantener MANDA sincronizado con el proyecto upstream
 
-MANDA es un fork renombrado del proyecto upstream de este repositorio
-(que a su vez deriva de WezTerm). Este documento explica cómo recibir
-los cambios del proyecto upstream sin romper las diferencias propias de MANDA.
+MANDA es un fork del proyecto upstream de este repositorio. Este documento
+explica cómo recibir los cambios del proyecto upstream sin romper las
+diferencias propias de MANDA.
 
 ## Configuración (una sola vez)
 
