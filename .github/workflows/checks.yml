@@ -154,6 +154,19 @@ jobs:
           done
           exit "$status"
 
+  web-head-tests:
+    name: Web head.js tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # head.js pins the language auto-detect, the EN<->ES redirect and the
+      # dark-theme boot for all 8 pages. The test is dependency-free Node
+      # (node:assert/node:fs/node:vm), so no npm install is needed.
+      - name: Run head.js unit tests
+        run: node web/tests/head.test.js
+
   check:
     name: Cargo Check
     runs-on: macos-latest
