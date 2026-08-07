@@ -562,7 +562,7 @@ mod imp {
             .collect();
 
         // Sort by modification time, newest first
-        dirs.sort_by(|a, b| b.1.cmp(&a.1));
+        dirs.sort_by_key(|a| std::cmp::Reverse(a.1));
 
         // Remove all but the 2 most recent
         for (path, _) in dirs.into_iter().skip(2) {

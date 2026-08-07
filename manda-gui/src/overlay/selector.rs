@@ -369,10 +369,8 @@ impl SelectorState {
                 InputEvent::Key(KeyEvent {
                     key: KeyCode::Enter,
                     ..
-                }) => {
-                    if self.launch(self.active_idx) {
-                        break;
-                    }
+                }) if self.launch(self.active_idx) => {
+                    break;
                 }
                 _ => {}
             }

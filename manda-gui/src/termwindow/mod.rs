@@ -2621,8 +2621,8 @@ impl TermWindow {
         let overlay_panes_to_cancel = self
             .pane_state
             .borrow()
-            .iter()
-            .filter_map(|(_, state)| state.overlay.as_ref().map(|overlay| overlay.pane.pane_id()))
+            .values()
+            .filter_map(|state| state.overlay.as_ref().map(|overlay| overlay.pane.pane_id()))
             .collect::<Vec<_>>();
 
         for pane_id in overlay_panes_to_cancel {

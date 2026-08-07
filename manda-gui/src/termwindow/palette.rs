@@ -1010,31 +1010,30 @@ impl Modal for CommandPalette {
         let abs_y = content_y + event.y as f32 * cell_height + event.y_pixel_offset as f32;
 
         match event.button {
-            wezterm_term::MouseButton::WheelUp(lines) => {
-                if self.move_by(-Self::smooth_wheel_steps(lines)) {
-                    if let Some(window) = term_window.window.as_ref() {
-                        window.invalidate();
-                    }
+            wezterm_term::MouseButton::WheelUp(lines)
+                if self.move_by(-Self::smooth_wheel_steps(lines)) =>
+            {
+                if let Some(window) = term_window.window.as_ref() {
+                    window.invalidate();
                 }
             }
-            wezterm_term::MouseButton::WheelDown(lines) => {
-                if self.move_by(Self::smooth_wheel_steps(lines)) {
-                    if let Some(window) = term_window.window.as_ref() {
-                        window.invalidate();
-                    }
+            wezterm_term::MouseButton::WheelDown(lines)
+                if self.move_by(Self::smooth_wheel_steps(lines)) =>
+            {
+                if let Some(window) = term_window.window.as_ref() {
+                    window.invalidate();
                 }
             }
-            wezterm_term::MouseButton::Left => {
+            wezterm_term::MouseButton::Left
                 if event.kind == wezterm_term::MouseEventKind::Press
                     && self
                         .pick_row_from_point(abs_x, abs_y, term_window)
-                        .is_some()
-                {
-                    // Note: activate_selected returns false on failure, but the modal
-                    // dismissal and error toast are handled internally. We intentionally
-                    // don't propagate the failure here as the UI already gave feedback.
-                    let _ = self.activate_selected(term_window);
-                }
+                        .is_some() =>
+            {
+                // Note: activate_selected returns false on failure, but the modal
+                // dismissal and error toast are handled internally. We intentionally
+                // don't propagate the failure here as the UI already gave feedback.
+                let _ = self.activate_selected(term_window);
             }
             _ => {}
         }

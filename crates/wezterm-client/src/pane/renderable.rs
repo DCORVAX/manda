@@ -182,12 +182,11 @@ impl RenderableInner {
             KeyCode::Delete => {
                 line.erase_cell(self.cursor_position.x, SEQ_ZERO);
             }
-            KeyCode::Backspace => {
-                if self.cursor_position.x > 0 {
-                    line.erase_cell(self.cursor_position.x - 1, SEQ_ZERO);
-                    self.cursor_position.x -= 1;
-                }
+            KeyCode::Backspace if self.cursor_position.x > 0 => {
+                line.erase_cell(self.cursor_position.x - 1, SEQ_ZERO);
+                self.cursor_position.x -= 1;
             }
+            KeyCode::Backspace => {}
             KeyCode::Char(c) => {
                 let cell = Cell::new(
                     c,
