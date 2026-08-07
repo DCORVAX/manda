@@ -69,13 +69,8 @@ clear
 
 # Display Welcome Message
 echo -e "\033[1;35m"
-echo "    __  ______    _   ______  ___ "
-echo "   /  |/  /   |  / | / / __ \/   |"
-echo "  / /|_/ / /| | /  |/ / / / / /| |"
-echo " / /  / / ___ |/ /|  / /_/ / ___ |"
-echo "/_/  /_/_/  |_/_/ |_/_____/_/  |_|"
+echo "Welcome to MANDA"
 echo -e "\033[0m"
-echo "Welcome to MANDA!"
 echo "A fast, out-of-the-box terminal built for AI coding."
 echo "--------------------------------------------------------"
 echo "Would you like to install MANDA's enhanced shell features?"

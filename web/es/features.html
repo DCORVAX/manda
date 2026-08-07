@@ -23,8 +23,8 @@
     <div class="nav-links" id="nav-links">
       <a class="active" href="features.html" aria-current="page">Funciones</a>
       <a href="shortcuts.html">Atajos</a>
+      <a href="https://github.com/DCORVAX/manda">GitHub</a>
       <div class="nav-right">
-        <a class="btn btn-primary btn-sm nav-cta" href="https://github.com/DCORVAX/manda">GitHub &#8599;</a>
         <span class="lang"><a href="../features.html">EN</a><a class="active" href="features.html" aria-current="page">ES</a></span>
         <button class="theme-btn" onclick="toggleTheme()" aria-label="Cambiar tema">
           <span class="icon-moon">&#9789;</span><span class="icon-sun">&#9788;</span>
@@ -42,33 +42,33 @@
 </header>
 
 <section class="wrap section">
-  <div class="rows">
-    <div class="row">
+  <div class="grid">
+    <div class="card">
       <span class="num">01</span>
       <h3>Cero configuración</h3>
       <p>JetBrains Mono, renderizado tipográfico optimizado para macOS y tamaños de fuente ajustados de serie. Ábrelo y listo.</p>
     </div>
-    <div class="row">
+    <div class="card">
       <span class="num">02</span>
       <h3>Experiencia consciente del tema</h3>
       <p>Cambia automáticamente entre modo oscuro y claro con macOS, con colores de selección ajustados, peso de fuente y overrides prácticos.</p>
     </div>
-    <div class="row">
+    <div class="card">
       <span class="num">03</span>
       <h3>Suite de shell seleccionada</h3>
       <p>Plugins de zsh integrados con herramientas CLI opcionales para prompt, diff y navegación — configurados en el primer arranque.</p>
     </div>
-    <div class="row">
+    <div class="card">
       <span class="num">04</span>
       <h3>Rápido y ligero</h3>
       <p>Binario un 40% más pequeño, arranque instantáneo, carga diferida y un núcleo GPU-acelerado depurado.</p>
     </div>
-    <div class="row">
+    <div class="card">
       <span class="num">05</span>
       <h3>Config compatible con WezTerm</h3>
       <p>Usa la configuración Lua de WezTerm directamente con compatibilidad total de API. Sin migración, sin bloqueos.</p>
     </div>
-    <div class="row">
+    <div class="card">
       <span class="num">06</span>
       <h3>Ajustes pulidos</h3>
       <p>Copiar al seleccionar, rutas de archivo clicables, vistazo al historial desde apps a pantalla completa, broadcast de entrada entre paneles y campana visual.</p>
@@ -80,18 +80,18 @@
   <span class="kicker">Asistente integrado</span>
   <h2>IA que vive en tu terminal.</h2>
   <p class="lead">No es un widget de chat pegado encima — es un asistente que entiende el contexto de lo que haces, justo donde lo haces.</p>
-  <div class="rows">
-    <div class="row">
+  <div class="steps">
+    <div class="step">
       <span class="num">01</span>
       <h3>Recuperación de errores</h3>
       <p>Cuando un comando falla, MANDA sugiere automáticamente una solución. Pulsa <code>Cmd+Shift+E</code> para aplicarla.</p>
     </div>
-    <div class="row">
+    <div class="step">
       <span class="num">02</span>
       <h3>Del lenguaje natural al comando</h3>
       <p>Escribe <code># describe la tarea</code> en el prompt y MANDA inyecta el comando resultante, listo para que lo revises y ejecutes.</p>
     </div>
-    <div class="row">
+    <div class="step">
       <span class="num">03</span>
       <h3>Tu proveedor, tus reglas</h3>
       <p>Configura Claude Code, Codex, Gemini CLI, Copilot CLI y más — con ajustes de un clic y autenticación por API key o login CLI.</p>
@@ -116,11 +116,7 @@
 
 <footer>
   <div class="wrap">
-    <div class="footer-statement">
-      <a class="footer-mark" href="index.html" aria-label="MANDA home"><span class="brand-mark">&gt;_</span><span class="footer-word">MANDA</span></a>
-      <p class="footer-tag">Un terminal rápido y listo para usar, hecho para programar con IA.</p>
-    </div>
-    <div class="footer-cols">
+    <div class="footer-grid">
       <div class="footer-col">
         <h4>Producto</h4>
         <a href="features.html">Funciones</a>
@@ -138,13 +134,13 @@
         <h4>Idioma</h4>
         <a href="../features.html">English</a>
         <a href="features.html">Español</a>
-        </div>
       </div>
     </div>
     <div class="footer-bottom">
       <span>&copy; 2024&ndash;2026 DCORVAX &middot; Licencia MIT</span>
       <span class="right"><a href="https://github.com/DCORVAX/manda">GitHub</a><a href="https://manda-terminal.vercel.app/">manda-terminal.vercel.app</a></span>
     </div>
+  </div>
 </footer>
 
 <script src="../script.js"></script>

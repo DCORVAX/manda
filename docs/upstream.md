@@ -1,18 +1,21 @@
-# Mantener MANDA sincronizado con Kaku (upstream)
+# Mantener MANDA sincronizado con el proyecto upstream
 
-MANDA es un fork renombrado de [tw93/Kaku](https://github.com/tw93/Kaku)
-(que a su vez es un fork de WezTerm). Este documento explica cómo recibir
-los cambios de Kaku sin romper las diferencias propias de MANDA.
+MANDA es un fork renombrado del proyecto upstream de este repositorio
+(que a su vez deriva de WezTerm). Este documento explica cómo recibir
+los cambios del proyecto upstream sin romper las diferencias propias de MANDA.
 
 ## Configuración (una sola vez)
 
 ```bash
 cd ~/MANDA
-git remote add upstream https://github.com/tw93/Kaku.git
+git remote add upstream <url-del-repositorio-upstream>
 git fetch upstream
 ```
 
-## Sincronizar con Kaku (cada 2 semanas aprox.)
+> El URL del repositorio upstream está disponible en la página del proyecto
+> original (Settings → remotes del clon local que dio origen a este fork).
+
+## Sincronizar con el proyecto upstream (cada 2 semanas aprox.)
 
 ```bash
 git fetch upstream
@@ -23,12 +26,12 @@ git merge upstream/main
 
 ### ¿Por qué ahora funciona limpio?
 
-MANDA se creó como un repo **nuevo** (sin la historia de Kaku), por lo que
-un `git merge` directo daba 133 conflictos `add/add` (git no tenía ancestro
-común). Se hizo un **re-root**: el árbol actual de MANDA se montó sobre
-`upstream/main` como commit puente, preservando toda la historia de MANDA
-como segundo padre. Desde entonces, `git merge upstream/main` es limpio
-porque git ya conoce la relación.
+MANDA se creó como un repo **nuevo** (sin la historia del proyecto
+original), por lo que un `git merge` directo daba muchos conflictos
+`add/add` (git no tenía ancestro común). Se hizo un **re-root**: el árbol
+actual de MANDA se montó sobre `upstream/main` como commit puente,
+preservando toda la historia de MANDA como segundo padre. Desde entonces,
+`git merge upstream/main` es limpio porque git ya conoce la relación.
 
 ### Reglas para mantener el merge limpio
 
@@ -36,17 +39,17 @@ porque git ya conoce la relación.
    `crates/manda-*`). El sync depende de que esos nombres sean estables.
 2. **Los archivos que son 100% de MANDA** (`web/`, `install/`,
    `crates/manda-ai-utils/src/providers.rs`, `docs/upstream.md`) no existen
-   en Kaku → git los respeta automáticamente en cada merge.
+   en el upstream → git los respeta automáticamente en cada merge.
 3. **Los archivos compartidos** (código Rust, config) deben seguir el flujo
-   normal de merge. Si un commit de Kaku cambia algo que MANDA modificó,
+   normal de merge. Si un commit del upstream cambia algo que MANDA modificó,
    revisa el conflicto y conserva la versión de MANDA (los presets de
-   proveedores de IA son tuyos).
+   proveedores de IA son propios).
 4. **`git pull` de origin** sigue siendo con tu `origin`, no con upstream.
 
 ## Flujo completo recomendado
 
 ```bash
-# 1) Traer lo nuevo de Kaku
+# 1) Traer lo nuevo del upstream
 git fetch upstream
 
 # 2) Ver qué llegó
@@ -67,9 +70,9 @@ git push origin main
 
 ```bash
 NEWROOT=$(git commit-tree HEAD^{tree} -p upstream/main -p HEAD \
-  -m 'Re-root: MANDA tree merged onto Kaku main')
+  -m 'Re-root: MANDA tree merged onto upstream main')
 git reset --hard $NEWROOT
 ```
 
-> Esto reescribe la historia; úsalo solo si Kaku rompe el ancestro común
-> (p. ej. si un día se reestructura el repo).
+> Esto reescribe la historia; úsalo solo si el upstream rompe el ancestro
+> común (p. ej. si un día se reestructura el repo).

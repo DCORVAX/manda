@@ -1,7 +1,7 @@
 [package]
 name = "manda-gui"
 version = "0.1.1"
-authors = ["Wilfredy Natera <wilfredy@wilfredy.local>"]
+authors = ["MANDA Developers"]
 edition = "2018"
 build = "build.rs"
 resolver = "2"

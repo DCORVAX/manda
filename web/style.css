@@ -86,15 +86,7 @@ h1.display {
   line-height: 1.06; letter-spacing: -1.5px; margin: 0 0 22px;
   overflow-wrap: anywhere; min-width: 0;
 }
-/* Emphasis as a drawn warm underline — never italic */
-h1.display em {
-  font-style: normal; font-weight: 600;
-  text-decoration: underline;
-  text-decoration-color: var(--sand);
-  text-decoration-thickness: 6px;
-  text-underline-offset: 6px;
-  text-decoration-skip-ink: none;
-}
+h1.display em { font-style: italic; }
 h2 {
   font-family: var(--serif); font-weight: 700;
   font-size: clamp(28px, 3.6vw, 36px);
@@ -159,7 +151,6 @@ h3 {
 [data-theme="dark"] .theme-btn .icon-sun { display: inline; }
 [data-theme="dark"] .theme-btn .icon-moon { display: none; }
 .nav-toggle { display: none; }
-.nav-cta { margin-left: 2px; }
 
 /* ----- Hero ----- */
 .hero {
@@ -177,18 +168,90 @@ h3 {
 .hero .cta { display: flex; gap: 12px; flex-wrap: wrap; }
 .hero .meta { margin: 18px 0 0; font-size: 12px; color: var(--ink-muted); letter-spacing: 0.02em; }
 
-/* ----- Hero terminal screenshot ----- */
-.hero-figure { margin: 0; }
-.hero-figure img {
-  display: block; width: 100%; height: auto;
-  border: 1px solid var(--stone); border-radius: var(--r-panel);
-  background: #14120f;
+/* ----- Code / terminal card (dark terminal window) ----- */
+.code-card {
+  --tbg: #14120f;
+  --tbar: #1c1915;
+  --tbord: #2e2a22;
+  --tink: #e8e4db;
+  --tsoft: #b8b2a6;
+  --tmuted: #8a8478;
+  --tfaint: #6b655a;
+  --tok: #a9c48c;
+  background: var(--tbg);
+  border: 1px solid var(--tbord);
+  border-radius: var(--r-panel);
+  overflow: hidden;
   box-shadow: 0 24px 48px -28px rgba(18, 18, 18, 0.35);
 }
+.code-card .bar {
+  display: flex; align-items: center; gap: 6px; padding: 12px 14px;
+  background: var(--tbar);
+  border-bottom: 1px solid var(--tbord);
+}
+.code-card .bar .dot { width: 10px; height: 10px; border-radius: 50%; background: #3a352c; }
+.code-card .bar .label {
+  margin-left: 8px; font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.04em; color: var(--tmuted);
+}
+.code-card pre {
+  margin: 0; padding: 22px 24px;
+  font-family: var(--mono); font-size: 13px; line-height: 1.75; color: var(--tsoft);
+  tab-size: 4;
+  white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
+  overflow-x: hidden;
+}
+.code-card pre .p { color: var(--tmuted); }
+.code-card pre .k { color: var(--tink); font-weight: 500; }
+.code-card pre .v { color: #cbbfae; }
+.code-card pre .c { color: var(--tfaint); font-style: italic; }
+.code-card pre .ok { color: var(--tok); }
 
-/* ----- Cards / asymmetric grid ----- */
-.grid-asym { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 18px; margin-top: 40px; }
-.grid-asym .card-featured { grid-row: 1 / span 2; }
+/* blinking terminal cursor */
+.code-card pre .cursor {
+  display: inline-block; width: 8px; height: 1.05em;
+  background: var(--tink); vertical-align: text-bottom; margin-left: 3px;
+  border-radius: 1px;
+  animation: manda-cursor 1.1s steps(2, start) infinite;
+}
+@keyframes manda-cursor { 50% { opacity: 0; } }
+
+/* typing effect: reveal command, then result + final prompt */
+.code-card pre .done-line,
+.code-card pre .prompt-final {
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+.code-card pre .done-line.visible,
+.code-card pre .prompt-final.visible {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .code-card pre .done-line,
+  .code-card pre .prompt-final {
+    opacity: 1;
+  }
+}
+
+/* ----- Cyclic shortcut carousel in the hero terminal ----- */
+.code-card pre .cycle-result {
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.code-card pre .cycle-result.visible {
+  opacity: 1;
+}
+.code-card pre .cycle-text {
+  opacity: 1;
+  transition: opacity 0.18s ease;
+}
+.code-card pre .cycle-text.hiding {
+  opacity: 0;
+}
+
+/* ----- Cards / grid ----- */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-top: 40px; }
+.grid-3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 .card {
   background: var(--card); border: 1px solid var(--sand); border-radius: var(--r-card);
   padding: 28px 26px; transition: transform 0.15s ease, border-color 0.15s ease;
@@ -199,26 +262,10 @@ h3 {
   color: var(--ink-muted); margin-bottom: 18px;
 }
 .card p { margin: 0; color: var(--ink-mid); font-size: 14px; line-height: 1.65; }
-.card code, .row code {
+.card code, .step code {
   font-family: var(--mono); font-size: 12px; background: var(--sand); color: var(--ink);
   border-radius: var(--r-md); padding: 2px 7px;
 }
-.card-featured { background: var(--ink); border-color: var(--ink); }
-.card-featured h3, .card-featured p { color: var(--surface); }
-.card-featured .num { color: var(--ink-faint); }
-
-/* ----- Feature rows (typographic list) ----- */
-.rows { display: flex; flex-direction: column; gap: 14px; margin-top: 40px; }
-.row {
-  display: grid; grid-template-columns: 44px 1fr; gap: 20px; align-items: baseline;
-  background: var(--card); border: 1px solid var(--sand); border-radius: var(--r-card);
-  padding: 24px 28px;
-  transition: transform 0.15s ease, border-color 0.15s ease;
-}
-.row:hover { transform: translateX(3px); border-color: var(--stone); }
-.row .num { margin-bottom: 0; line-height: 1.6; }
-.row h3 { margin: 0; }
-.row p { margin: 0; color: var(--ink-mid); font-size: 14px; line-height: 1.65; }
 
 /* ----- Stats strip ----- */
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 40px; }
@@ -232,6 +279,12 @@ h3 {
   text-transform: uppercase; color: var(--ink-muted);
 }
 
+/* ----- AI steps ----- */
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; margin-top: 40px; }
+.step { border: 1px solid var(--divider); border-radius: var(--r-card); padding: 26px 24px; background: var(--card); }
+.step .num { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; color: var(--ink-muted); }
+.step h3 { margin-top: 12px; }
+.step p { margin: 0; color: var(--ink-mid); font-size: 14px; line-height: 1.65; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
 .chip {
@@ -267,9 +320,6 @@ kbd {
 .link:hover { border-color: var(--ink); }
 .link .arrow { transition: transform 0.15s ease; }
 .link:hover .arrow { transform: translateX(3px); }
-
-/* ----- Shortcuts page note ----- */
-.shortcuts-note { margin-top: 22px; font-size: 13.5px; }
 
 /* ----- Download panel ----- */
 .panel {
@@ -325,14 +375,7 @@ kbd {
 
 /* ----- Footer ----- */
 footer { border-top: 1px solid var(--divider); margin-top: 110px; padding: 48px 0 56px; }
-.footer-statement {
-  display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 22px;
-  padding-bottom: 30px; margin-bottom: 34px; border-bottom: 1px solid var(--divider);
-}
-.footer-mark { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; }
-.footer-word { font-family: var(--serif); font-size: 22px; font-weight: 700; letter-spacing: 0.04em; }
-.footer-tag { margin: 0; color: var(--ink-mid); font-size: 14px; }
-.footer-cols { display: flex; flex-wrap: wrap; gap: 36px; justify-content: space-between; }
+.footer-grid { display: flex; flex-wrap: wrap; gap: 36px; justify-content: space-between; }
 .footer-col h4 {
   font-size: 11px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--ink-muted); margin: 0 0 12px;
@@ -349,8 +392,6 @@ footer { border-top: 1px solid var(--divider); margin-top: 110px; padding: 48px 
 /* ----- Responsive ----- */
 @media (max-width: 880px) {
   .hero { grid-template-columns: 1fr; gap: 40px; padding: 72px 0 48px; }
-  .grid-asym { grid-template-columns: 1fr; }
-  .grid-asym .card-featured { grid-row: auto; }
   .stats { grid-template-columns: 1fr; }
   .nav-links {
     position: fixed; top: var(--nav-h); left: 0; right: 0; z-index: 40;
