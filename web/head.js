@@ -55,12 +55,19 @@
 
     if (navType === 'back_forward') return;
 
-    var onEs = /\/es\//.test(location.pathname);
+    var page = location.pathname.split('/').pop() || 'index.html';
+    /* '/es' without a trailing slash is the Spanish root on both hosts, but
+       the regex below needs the slash — treat an exact 'es' segment as ES. */
+    var onEs = /\/es\//.test(location.pathname) || page === 'es';
+    /* Preserve query strings (e.g. ?utm_source=...) and hashes on redirect. */
+    var suffix = location.search + location.hash;
     if (lang === 'es' && !onEs) {
-      var page = location.pathname.split('/').pop() || 'index.html';
-      location.replace('es/' + page + location.hash);
+      location.replace('es/' + page + suffix);
     } else if (lang === 'en' && onEs) {
-      location.replace('../' + (location.pathname.split('/').pop() || 'index.html') + location.hash);
+      /* '/es' without slash must not bounce to itself ('../es') — go to the
+         EN home instead. */
+      var target = page === 'es' ? 'index.html' : page;
+      location.replace('../' + target + suffix);
     }
   } catch (e) {}
 })();
