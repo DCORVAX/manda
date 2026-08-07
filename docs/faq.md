@@ -146,7 +146,7 @@ Make sure the MANDA fish/zsh shell integration is sourced. Check with `manda doc
 There is an older unrelated package named `manda` on Homebrew. Install MANDA with the one-liner installer to avoid conflicts:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WILFREDY-X/manda/main/install/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/DCORVAX/manda/main/install/install.sh | bash
 ```
 
 The installer always downloads the MANDA DMG from GitHub Releases.

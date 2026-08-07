@@ -254,8 +254,8 @@ impl CommandDef {
             ShowTabNavigator,
             // Help menu
             ShowDebugOverlay,
-            OpenUri("https://github.com/WILFREDY-X/manda".to_string()),
-            OpenUri("https://github.com/WILFREDY-X/manda/issues/".to_string()),
+            OpenUri("https://github.com/DCORVAX/manda".to_string()),
+            OpenUri("https://github.com/DCORVAX/manda/issues/".to_string()),
         ];
 
         let mut result = vec![];
@@ -795,9 +795,9 @@ impl CommandDef {
                     _ => 500,
                 },
                 "Help" => match action {
-                    OpenUri(uri) if uri == "https://github.com/WILFREDY-X/manda" => 10,
-                    OpenUri(uri) if uri == "https://github.com/WILFREDY-X/manda/discussions/" => 20,
-                    OpenUri(uri) if uri == "https://github.com/WILFREDY-X/manda/issues/" => 30,
+                    OpenUri(uri) if uri == "https://github.com/DCORVAX/manda" => 10,
+                    OpenUri(uri) if uri == "https://github.com/DCORVAX/manda/discussions/" => 20,
+                    OpenUri(uri) if uri == "https://github.com/DCORVAX/manda/issues/" => 30,
                     ShowDebugOverlay => 90,
                     _ => 500,
                 },
@@ -2227,7 +2227,7 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             icon: None,
         },
         OpenUri(uri) => match uri.as_ref() {
-            "https://github.com/WILFREDY-X/manda" => CommandDef {
+            "https://github.com/DCORVAX/manda" => CommandDef {
                 brief: "Star on GitHub".into(),
                 doc: "Star MANDA on GitHub".into(),
                 keys: vec![],
@@ -2235,7 +2235,7 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
                 menubar: &["Help"],
                 icon: None,
             },
-            "https://github.com/WILFREDY-X/manda/discussions/" => CommandDef {
+            "https://github.com/DCORVAX/manda/discussions/" => CommandDef {
                 brief: "Discuss on GitHub".into(),
                 doc: "Visit MANDA's GitHub discussion".into(),
                 keys: vec![],
@@ -2243,7 +2243,7 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
                 menubar: &[],
                 icon: None,
             },
-            "https://github.com/WILFREDY-X/manda/issues/" => CommandDef {
+            "https://github.com/DCORVAX/manda/issues/" => CommandDef {
                 brief: "Report Issue".into(),
                 doc: "Submit bug report or feature request".into(),
                 keys: vec![],
@@ -2728,8 +2728,8 @@ fn compute_default_actions() -> Vec<KeyAssignment> {
         ToggleCurrentTabPanesInputBroadcast,
         ToggleAllPanesInputBroadcast,
         // ----------------- Help
-        OpenUri("https://github.com/WILFREDY-X/manda".to_string()),
-        OpenUri("https://github.com/WILFREDY-X/manda/issues/".to_string()),
+        OpenUri("https://github.com/DCORVAX/manda".to_string()),
+        OpenUri("https://github.com/DCORVAX/manda/issues/".to_string()),
         ShowDebugOverlay,
         // ----------------- Misc
         OpenLinkAtMouseCursor,

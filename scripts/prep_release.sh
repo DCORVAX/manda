@@ -160,7 +160,7 @@ trap "rm -f '$draft_path'" EXIT
 # V${new_version} <emoji TBD>
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/WILFREDY-X/manda/main/assets/manda.jpg" alt="MANDA Logo" width="120" height="120" />
+  <img src="https://raw.githubusercontent.com/DCORVAX/manda/main/assets/manda.jpg" alt="MANDA Logo" width="120" height="120" />
   <h1 style="margin: 12px 0 6px;">MANDA V${new_version}</h1>
   <p><em>A fast, out-of-the-box terminal built for AI coding.</em></p>
 </div>
@@ -204,7 +204,7 @@ TAIL
 
 Special thanks to <contributors> for their contributions to this release.
 
-> https://github.com/WILFREDY-X/manda
+> https://github.com/DCORVAX/manda
 FOOTER
 } > "$draft_path"
 

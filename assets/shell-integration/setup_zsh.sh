@@ -1208,7 +1208,7 @@ alias glgp='git log --stat -p'
         fi
     done
     if [[ -z "\$k_cmd" ]]; then
-        echo "k: MANDA app not found. Install MANDA from https://github.com/WILFREDY-X/manda"
+        echo "k: MANDA app not found. Install MANDA from https://github.com/DCORVAX/manda"
         return 127
     fi
     "\$k_cmd" "\$@"

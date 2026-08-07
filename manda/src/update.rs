@@ -36,15 +36,15 @@ mod imp {
     use std::process::{Command, Stdio};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    const RELEASE_API_URL: &str = "https://api.github.com/repos/WILFREDY-X/manda/releases/latest";
+    const RELEASE_API_URL: &str = "https://api.github.com/repos/DCORVAX/manda/releases/latest";
     const LATEST_ZIP_URL: &str =
-        "https://github.com/WILFREDY-X/manda/releases/latest/download/manda_for_update.zip";
+        "https://github.com/DCORVAX/manda/releases/latest/download/manda_for_update.zip";
     const LATEST_SHA_URL: &str =
-        "https://github.com/WILFREDY-X/manda/releases/latest/download/manda_for_update.zip.sha256";
-    const RELEASE_LATEST_URL: &str = "https://github.com/WILFREDY-X/manda/releases/latest";
+        "https://github.com/DCORVAX/manda/releases/latest/download/manda_for_update.zip.sha256";
+    const RELEASE_LATEST_URL: &str = "https://github.com/DCORVAX/manda/releases/latest";
     const UPDATE_ZIP_NAME: &str = "manda_for_update.zip";
     const UPDATE_SHA_NAME: &str = "manda_for_update.zip.sha256";
-    const BREW_CASK_NAME: &str = "WILFREDY-X/manda/manda";
+    const BREW_CASK_NAME: &str = "DCORVAX/manda/manda";
 
     #[derive(Debug, Deserialize)]
     struct GitHubRelease {

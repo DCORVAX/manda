@@ -27,8 +27,8 @@ The `MANDA_ASC_API_KEY_PATH=/dev/null` prefix skips rcodesign and forces the not
 
 Rules:
 
-1. Only publish Nightly from the commit users should test. The script checks that HEAD exists on `WILFREDY-X/manda` before deleting the old nightly release.
-2. Do not tell reporters to try Nightly until `./scripts/nightly.sh` has completed and `gh release view nightly -R WILFREDY-X/manda --json tagName,targetCommitish,publishedAt,assets,url` points at the intended commit with `MANDA-nightly.dmg`.
+1. Only publish Nightly from the commit users should test. The script checks that HEAD exists on `DCORVAX/manda` before deleting the old nightly release.
+2. Do not tell reporters to try Nightly until `./scripts/nightly.sh` has completed and `gh release view nightly -R DCORVAX/manda --json tagName,targetCommitish,publishedAt,assets,url` points at the intended commit with `MANDA-nightly.dmg`.
 3. Do not use `--upload-only` unless the existing `dist/MANDA.dmg` is already known to be a signed, notarized, stapled build from the intended commit.
 4. Keep public wording precise: "available in the latest Nightly" only after the check above; otherwise say "fixed on main and will be in the next Nightly or release."
 
@@ -156,7 +156,7 @@ Resume flags require the corresponding artifacts in `dist/` to still be present.
 
 ## After release
 
-- GitHub Release URL: `https://github.com/WILFREDY-X/manda/releases/tag/V<version>`.
+- GitHub Release URL: `https://github.com/DCORVAX/manda/releases/tag/V<version>`.
 - Homebrew users get the new version once the tap workflow finishes; verify with `brew update && brew info --cask manda`.
 - Sparkle in-app updates are served from the GitHub Release assets (`manda_for_update.zip` + `.sha256`).
 

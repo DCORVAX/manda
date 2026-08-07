@@ -30,7 +30,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-GITHUB_REPO="${GITHUB_REPO:-WILFREDY-X/manda}"
+GITHUB_REPO="${GITHUB_REPO:-DCORVAX/manda}"
 NIGHTLY_TAG="${NIGHTLY_TAG:-nightly}"
 PROFILE="${PROFILE:-release-opt}"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/dist}"
@@ -170,7 +170,7 @@ NOTES_FILE=$(mktemp /tmp/manda-nightly-notes.XXXXXX.md)
 trap 'rm -f "$LOCK" "$NOTES_FILE"' EXIT
 cat > "$NOTES_FILE" <<EOF
 <div align="center">
-  <img src="https://raw.githubusercontent.com/WILFREDY-X/manda/main/assets/manda.jpg" alt="MANDA Logo" width="120" height="120" />
+  <img src="https://raw.githubusercontent.com/DCORVAX/manda/main/assets/manda.jpg" alt="MANDA Logo" width="120" height="120" />
   <h1 style="margin: 12px 0 6px;">MANDA Nightly</h1>
   <p><em>A fast, out-of-the-box terminal built for AI coding.</em></p>
 </div>
@@ -181,7 +181,7 @@ cat > "$NOTES_FILE" <<EOF
 
 $CHANGELOG
 
-> https://github.com/WILFREDY-X/manda
+> https://github.com/DCORVAX/manda
 EOF
 
 # --- Publish (recreate so the release date refreshes and it sorts to the top) ---

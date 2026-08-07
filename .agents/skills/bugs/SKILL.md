@@ -32,7 +32,7 @@ Name the area and the depth. Whole-repo sweeps with no budget produce speculatio
 ```bash
 git log --oneline --grep='^fix' -i -- <path>
 git log --pretty=format:'%h %s%n%b' --grep='^fix' -i -- <path> | head -200
-gh issue list --repo WILFREDY-X/manda --state closed --label bug --limit 40
+gh issue list --repo DCORVAX/manda --state closed --label bug --limit 40
 ```
 
 Bugs recur by shape within a module. Two signals worth acting on:

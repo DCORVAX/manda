@@ -2210,7 +2210,7 @@ pub fn default_hyperlink_rules() -> Vec<hyperlink::Rule> {
         hyperlink::Rule::new(r"\b\w+@[\w-]+(\.[\w-]+)+\b", "mailto:$0").unwrap(),
         // Bare domains without an explicit scheme: www.-prefixed hosts, and
         // hosts ending in a curated TLD allowlist. These must come before the
-        // file-path rule: on equal-length overlaps (github.com/WILFREDY-X/manda) the
+        // file-path rule: on equal-length overlaps (github.com/DCORVAX/manda) the
         // earlier rule wins, and the web interpretation is the useful one.
         // Emails and scheme'd URLs are longer matches and keep priority.
         // The allowlist deliberately excludes TLDs that collide with common
@@ -2445,8 +2445,8 @@ mod tests {
             Some("https://www.example.org".to_string())
         );
         assert_eq!(
-            uri("released at github.com/WILFREDY-X/manda today"),
-            Some("https://github.com/WILFREDY-X/manda".to_string())
+            uri("released at github.com/DCORVAX/manda today"),
+            Some("https://github.com/DCORVAX/manda".to_string())
         );
         assert_eq!(
             uri("dev server on demo.example.com:8080/index"),
@@ -2460,11 +2460,11 @@ mod tests {
         // Both the bare-domain rule and the file-path rule match this whole
         // span. After the length sort the earlier rule comes first, and the
         // first match is the one whose link wins when applied to cells.
-        let first = Rule::match_hyperlinks("github.com/WILFREDY-X/manda", &rules)
+        let first = Rule::match_hyperlinks("github.com/DCORVAX/manda", &rules)
             .into_iter()
             .next()
             .unwrap();
-        assert_eq!(first.link.uri(), "https://github.com/WILFREDY-X/manda");
+        assert_eq!(first.link.uri(), "https://github.com/DCORVAX/manda");
     }
 
     #[test]

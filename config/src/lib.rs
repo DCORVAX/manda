@@ -759,7 +759,7 @@ end
 -- MANDA intentionally keeps WezTerm-compatible Lua API names
 -- for maximum compatibility, so `wezterm.*` here is expected.
 -- Full API docs: https://wezfurlong.org/wezterm/config/lua/
--- MANDA options:  https://github.com/WILFREDY-X/manda/blob/main/docs/configuration.md
+-- MANDA options:  https://github.com/DCORVAX/manda/blob/main/docs/configuration.md
 --
 -- Changes apply automatically when you save this file.
 -- Every example below differs from the default, so uncommenting it takes effect.

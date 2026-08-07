@@ -136,7 +136,7 @@ pub use termwindow::{set_window_class, set_window_position, TermWindow, ICON_DAT
 
 #[derive(Debug, Parser)]
 #[command(
-    about = "MANDA Terminal Emulator\nhttp://github.com/WILFREDY-X/manda",
+    about = "MANDA Terminal Emulator\nhttp://github.com/DCORVAX/manda",
     version = config::wezterm_version()
 )]
 struct Opt {

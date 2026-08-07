@@ -1,0 +1,92 @@
+name: Welcome
+
+on:
+  issues:
+    types: [opened]
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  welcome:
+    name: Welcome first-time contributors
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post welcome message
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3791c608 # v7.0.1
+        with:
+          script: |
+            const isPR = !!context.payload.pull_request;
+            const author = isPR
+              ? context.payload.pull_request.user.login
+              : context.payload.issue.user.login;
+
+            // Never greet bots.
+            if (/\[bot\]$/.test(author)) {
+              console.log(`Skipping welcome for bot ${author}`);
+              return;
+            }
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const currentNumber = isPR
+              ? context.payload.pull_request.number
+              : context.payload.issue.number;
+
+            // Count everything the author has ever opened (issues + PRs),
+            // excluding the item that triggered this run.
+            let priorCount = 0;
+            try {
+              for await (const response of github.paginate.iterator(
+                github.rest.issues.listForRepo,
+                { owner, repo, creator: author, state: 'all', per_page: 100 },
+              )) {
+                for (const item of response.data) {
+                  if (item.number !== currentNumber) {
+                    priorCount++;
+                  }
+                }
+              }
+            } catch (err) {
+              console.log(`Could not list prior contributions: ${err.message}`);
+            }
+
+            if (priorCount > 0) {
+              console.log(`${author} has ${priorCount} prior contribution(s); skipping welcome.`);
+              return;
+            }
+
+            const subject = isPR
+              ? `pull request #${currentNumber}`
+              : `issue #${currentNumber}`;
+            const itemUrl = isPR
+              ? `https://github.com/${owner}/${repo}/pull/${currentNumber}`
+              : `https://github.com/${owner}/${repo}/issues/${currentNumber}`;
+
+            const body = [
+              `👋 Welcome, **@${author}**! Thanks for opening your first ${subject}.`,
+              ``,
+              `We're glad you're here. A few pointers to get you started:`,
+              ``,
+              `- **Read the [contributing guide](https://github.com/${owner}/${repo}/blob/main/CONTRIBUTING.md)** — it covers the build, the test workflow (\`make fmt && make check && make test\`), and the PR checklist.`,
+              `- **Looking for a place to start?** Check the [good first issues](https://github.com/${owner}/${repo}/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) — they're small, well-scoped tasks with acceptance criteria.`,
+              `- **Questions?** Ask in [Discussions](https://github.com/${owner}/${repo}/discussions) or comment right here.`,
+              ``,
+              `A maintainer will review ${isPR ? 'your PR' : 'the issue'} shortly. Don't hesitate to ask for help — everyone was a first-time contributor once! 🚀`,
+              ``,
+              `> ${itemUrl}`,
+            ].join('\n');
+
+            const commentEndpoint = isPR
+              ? github.rest.issues.createComment
+              : github.rest.issues.createComment;
+            await commentEndpoint({
+              owner,
+              repo,
+              issue_number: currentNumber,
+              body,
+            });
+            console.log(`Welcome message posted to ${subject} by ${author}`);

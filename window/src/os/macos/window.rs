@@ -2580,7 +2580,7 @@ impl WindowInner {
         // NSWindow::isZoomed can falsely return YES after screen changes,
         // which would cause the zoom call to be skipped even though the
         // window is not actually maximized.
-        // <https://github.com/WILFREDY-X/manda/issues/131>
+        // <https://github.com/DCORVAX/manda/issues/131>
         self.arm_transition_content_hide(ZOOM_HIDE_CONTENT_MS, "zoom_maximize", false);
         unsafe {
             NSWindow::zoom_(*self.window, nil);
@@ -4122,8 +4122,8 @@ fn get_window_class() -> &'static Class {
         /// yabai, etc.) from entering a feedback loop where the WM requests an
         /// exact size, AppKit adjusts it (resize increments or screen clamping),
         /// the WM detects the mismatch and re-requests, causing flicker.
-        /// <https://github.com/WILFREDY-X/manda/issues/131>
-        /// <https://github.com/WILFREDY-X/manda/issues/183>
+        /// <https://github.com/DCORVAX/manda/issues/131>
+        /// <https://github.com/DCORVAX/manda/issues/183>
         extern "C" fn constrain_frame_rect(
             _this: &mut Object,
             _sel: Sel,
@@ -5784,7 +5784,7 @@ impl WindowView {
             // the prior bug where a truly maximized window lost its state
             // permanently after moving to another screen.
             // <https://github.com/wezterm/wezterm/issues/3503>
-            // <https://github.com/WILFREDY-X/manda/issues/131>
+            // <https://github.com/DCORVAX/manda/issues/131>
             let is_zoomed = if screen_changed {
                 inner
                     .last_reported_window_state
@@ -5959,7 +5959,7 @@ impl WindowView {
     /// We return the screen's visible frame to ensure the window fills the entire
     /// available space, ignoring resize increments that would otherwise cause
     /// the window to not fill the screen completely.
-    /// <https://github.com/WILFREDY-X/manda/issues/131>
+    /// <https://github.com/DCORVAX/manda/issues/131>
     extern "C" fn window_will_use_standard_frame(
         _this: &mut Object,
         _sel: Sel,

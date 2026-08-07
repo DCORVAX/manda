@@ -987,7 +987,7 @@ function k
         end
     end
     if test -z "$k_cmd"
-        echo "k: MANDA app not found. Install MANDA from https://github.com/WILFREDY-X/manda"
+        echo "k: MANDA app not found. Install MANDA from https://github.com/DCORVAX/manda"
         return 127
     end
     $k_cmd $argv

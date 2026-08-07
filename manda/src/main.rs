@@ -42,7 +42,7 @@ mod utils;
 
 #[derive(Debug, Parser)]
 #[command(
-    about = "MANDA Terminal Emulator\nhttp://github.com/WILFREDY-X/manda",
+    about = "MANDA Terminal Emulator\nhttp://github.com/DCORVAX/manda",
     version = wezterm_version()
 )]
 pub struct Opt {

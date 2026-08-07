@@ -4,7 +4,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/WILFREDY-X/manda.git
+git clone https://github.com/DCORVAX/manda.git
 cd MANDA
 
 # Install Rust if it isn't already available (Homebrew keeps rustup keg-only)

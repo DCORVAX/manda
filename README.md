@@ -5,10 +5,10 @@
 </div>
 
 <p align="center">
-  <a href="https://github.com/WILFREDY-X/manda/stargazers"><img src="https://img.shields.io/github/stars/WILFREDY-X/manda?style=flat-square" alt="Stars"></a>
+  <a href="https://github.com/DCORVAX/manda/stargazers"><img src="https://img.shields.io/github/stars/DCORVAX/manda?style=flat-square" alt="Stars"></a>
   <a href="https://manda-terminal.vercel.app/"><img src="https://img.shields.io/badge/version-0.1.0-blue?style=flat-square" alt="Version"></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License"></a>
-  <a href="https://github.com/WILFREDY-X/manda/commits"><img src="https://img.shields.io/github/commit-activity/m/WILFREDY-X/manda?style=flat-square" alt="Commits"></a>
+  <a href="https://github.com/DCORVAX/manda/commits"><img src="https://img.shields.io/github/commit-activity/m/DCORVAX/manda?style=flat-square" alt="Commits"></a>
 </p>
 
 <p align="center">
@@ -39,10 +39,10 @@ brew install wilfredy-x/tap/manda
 **Option B — one-liner installer** (downloads the DMG from GitHub Releases):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WILFREDY-X/manda/main/install/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/DCORVAX/manda/main/install/install.sh | bash
 ```
 
-**Option C — manual**: download `MANDA.dmg` from the [releases page](https://github.com/WILFREDY-X/manda/releases) and drag `MANDA.app` to Applications.
+**Option C — manual**: download `MANDA.dmg` from the [releases page](https://github.com/DCORVAX/manda/releases) and drag `MANDA.app` to Applications.
 
 On first launch, MANDA sets up your shell environment automatically. The current v0.1.0 build uses an ad-hoc signature — if macOS shows "developer cannot be verified", right-click the app → Open.
 
@@ -128,7 +128,7 @@ The landing page source lives in [`web/`](web/index.html) and deploys to [manda-
 
 ## Support
 
-- If MANDA helped you, give it a star, [share it](https://twitter.com/intent/tweet?url=https://github.com/WILFREDY-X/manda&text=MANDA%20-%20A%20fast%20terminal%20built%20for%20AI%20coding.), or open an issue or PR.
+- If MANDA helped you, give it a star, [share it](https://twitter.com/intent/tweet?url=https://github.com/DCORVAX/manda&text=MANDA%20-%20A%20fast%20terminal%20built%20for%20AI%20coding.), or open an issue or PR.
 
 ## License
 

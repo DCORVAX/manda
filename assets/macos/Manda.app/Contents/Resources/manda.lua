@@ -4110,7 +4110,7 @@ config.unicode_version = 14
 -- Do NOT set config.term = 'manda' here.
 -- Remote servers lack the 'manda' terminfo entry, causing SSH issues like
 -- broken backspace/delete keys. Let the default 'xterm-256color' apply.
--- See: https://github.com/WILFREDY-X/manda/issues/130
+-- See: https://github.com/DCORVAX/manda/issues/130
 
 -- ===== Cursor =====
 config.default_cursor_style = 'BlinkingBar'
@@ -4137,7 +4137,7 @@ config.selection_word_boundary = ' \t\n{}[]()"\'-'  -- Smart selection boundarie
 -- (reproducible on external displays).
 -- Internal cell quantization is handled in apply_dimensions (slack absorbed
 -- into top padding), so disabling this is safe.
--- <https://github.com/WILFREDY-X/manda/issues/131>
+-- <https://github.com/DCORVAX/manda/issues/131>
 config.use_resize_increments = false
 
 config.initial_cols = 110

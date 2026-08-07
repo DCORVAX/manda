@@ -857,7 +857,7 @@ impl super::TermWindow {
             // can_resize check in adjust_font_scale does not block adaptation
             // to the new DPI.
             // <https://github.com/wezterm/wezterm/issues/3503>
-            // <https://github.com/WILFREDY-X/manda/issues/131>
+            // <https://github.com/DCORVAX/manda/issues/131>
             self.window_state -= WindowState::MAXIMIZED;
         }
 

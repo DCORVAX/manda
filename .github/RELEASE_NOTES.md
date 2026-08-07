@@ -13,4 +13,4 @@
 
 1. **首个版本**：MANDA，基于 WezTerm 深度定制的终端，内置 AI 功能、精选服务商预设与开箱即用的 macOS 默认配置。
 
-> https://github.com/WILFREDY-X/manda
+> https://github.com/DCORVAX/manda

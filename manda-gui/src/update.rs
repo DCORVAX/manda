@@ -42,9 +42,9 @@ const STAGED_META_NAME: &str = "metadata.json";
 const UPDATE_ZIP_NAME: &str = "manda_for_update.zip";
 const UPDATE_SHA_NAME: &str = "manda_for_update.zip.sha256";
 const LATEST_ZIP_URL: &str =
-    "https://github.com/WILFREDY-X/manda/releases/latest/download/manda_for_update.zip";
+    "https://github.com/DCORVAX/manda/releases/latest/download/manda_for_update.zip";
 const LATEST_SHA_URL: &str =
-    "https://github.com/WILFREDY-X/manda/releases/latest/download/manda_for_update.zip.sha256";
+    "https://github.com/DCORVAX/manda/releases/latest/download/manda_for_update.zip.sha256";
 /// Staged updates older than this are considered expired.
 const STAGED_MAX_AGE_SECS: u64 = 7 * 24 * 3600;
 
@@ -198,7 +198,7 @@ fn curl_get_release_json(url: &str, proxy: &Option<String>) -> anyhow::Result<Re
 pub fn get_latest_release_info() -> anyhow::Result<Release> {
     let proxy = detect_system_proxy();
     curl_get_release_json(
-        "https://api.github.com/repos/WILFREDY-X/manda/releases/latest",
+        "https://api.github.com/repos/DCORVAX/manda/releases/latest",
         &proxy,
     )
     .or_else(|_| get_latest_tag_via_redirect(&proxy))
@@ -218,7 +218,7 @@ fn get_latest_tag_via_redirect(proxy: &Option<String>) -> anyhow::Result<Release
         .arg("%{url_effective}")
         .arg("--output")
         .arg("/dev/null")
-        .arg("https://github.com/WILFREDY-X/manda/releases/latest");
+        .arg("https://github.com/DCORVAX/manda/releases/latest");
     apply_to_command(&mut cmd, proxy);
 
     let output = cmd.output().map_err(|e| anyhow!("curl failed: {}", e))?;
@@ -238,7 +238,7 @@ fn get_latest_tag_via_redirect(proxy: &Option<String>) -> anyhow::Result<Release
     Ok(Release {
         url: String::new(),
         body: String::new(),
-        html_url: "https://github.com/WILFREDY-X/manda/releases/latest".to_string(),
+        html_url: "https://github.com/DCORVAX/manda/releases/latest".to_string(),
         tag_name: tag.to_string(),
         assets: vec![],
     })
@@ -248,7 +248,7 @@ fn get_latest_tag_via_redirect(proxy: &Option<String>) -> anyhow::Result<Release
 pub fn get_nightly_release_info() -> anyhow::Result<Release> {
     let proxy = detect_system_proxy();
     curl_get_release_json(
-        "https://api.github.com/repos/WILFREDY-X/manda/releases/tags/nightly",
+        "https://api.github.com/repos/DCORVAX/manda/releases/tags/nightly",
         &proxy,
     )
 }
