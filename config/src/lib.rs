@@ -770,6 +770,10 @@ end
 -- config.line_height = 1.1  -- default 1.28; use 1.0-1.1 if QR codes or TUI charts look stretched
 --
 -- 2) Color scheme (a fixed scheme disables light/dark auto switching)
+-- Popular choices (all preinstalled):
+--   'Catppuccin Mocha'  'Catppuccin Latte'  'Tokyo Night'  'Tokyo Night Storm'
+--   'nord'  'Dracula'  'One Dark (Gogh)'
+--   Run `manda config` or press Cmd+, to browse all ~1000 built-in schemes.
 -- config.color_scheme = 'Catppuccin Mocha'
 --
 -- 3) Window size and padding (default: 110x22, 40px sides, 0 bottom)

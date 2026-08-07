@@ -33,9 +33,10 @@ pub(crate) fn build_environment_message(ctx: &TerminalContext) -> ApiMessage {
         panel_cols: Some(ctx.panel_cols),
         panel_rows: Some(ctx.panel_rows),
         include_terminal_metadata: true,
-        // Overlay does not include project hints because the user already sees
-        // the project around them and the panel size is small.
-        include_project_hints: false,
+        // Project hints (detected project type, git repo, Makefile, etc.) are
+        // cheap to compute and meaningfully improve chat answers inside a
+        // project directory, so the overlay includes them.
+        include_project_hints: true,
     })
 }
 

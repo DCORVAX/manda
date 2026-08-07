@@ -120,6 +120,7 @@ mod spawn;
 mod startup_trace;
 mod stats;
 mod tabbar;
+mod telemetry;
 mod termwindow;
 mod thread_util;
 mod uniforms;

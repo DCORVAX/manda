@@ -30,13 +30,19 @@ MANDA is a deeply customized fork of WezTerm, built for practical defaults on da
 
 ## Quick Start
 
-**Option A — one-liner installer** (downloads the DMG from GitHub Releases):
+**Option A — Homebrew (recommended)**:
+
+```bash
+brew install wilfredy-x/tap/manda
+```
+
+**Option B — one-liner installer** (downloads the DMG from GitHub Releases):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/WILFREDY-X/manda/main/install/install.sh | bash
 ```
 
-**Option B — manual**: download `MANDA.dmg` from the [releases page](https://github.com/WILFREDY-X/manda/releases) and drag `MANDA.app` to Applications.
+**Option C — manual**: download `MANDA.dmg` from the [releases page](https://github.com/WILFREDY-X/manda/releases) and drag `MANDA.app` to Applications.
 
 On first launch, MANDA sets up your shell environment automatically. The current v0.1.0 build uses an ad-hoc signature — if macOS shows "developer cannot be verified", right-click the app → Open.
 
@@ -63,11 +69,13 @@ Full keybinding reference: [docs/keybindings.md](docs/keybindings.md)
 
 ## MANDA AI
 
-MANDA has a built-in assistant with two modes and a settings page for AI coding tools.
+MANDA has a built-in assistant with two modes, a full-featured chat panel, and provider presets for NVIDIA, Gemini, OpenRouter, Groq, and Cerebras.
 
 - **Error recovery**: When a command fails, MANDA automatically suggests a fix. Press `Cmd + Shift + E` to apply.
 - **Natural language to command**: Type `# <description>` at the prompt and press Enter. MANDA sends the query to the LLM and injects the resulting command back into the prompt, ready to review and run.
+- **AI chat panel** (`Cmd + L`): streaming Markdown chat with project context, tools, memory, and slash commands (`/help` lists them all; try `/commit`, `/check`, `/hunt`).
 - **AI Tools Config**: Manage settings for Claude Code, Codex, Gemini CLI, Copilot CLI, Kimi Code, and more.
+- **Opt-in telemetry**: set `MANDA_TELEMETRY=1` or `telemetry = true` in `assistant.toml` for anonymous local usage stats.
 
 ### Assistant Setup
 

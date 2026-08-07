@@ -364,6 +364,8 @@ mod markdown_tests {
             .collect();
         assert!(labels.contains(&"/new"));
         assert!(labels.contains(&"/resume"));
+        assert!(labels.contains(&"/help"));
+        assert!(labels.contains(&"/commit"));
         assert!(labels.contains(&"/hunt"));
         assert!(labels.contains(&"/write"));
     }

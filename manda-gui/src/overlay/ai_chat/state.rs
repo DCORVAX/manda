@@ -53,6 +53,7 @@ pub(super) fn attachment_option_by_label(label: &str) -> Option<AttachmentOption
 pub(super) fn slash_command_options_for_token(token: &str) -> Vec<(&'static str, &'static str)> {
     let query = token.trim_start_matches('/').to_ascii_lowercase();
     let builtins = [
+        ("/help", "List all available commands"),
         ("/new", "Start a new conversation"),
         ("/resume", "Resume a previous conversation"),
         ("/clear", "Clear current conversation messages"),
@@ -79,7 +80,8 @@ pub(super) fn slash_command_options_for_token(token: &str) -> Vec<(&'static str,
 pub(super) fn slash_command_submits_immediately(command: &str) -> bool {
     matches!(
         command,
-        "/new"
+        "/help"
+            | "/new"
             | "/resume"
             | "/clear"
             | "/export"
@@ -1335,6 +1337,12 @@ impl App {
         }
 
         // Slash command dispatch
+        if raw_input == "/help" {
+            self.input.clear();
+            self.input_cursor = 0;
+            self.cmd_help();
+            return;
+        }
         if raw_input == "/new" {
             self.input.clear();
             self.input_cursor = 0;
@@ -1438,6 +1446,13 @@ impl App {
         self.input_cursor = 0;
         self.scroll_offset = 0;
         self.attachment_picker_index = 0;
+        // Anonymous opt-in usage signal (no-op unless MANDA_TELEMETRY=1).
+        crate::telemetry::record(
+            "chat_submit",
+            &self.client.config().provider,
+            &self.current_model(),
+            None,
+        );
         // Trim old messages from the front so the display list stays bounded.
         if self.messages.len() >= MAX_DISPLAY_MESSAGES {
             let drop_count = self.messages.len() - MAX_DISPLAY_MESSAGES + 1;
@@ -1937,6 +1952,25 @@ impl App {
             count = entry_count,
             cap = crate::ai_chat_engine::MAX_MEMORY_ENTRIES,
         );
+        self.push_info(&text);
+    }
+
+    pub(crate) fn cmd_help(&mut self) {
+        let mut lines = vec![
+            "Available commands:".to_string(),
+            "".to_string(),
+        ];
+        for (cmd, desc) in slash_command_options_for_token("/") {
+            if cmd.starts_with('/') && !cmd[1..].starts_with('/') {
+                lines.push(format!("  {:<12} {}", cmd, desc));
+            }
+        }
+        lines.push("".to_string());
+        lines.push("Tips:".to_string());
+        lines.push("  @cwd / @tab / @selection  attach project or terminal context".to_string());
+        lines.push("  Cmd+L open chat  |  Cmd+Shift+E apply AI suggestion".to_string());
+        lines.push("  Ctrl+O toggle thinking  |  Shift+Tab switch model".to_string());
+        let text = lines.join("\n");
         self.push_info(&text);
     }
 

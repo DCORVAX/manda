@@ -174,7 +174,18 @@ problem.
 Report concrete findings by severity, naming the misaligned layer and the \
 evidence. Keep recommendations proportional to project complexity.";
 
-const SKILLS: [Skill; 8] = [
+const COMMIT_INSTRUCTION: &str = "\
+Goal: write a high-quality git commit message for the current changes.
+
+First inspect the real diff (git status --short, then git diff --stat and the \
+actual hunks for the changed files). Classify the change (feat/fix/refactor/\
+docs/style/chore/test/ci) from the content, not from guesswork, and note any \
+breaking changes. Follow the project's commit style if one is visible in git log; \
+otherwise use a concise imperative summary line (<=72 chars) followed by bullet \
+points for the notable changes. Never invent files, behavior, or numbers that are \
+not in the diff. Do not commit or mutate anything.";
+
+const SKILLS: [Skill; 9] = [
     Skill {
         command: "/check",
         description: "Review diff before shipping",
@@ -235,6 +246,15 @@ const SKILLS: [Skill; 8] = [
         ),
         missing_input: None,
     },
+    Skill {
+        command: "/commit",
+        description: "Write a git commit message",
+        instruction: COMMIT_INSTRUCTION,
+        default_request: Some(
+            "Write a commit message for the current changes in this repository.",
+        ),
+        missing_input: None,
+    },
 ];
 
 #[cfg(test)]
@@ -274,5 +294,14 @@ mod tests {
         assert!(instruction.contains("Active skill: /hunt"));
         assert!(instruction.contains("diagnose before fixing"));
         assert!(instruction.contains("current user turn only"));
+    }
+
+    #[test]
+    fn commit_skill_has_default_request() {
+        let skill = find("/commit").expect("commit skill");
+        let invocation = parse_invocation("/commit").expect("default invocation");
+        let request = request_text(invocation).expect("default request");
+        assert!(request.contains("commit message"));
+        assert!(skill.instruction.contains("git"));
     }
 }

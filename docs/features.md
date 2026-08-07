@@ -37,6 +37,37 @@ The standalone CLI is intentionally simpler than the overlay: it streams plain
 terminal text and supports `/new`, `/resume`, `/clear`, `/status`, `/memory`,
 and `/exit`.
 
+### Slash commands
+
+The chat panel supports a rich set of slash commands. Type `/` and the picker
+shows the available commands filtered by what you type; `/help` prints the full
+list. Built-in controls execute immediately:
+
+| Command | Action |
+| :--- | :--- |
+| `/help` | List all available commands and tips |
+| `/new` | Start a new conversation |
+| `/resume` | Resume a previous conversation |
+| `/clear` | Clear current conversation messages |
+| `/export` | Copy the conversation to the clipboard |
+| `/memory` | Show memory file paths |
+| `/status` | Show session state (provider, model, rounds, memory) |
+| `/suggest` | Predict the next message you might type |
+| `/btw <q>` | Ask a side question (not saved to history) |
+| `/model [name]` | Show or switch model |
+| `/config` | Show current AI config |
+
+Mode skills take arguments (e.g. `/commit`, `/check`, `/hunt`, `/think`, `/read`,
+`/write`, `/learn`, `/design`, `/health`). Type `/` to explore them.
+
+### Attaching project context
+
+Use `@cwd` (directory + git status + README preview), `@tab` (current pane
+snapshot), or `@selection` (pane selection) to give the model real context.
+The chat also auto-detects the project type (Rust, JS/TS, Go, Python, Makefile,
+git repo) on every message.
+
+
 **Error recovery**
 
 When a command exits with a non-zero status, MANDA Assistant automatically sends the failed command, exit code, working directory, and git branch to the LLM and displays a suggested fix inline. Press `Cmd + Shift + E` to paste the suggestion into the terminal. Dangerous commands (e.g. `rm -rf`, `git reset --hard`) are pasted but never auto-executed.

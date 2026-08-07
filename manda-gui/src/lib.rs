@@ -18,6 +18,7 @@ pub mod cli_chat;
 #[doc(hidden)]
 pub mod inline_ai_control;
 pub mod soul;
+pub mod telemetry;
 
 mod ai_auth;
 pub mod thread_util;
