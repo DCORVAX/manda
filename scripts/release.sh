@@ -507,7 +507,7 @@ update_homebrew_tap() {
             # download_url points at raw.githubusercontent.com behind Fastly
             # (cache-control max-age=300), which serves the previous version for
             # the whole polling window and causes false-negative timeouts.
-            remote_version=$(gh api "repos/${HOMEBREW_TAP_REPO}/contents/Casks/mandaku.rb?ref=main" \
+            remote_version=$(gh api "repos/${HOMEBREW_TAP_REPO}/contents/Casks/manda.rb?ref=main" \
                 -H "Accept: application/vnd.github.raw" 2>/dev/null \
                 | sed -n 's/^  version "\([^"]*\)"$/\1/p' | head -n1 || true)
             if [[ "$remote_version" == "$expected_version" ]]; then
