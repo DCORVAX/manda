@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/DCORVAX/manda/stargazers"><img src="https://img.shields.io/github/stars/DCORVAX/manda?style=flat-square" alt="Stars"></a>
-  <a href="https://manda-terminal.vercel.app/"><img src="https://img.shields.io/badge/version-0.1.1-blue?style=flat-square" alt="Version"></a>
+  <a href="https://manda-term-one.vercel.app/"><img src="https://img.shields.io/badge/version-0.1.2-blue?style=flat-square" alt="Version"></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License"></a>
   <a href="https://github.com/DCORVAX/manda/commits"><img src="https://img.shields.io/github/commit-activity/m/DCORVAX/manda?style=flat-square" alt="Commits"></a>
 </p>
@@ -44,7 +44,7 @@ curl -fsSL https://raw.githubusercontent.com/DCORVAX/manda/main/install/install.
 
 **Option C — manual**: download `MANDA.dmg` from the [releases page](https://github.com/DCORVAX/manda/releases) and drag `MANDA.app` to Applications.
 
-On first launch, MANDA sets up your shell environment automatically. The current v0.1.1 build uses an ad-hoc signature — if macOS shows "developer cannot be verified", right-click the app → Open.
+On first launch, MANDA sets up your shell environment automatically. The current v0.1.2 build uses an ad-hoc signature — if macOS shows "developer cannot be verified", right-click the app → Open.
 
 ## Build from Source (clone & build from scratch)
 
@@ -193,7 +193,7 @@ MANDA is built on top of WezTerm's robust and highly hackable engine. It adds AI
 
 ## Website
 
-The landing page source lives in [`web/`](web/index.html) and deploys to [manda-terminal.vercel.app](https://manda-terminal.vercel.app/).
+The landing page source lives in [`web/`](web/index.html) and deploys to [manda-term-one.vercel.app](https://manda-term-one.vercel.app/).
 
 ## Support
 
