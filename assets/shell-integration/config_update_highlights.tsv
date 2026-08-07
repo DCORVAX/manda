@@ -76,3 +76,5 @@
 31	Option+Click 可在当前输入行内移动光标
 32	First-run banner now spells MANDA and links to the DCORVAX GitHub repository
 32	首次启动横幅现在正确显示 MANDA 字样，并链接到 DCORVAX GitHub 仓库
+33	Footer redesigned, icon resized, Vercel auto-deploy workflow added, history cleaned.
+33	页脚重新设计、图标尺寸修正、新增 Vercel 自动部署工作流、历史清理。
