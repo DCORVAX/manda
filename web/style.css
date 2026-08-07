@@ -427,10 +427,11 @@ footer.foot .wrap { position: relative; z-index: 1; }
 .foot-links a:focus-visible { outline: 2px solid #ece9e2; outline-offset: 3px; border-radius: 2px; }
 .foot-dot { color: #4d483e; margin: 0 3px; }
 
-/* Bottom line: brand + legal + platforms */
+/* Bottom line: brand + legal + platforms — final sign-off, last element of the footer */
 .foot-bottom {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 28px;
-  padding: 28px 0 60px;
+  border-top: 1px solid #2e2a22;
+  padding: 22px 0 48px;
   font-size: 12.5px; color: #8a8478;
 }
 .foot-brand {
@@ -447,7 +448,7 @@ footer.foot .wrap { position: relative; z-index: 1; }
 
 /* ASCII brand watermark — background texture, not a content block */
 .foot-ascii {
-  margin: 0; padding: 34px 0 24px;
+  margin: 0; padding: 34px 0 14px;
   width: 100%;
   font-family: var(--mono); font-size: 12px; line-height: 1.4;
   color: #454035;
@@ -461,8 +462,8 @@ footer.foot .wrap { position: relative; z-index: 1; }
   .foot-label { min-width: 0; flex-basis: 100%; }
   .foot-group { gap: 8px 14px; }
   .foot-links a { white-space: normal; }
-  .foot-ascii { font-size: 7px; line-height: 1.45; padding: 26px 0 16px; }
-  .foot-bottom { padding-bottom: 40px; }
+  .foot-ascii { font-size: 7px; line-height: 1.45; padding: 26px 0 8px; }
+  .foot-bottom { padding-bottom: 36px; }
 }
 
 /* ----- Responsive ----- */
