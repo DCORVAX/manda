@@ -3862,15 +3862,31 @@ wezterm.on('update-right-status', function(window, pane)
 end)
 
 -- ===== Font =====
+-- The primary monospace family is configurable via the MANDA_FONT_FAMILY
+-- environment variable (e.g. `MANDA_FONT_FAMILY=Consolas manda`). It
+-- defaults to JetBrains Mono when unset, preserving the bundled look.
 -- Use slightly heavier font weight for light theme to improve readability.
 -- Light theme: Medium base, SemiBold for bold.
 -- Dark theme: Regular base, Medium for bold.
+local function manda_font_family()
+  local family = os.getenv('MANDA_FONT_FAMILY')
+  if family and family ~= '' then
+    return family
+  end
+  return 'JetBrains Mono'
+end
+
 local function build_font_config(is_light)
   local base_weight = is_light and 'Medium' or 'Regular'
   local bold_weight = is_light and 'SemiBold' or 'Medium'
+  local primary_family = manda_font_family()
 
+  -- Consolas ships with Windows/Office and is a popular coding font; it is
+  -- included here as an early fallback so systems without JetBrains Mono
+  -- (or users opting into MANDA_FONT_FAMILY=Consolas) render cleanly.
   local font = wezterm.font_with_fallback({
-    { family = 'JetBrains Mono', weight = base_weight },
+    { family = primary_family, weight = base_weight },
+    { family = 'Consolas', weight = base_weight },
     { family = 'PingFang SC', weight = base_weight },
     'Apple Symbols',
     'Apple Color Emoji',
@@ -3881,7 +3897,8 @@ local function build_font_config(is_light)
     {
       intensity = 'Half',
       font = wezterm.font_with_fallback({
-        { family = 'JetBrains Mono', weight = base_weight },
+        { family = primary_family, weight = base_weight },
+        { family = 'Consolas', weight = base_weight },
         { family = 'PingFang SC', weight = base_weight },
         'Apple Symbols',
         'Apple Color Emoji',
@@ -3892,7 +3909,8 @@ local function build_font_config(is_light)
       intensity = 'Normal',
       italic = true,
       font = wezterm.font_with_fallback({
-        { family = 'JetBrains Mono', weight = base_weight, italic = false },
+        { family = primary_family, weight = base_weight, italic = false },
+        { family = 'Consolas', weight = base_weight },
         { family = 'PingFang SC', weight = base_weight },
         'Apple Symbols',
         'Apple Color Emoji',
@@ -3902,7 +3920,8 @@ local function build_font_config(is_light)
     {
       intensity = 'Bold',
       font = wezterm.font_with_fallback({
-        { family = 'JetBrains Mono', weight = bold_weight },
+        { family = primary_family, weight = bold_weight },
+        { family = 'Consolas', weight = bold_weight },
         { family = 'PingFang SC', weight = bold_weight },
         'Apple Symbols',
         'Apple Color Emoji',
@@ -4422,7 +4441,7 @@ do
       local initial_scheme = initial_is_light_theme and 'MANDA Light' or 'MANDA Dark'
       local window_frame_colors = get_window_frame_colors(initial_scheme)
       return {
-        font = wezterm.font({ family = 'JetBrains Mono', weight = 'Regular' }),
+        font = wezterm.font({ family = manda_font_family(), weight = 'Regular' }),
         font_size = 14.0,
         active_titlebar_bg = window_frame_colors.active_titlebar_bg,
         inactive_titlebar_bg = window_frame_colors.inactive_titlebar_bg,

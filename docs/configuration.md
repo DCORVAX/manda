@@ -84,7 +84,14 @@ config.foreground_color_overrides = {
 
 **Font**
 
-MANDA defaults to JetBrains Mono with PingFang SC as CJK fallback. Change font:
+MANDA defaults to JetBrains Mono with Consolas and PingFang SC as fallbacks.
+Change font for the current session without editing config:
+
+```bash
+MANDA_FONT_FAMILY=Consolas manda
+```
+
+Or persist it in your config:
 
 ```lua
 config.font = wezterm.font("Fira Code")
